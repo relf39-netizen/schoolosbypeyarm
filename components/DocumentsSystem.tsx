@@ -292,7 +292,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
         
         if (!error && data) {
             const mapped = data.map(mapDocFromDb);
-            mapped.sort((a, b) => {
+            mapped.sort((a: any, b: any) => {
                 const pA = parseBookNumberForSort(a.bookNumber);
                 const pB = parseBookNumberForSort(b.bookNumber);
                 if (pB.year !== pA.year) return pB.year - pA.year;
@@ -300,7 +300,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
             });
             setDocs(mapped);
             if (selectedDoc) {
-                const updatedSelected = mapped.find(d => d.id === selectedDoc.id);
+                const updatedSelected = mapped.find((d: any) => d.id === selectedDoc.id);
                 if (updatedSelected) setSelectedDoc(updatedSelected);
             }
         }

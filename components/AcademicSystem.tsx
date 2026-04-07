@@ -80,15 +80,15 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
                 }
 
                 const { data: enrollData } = await supabase.from('academic_enrollments').select('*').eq('school_id', currentUser.schoolId);
-                const mappedEnroll = enrollData ? enrollData.map(d => ({ id: d.id, schoolId: d.school_id, year: d.year, levels: d.levels })) : [];
+                const mappedEnroll = enrollData ? enrollData.map((d: any) => ({ id: d.id, schoolId: d.school_id, year: d.year, levels: d.levels })) : [];
                 setEnrollments(mappedEnroll);
 
                 const { data: scoreData } = await supabase.from('academic_test_scores').select('*').eq('school_id', currentUser.schoolId);
-                const mappedScores = scoreData ? scoreData.map(d => ({ id: d.id, schoolId: d.school_id, year: d.year, testType: d.test_type as TestType, results: d.results })) : [];
+                const mappedScores = scoreData ? scoreData.map((d: any) => ({ id: d.id, schoolId: d.school_id, year: d.year, testType: d.test_type as TestType, results: d.results })) : [];
                 setTestScores(mappedScores);
 
                 const { data: calData } = await supabase.from('academic_calendar').select('*').eq('school_id', currentUser.schoolId).order('start_date', { ascending: true });
-                const mappedCal: AcademicCalendarEvent[] = calData ? calData.map(d => ({ 
+                const mappedCal: AcademicCalendarEvent[] = calData ? calData.map((d: any) => ({ 
                     id: d.id.toString(), 
                     schoolId: d.school_id, 
                     year: d.year, 
@@ -100,7 +100,7 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
                 setCalendarEvents(mappedCal);
 
                 const { data: sarData } = await supabase.from('academic_sar').select('*').eq('school_id', currentUser.schoolId).order('year', { ascending: false });
-                const mappedSar: AcademicSAR[] = sarData ? sarData.map(d => ({ 
+                const mappedSar: AcademicSAR[] = sarData ? sarData.map((d: any) => ({ 
                     id: d.id.toString(), 
                     schoolId: d.school_id, 
                     year: d.year, 
@@ -111,8 +111,8 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
                 setSars(mappedSar);
 
                 const years = new Set<string>(['2565', '2566', '2567', '2568', '2569']);
-                mappedEnroll.forEach(e => years.add(e.year));
-                mappedScores.forEach(s => years.add(s.year));
+                mappedEnroll.forEach((e: any) => years.add(e.year));
+                mappedScores.forEach((s: any) => years.add(s.year));
                 mappedCal.forEach(c => years.add(c.year));
                 mappedSar.forEach(s => years.add(s.year));
                 setAvailableYears(Array.from(years).sort((a,b) => parseInt(b) - parseInt(a)));

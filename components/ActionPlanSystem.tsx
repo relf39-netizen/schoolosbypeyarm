@@ -82,8 +82,8 @@ const ActionPlanSystem: React.FC<ActionPlanSystemProps> = ({ currentUser, curren
 
                 const yearSet = new Set<string>();
                 yearSet.add((new Date().getFullYear() + 543).toString());
-                allProjectYears?.forEach(p => p.fiscal_year && yearSet.add(p.fiscal_year));
-                allBudgetYears?.forEach(b => b.fiscal_year && yearSet.add(b.fiscal_year));
+                allProjectYears?.forEach((p: any) => p.fiscal_year && yearSet.add(p.fiscal_year));
+                allBudgetYears?.forEach((b: any) => b.fiscal_year && yearSet.add(b.fiscal_year));
                 setAvailableYears(Array.from(yearSet).sort((a, b) => parseInt(b) - parseInt(a)));
 
                 if (budget) { 
@@ -98,7 +98,7 @@ const ActionPlanSystem: React.FC<ActionPlanSystemProps> = ({ currentUser, curren
 
                 const depts = STANDARD_DEPTS.map(name => ({
                     id: `dept_${name}`, schoolId: currentUser.schoolId, name,
-                    projects: projs ? projs.filter((p: any) => p.department_name === name).map(p => ({
+                    projects: projs ? projs.filter((p: any) => p.department_name === name).map((p: any) => ({
                         id: p.id, name: p.name, 
                         subsidyBudget: Number(p.subsidy_budget) || 0, 
                         learnerDevBudget: Number(p.learner_dev_budget) || 0,

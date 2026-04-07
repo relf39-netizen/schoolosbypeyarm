@@ -113,10 +113,10 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                 .eq('school_id', currentUser.schoolId);
             
             if (teachers) {
-                const director = teachers.find(t => t.roles?.includes('DIRECTOR')) || 
-                                 teachers.find(t => t.roles?.includes('ACTING_DIRECTOR')) ||
-                                 teachers.find(t => t.roles?.includes('VICE_DIRECTOR')) ||
-                                 teachers.find(t => t.position?.includes('ผู้อำนวยการ'));
+                const director = teachers.find((t: any) => t.roles?.includes('DIRECTOR')) || 
+                                 teachers.find((t: any) => t.roles?.includes('ACTING_DIRECTOR')) ||
+                                 teachers.find((t: any) => t.roles?.includes('VICE_DIRECTOR')) ||
+                                 teachers.find((t: any) => t.position?.includes('ผู้อำนวยการ'));
                 if (director) {
                     setDirectorName(director.name);
                 }
@@ -237,7 +237,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             .order('recorded_at', { ascending: false });
         
         if (data) {
-            setHealthRecords(data.map(r => ({
+            setHealthRecords(data.map((r: any) => ({
                 id: r.id,
                 studentId: r.student_id,
                 schoolId: r.school_id,
@@ -361,14 +361,14 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             
             let currentYear = '';
             if (yearsData) {
-                const mappedYears = yearsData.map(y => ({
+                const mappedYears = yearsData.map((y: any) => ({
                     id: y.id,
                     schoolId: y.school_id,
                     year: y.year,
                     isCurrent: y.is_current
                 }));
                 setAcademicYears(mappedYears);
-                const current = mappedYears.find(y => y.isCurrent);
+                const current = mappedYears.find((y: any) => y.isCurrent);
                 if (current) {
                     currentYear = current.year;
                     setCurrentAcademicYear(currentYear);
@@ -385,7 +385,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             
             let mappedStudents: Student[] = [];
             if (studentsData) {
-                mappedStudents = studentsData.map(s => ({
+                mappedStudents = studentsData.map((s: any) => ({
                     id: s.id,
                     schoolId: s.school_id,
                     name: s.name,
@@ -416,7 +416,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             
             let mappedClasses: ClassRoom[] = [];
             if (classesData && classesData.length > 0) {
-                mappedClasses = classesData.map(c => ({
+                mappedClasses = classesData.map((c: any) => ({
                     id: c.id,
                     schoolId: c.school_id,
                     name: c.name,
@@ -424,7 +424,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                 }));
             } else if (mappedStudents.length > 0) {
                 // Derive classes from students if class_rooms table is empty
-                const uniqueClasses = [...new Set(mappedStudents.map(s => s.currentClass))].filter(Boolean);
+                const uniqueClasses = [...new Set(mappedStudents.map((s: any) => s.currentClass))].filter(Boolean);
                 mappedClasses = uniqueClasses.map((className, index) => ({
                     id: `gen-${index}`,
                     schoolId: currentUser.schoolId,
@@ -469,7 +469,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             
             if (error) throw error;
             if (data) {
-                setHistoryAttendance(data.map(a => ({
+                setHistoryAttendance(data.map((a: any) => ({
                     id: a.id,
                     schoolId: a.school_id,
                     studentId: a.student_id,
@@ -522,7 +522,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             
             if (error) throw error;
             if (data) {
-                setAttendance(data.map(a => ({
+                setAttendance(data.map((a: any) => ({
                     id: a.id,
                     schoolId: a.school_id,
                     studentId: a.student_id,

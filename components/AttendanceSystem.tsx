@@ -240,14 +240,14 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
             }
 
             const summary = teachers.map(teacher => {
-                const teacherAtt = (attendance || []).filter(a => a.teacher_id === teacher.id);
-                const teacherLeaves = (leaves || []).filter(l => l.teacher_id === teacher.id);
+                const teacherAtt = (attendance || []).filter((a: any) => a.teacher_id === teacher.id);
+                const teacherLeaves = (leaves || []).filter((l: any) => l.teacher_id === teacher.id);
 
                 // Count unique present days
                 const presentDates = new Set(
                     teacherAtt
-                        .filter(a => a.status === 'OnTime' || a.status === 'Late')
-                        .map(a => a.date)
+                        .filter((a: any) => a.status === 'OnTime' || a.status === 'Late')
+                        .map((a: any) => a.date)
                 );
                 const presentDays = presentDates.size;
                 const presentDatesList = Array.from(presentDates).sort();
@@ -255,15 +255,15 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                 // Count unique late days
                 const lateDates = new Set(
                     teacherAtt
-                        .filter(a => a.status === 'Late')
-                        .map(a => a.date)
+                        .filter((a: any) => a.status === 'Late')
+                        .map((a: any) => a.date)
                 );
                 const lateDays = lateDates.size;
                 const lateDatesList = Array.from(lateDates).sort();
                 
                 // Count unique leave days in range
                 const leaveDates = new Set<string>();
-                teacherLeaves.forEach(leave => {
+                teacherLeaves.forEach((leave: any) => {
                     const start = new Date(leave.start_date > startToUse ? leave.start_date : startToUse);
                     const end = new Date(leave.end_date < endToUse ? leave.end_date : endToUse);
                     const cur = new Date(start);
@@ -283,8 +283,8 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
 
                 // Earliest check-in
                 const checkInTimes = teacherAtt
-                    .filter(a => a.check_in_time && a.check_in_time !== 'Leave')
-                    .map(a => a.check_in_time);
+                    .filter((a: any) => a.check_in_time && a.check_in_time !== 'Leave')
+                    .map((a: any) => a.check_in_time);
                 const earliestCheckIn = checkInTimes.length > 0 ? checkInTimes.sort()[0] : null;
 
                 return {
@@ -380,7 +380,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                 .lte('start_date', selectedDate)
                 .gte('end_date', selectedDate);
             
-            const mappedLeaves: LeaveRequest[] = (leaves || []).map(l => ({
+            const mappedLeaves: LeaveRequest[] = (leaves || []).map((l: any) => ({
                 id: l.id.toString(),
                 teacherId: l.teacher_id,
                 teacherName: l.teacher_name,

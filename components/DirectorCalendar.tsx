@@ -108,7 +108,7 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                     
                     if (error) throw error;
                     
-                    const mappedEvents: DirectorEvent[] = (data || []).map(d => ({
+                    const mappedEvents: DirectorEvent[] = (data || []).map((d: any) => ({
                         id: d.id,
                         schoolId: d.school_id,
                         title: d.title,

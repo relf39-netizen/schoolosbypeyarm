@@ -82,7 +82,7 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
         const { data, error } = await queryBuilder.order('created_at', { ascending: false });
 
         if (!error && data) {
-            const mapped = data.map(r => ({
+            const mapped = data.map((r: any) => ({
                 id: r.id.toString(),
                 schoolId: r.school_id,
                 teacherId: r.teacher_id,

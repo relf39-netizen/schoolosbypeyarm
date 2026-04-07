@@ -436,8 +436,8 @@ function setTelegramWebhook() {
                 .select('name')
                 .eq('school_id', currentSchool.id);
             if (data) {
-                const uniqueClasses = Array.from(new Set(data.map(c => c.name))).sort();
-                setAvailableClasses(uniqueClasses);
+                const uniqueClasses = Array.from(new Set(data.map((c: any) => c.name))).sort();
+                setAvailableClasses(uniqueClasses as string[]);
             }
         };
         fetchClasses();
@@ -455,14 +455,14 @@ function setTelegramWebhook() {
                 .order('year', { ascending: false });
             
             if (yearsData) {
-                const mappedYears = yearsData.map(y => ({
+                const mappedYears = yearsData.map((y: any) => ({
                     id: y.id,
                     schoolId: y.school_id,
                     year: y.year,
                     isCurrent: y.is_current
                 }));
                 setAcademicYears(mappedYears);
-                const current = mappedYears.find(y => y.isCurrent);
+                const current = mappedYears.find((y: any) => y.isCurrent);
                 if (current) setCurrentAcademicYear(current.year);
             }
 
@@ -473,7 +473,7 @@ function setTelegramWebhook() {
                 .eq('school_id', currentSchool.id);
             
             if (classesData) {
-                setClassRooms(classesData.map(c => ({
+                setClassRooms(classesData.map((c: any) => ({
                     id: c.id,
                     schoolId: c.school_id,
                     name: c.name,
@@ -489,7 +489,7 @@ function setTelegramWebhook() {
                 .eq('is_active', true);
             
             if (studentsData) {
-                setStudents(studentsData.map(s => ({
+                setStudents(studentsData.map((s: any) => ({
                     id: s.id,
                     schoolId: s.school_id,
                     name: s.name,

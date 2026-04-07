@@ -74,14 +74,14 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 .order('year', { ascending: false });
             
             if (yearsData) {
-                const mappedYears = yearsData.map(y => ({
+                const mappedYears = yearsData.map((y: any) => ({
                     id: y.id,
                     schoolId: y.school_id,
                     year: y.year,
                     isCurrent: y.is_current
                 }));
                 setAcademicYears(mappedYears);
-                const current = mappedYears.find(y => y.isCurrent);
+                const current = mappedYears.find((y: any) => y.isCurrent);
                 if (current) setCurrentAcademicYear(current.year);
             }
 
@@ -92,7 +92,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 .eq('school_id', currentUser.schoolId);
             
             if (classesData) {
-                setClassRooms(classesData.map(c => ({
+                setClassRooms(classesData.map((c: any) => ({
                     id: c.id,
                     schoolId: c.school_id,
                     name: c.name,
@@ -126,7 +126,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             if (teachersData) {
                 const teacherMap: Record<string, string> = {};
                 const profiles: Teacher[] = [];
-                teachersData.forEach(t => {
+                teachersData.forEach((t: any) => {
                     teacherMap[t.id] = t.name;
                     profiles.push({
                         id: t.id,
@@ -141,9 +141,9 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 setTeacherProfiles(profiles);
             }
 
-            const mappedStudents: Student[] = (studentsData || []).map(s => {
-                const studentSavings = (savingsData || []).filter(sv => sv.student_id === s.id);
-                const total = studentSavings.reduce((acc, curr) => {
+            const mappedStudents: Student[] = (studentsData || []).map((s: any) => {
+                const studentSavings = (savingsData || []).filter((sv: any) => sv.student_id === s.id);
+                const total = studentSavings.reduce((acc: number, curr: any) => {
                     return curr.type === 'DEPOSIT' ? acc + curr.amount : acc - curr.amount;
                 }, 0);
 
@@ -159,7 +159,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             });
 
             setStudents(mappedStudents);
-            setSavings((savingsData || []).map(s => ({
+            setSavings((savingsData || []).map((s: any) => ({
                 id: s.id,
                 studentId: s.student_id,
                 schoolId: s.school_id,

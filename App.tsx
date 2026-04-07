@@ -71,7 +71,7 @@ const App: React.FC = () => {
         try {
             const { data: schoolsData } = await client.from('schools').select('*');
             if (schoolsData) {
-                setAllSchools(schoolsData.map(s => ({
+                setAllSchools(schoolsData.map((s: any) => ({
                     id: s.id, 
                     name: s.name, 
                     district: s.district, 
@@ -90,7 +90,7 @@ const App: React.FC = () => {
 
             const { data: profilesData } = await client.from('profiles').select('*');
             if (profilesData) {
-                const mappedTeachers: Teacher[] = profilesData.map(p => ({
+                const mappedTeachers: Teacher[] = profilesData.map((p: any) => ({
                     id: p.id, schoolId: p.school_id, name: p.name, password: p.password,
                     position: p.position, roles: (p.roles as TeacherRole[]) || [], 
                     signatureBase64: p.signature_base_64, telegramChatId: p.telegram_chat_id,
@@ -132,10 +132,10 @@ const App: React.FC = () => {
         const client = supabase;
         if (isSupabaseConfigured && client) {
             const profileChannel = client.channel('profiles_realtime_sync')
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, async (payload) => {
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, async (payload: any) => {
                     const { data } = await client.from('profiles').select('*');
                     if (data) {
-                        const updatedList: Teacher[] = data.map(p => ({
+                        const updatedList: Teacher[] = data.map((p: any) => ({
                             id: p.id, schoolId: p.school_id, name: p.name, password: p.password,
                             position: p.position, roles: (p.roles as TeacherRole[]) || [], 
                             signatureBase64: p.signature_base_64, telegramChatId: p.telegram_chat_id,
@@ -160,7 +160,7 @@ const App: React.FC = () => {
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'schools' }, async () => {
                     const { data } = await client.from('schools').select('*');
                     if (data) {
-                        setAllSchools(data.map(s => ({
+                        setAllSchools(data.map((s: any) => ({
                             id: s.id, 
                             name: s.name, 
                             district: s.district, 
@@ -215,9 +215,9 @@ const App: React.FC = () => {
                 const isDir = (currentUser.roles || []).includes('DIRECTOR');
                 const isVice = (currentUser.roles || []).includes('VICE_DIRECTOR');
                 let dCount = 0;
-                if (isDir) dCount = docData.filter(d => d.status === 'PendingDirector').length;
-                else if (isVice) dCount = docData.filter(d => d.status === 'PendingViceDirector' && d.assigned_vice_director_id === currentUser.id).length;
-                else dCount = docData.filter(d => d.status === 'Distributed' && (d.target_teachers || []).includes(currentUser.id) && !(d.acknowledged_by || []).includes(currentUser.id)).length;
+                if (isDir) dCount = docData.filter((d: any) => d.status === 'PendingDirector').length;
+                else if (isVice) dCount = docData.filter((d: any) => d.status === 'PendingViceDirector' && d.assigned_vice_director_id === currentUser.id).length;
+                else dCount = docData.filter((d: any) => d.status === 'Distributed' && (d.target_teachers || []).includes(currentUser.id) && !(d.acknowledged_by || []).includes(currentUser.id)).length;
                 setPendingDocCount(dCount);
             }
         };
