@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
 import cors from 'cors';
 import mysql from 'mysql2/promise';
 import { createServer as createViteServer } from 'vite';
@@ -7,6 +7,13 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Accessing the secret key from environment variables
+const MY_SECRET_KEY = process.env.MY_SECRET_KEY;
+
+if (!MY_SECRET_KEY) {
+  console.warn('Warning: MY_SECRET_KEY is not defined in environment variables.');
+}
 
 async function startServer() {
   const app = express();
@@ -28,7 +35,7 @@ async function startServer() {
   });
 
   // Helper to handle SQL queries
-  const query = async (sql: string, params: any[] = []) => {
+  const query = async (sql, params = []) => {
     try {
       const [results] = await pool.execute(sql, params);
       return results;
@@ -41,7 +48,7 @@ async function startServer() {
   // API Routes
   
   // 1. Schools
-  app.get('/api/schools', async (req: Request, res: Response) => {
+  app.get('/api/schools', async (req, res) => {
     try {
       const schools = await query('SELECT * FROM schools');
       res.json(schools);
@@ -50,7 +57,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/schools', async (req: Request, res: Response) => {
+  app.post('/api/schools', async (req, res) => {
     const { id, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64 } = req.body;
     try {
       await query(
@@ -64,11 +71,11 @@ async function startServer() {
   });
 
   // 2. Profiles (Teachers)
-  app.get('/api/profiles', async (req: Request, res: Response) => {
+  app.get('/api/profiles', async (req, res) => {
     try {
-      const profiles: any = await query('SELECT * FROM profiles');
+      const profiles = await query('SELECT * FROM profiles');
       // Parse JSON fields for MySQL
-      const parsed = profiles.map((p: any) => ({
+      const parsed = profiles.map((p) => ({
         ...p,
         roles: typeof p.roles === 'string' ? JSON.parse(p.roles) : p.roles,
         assigned_classes: typeof p.assigned_classes === 'string' ? JSON.parse(p.assigned_classes) : p.assigned_classes
@@ -79,7 +86,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/profiles', async (req: Request, res: Response) => {
+  app.post('/api/profiles', async (req, res) => {
     const { id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, is_suspended, is_approved, assigned_classes } = req.body;
     try {
       await query(
@@ -96,12 +103,12 @@ async function startServer() {
   });
 
   // 3. Generic Table Access (for other tables)
-  app.get('/api/table/:tableName', async (req: Request, res: Response) => {
+  app.get('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
-    const filters: any = { ...req.query };
+    const filters = { ...req.query };
     try {
       let sql = `SELECT * FROM ??`;
-      let params: any[] = [tableName];
+      let params = [tableName];
       
       const filterKeys = Object.keys(filters).filter(k => k !== 'order' && k !== 'limit');
       if (filterKeys.length > 0) {
@@ -112,19 +119,19 @@ async function startServer() {
       }
 
       if (filters.order) {
-        const [col, dir] = (filters.order as string).split('.');
+        const [col, dir] = filters.order.split('.');
         sql += ` ORDER BY ?? ${dir === 'desc' ? 'DESC' : 'ASC'}`;
         params.push(col);
       }
 
       if (filters.limit) {
         sql += ` LIMIT ?`;
-        params.push(parseInt(filters.limit as string));
+        params.push(parseInt(filters.limit));
       }
       
-      const results: any = await query(sql, params);
+      const results = await query(sql, params);
       // Auto-parse JSON columns if any
-      const parsed = results.map((row: any) => {
+      const parsed = results.map((row) => {
         const newRow = { ...row };
         for (const key in newRow) {
           if (typeof newRow[key] === 'string' && (newRow[key].startsWith('[') || newRow[key].startsWith('{'))) {
@@ -140,7 +147,7 @@ async function startServer() {
   });
 
   // Database Initialization
-  app.post('/api/init-db', async (req: Request, res: Response) => {
+  app.post('/api/init-db', async (req, res) => {
     try {
       const schema = [
         `CREATE TABLE IF NOT EXISTS schools (
@@ -332,7 +339,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/table/:tableName', async (req: Request, res: Response) => {
+  app.post('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
     const data = req.body;
     try {
@@ -361,10 +368,10 @@ async function startServer() {
     }
   });
 
-  app.patch('/api/table/:tableName', async (req: Request, res: Response) => {
+  app.patch('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
     const data = req.body;
-    const filters: any = { ...req.query };
+    const filters = { ...req.query };
     try {
       const keys = Object.keys(data);
       const values = keys.map(k => {
@@ -375,7 +382,7 @@ async function startServer() {
       });
       
       let sql = `UPDATE ?? SET ` + keys.map(k => `?? = ?`).join(', ');
-      let params: any[] = [tableName];
+      let params = [tableName];
       keys.forEach((k, i) => {
         params.push(k, values[i]);
       });
@@ -396,12 +403,12 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/table/:tableName', async (req: Request, res: Response) => {
+  app.delete('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
-    const filters: any = { ...req.query };
+    const filters = { ...req.query };
     try {
       let sql = `DELETE FROM ??`;
-      let params: any[] = [tableName];
+      let params = [tableName];
       
       const filterKeys = Object.keys(filters);
       if (filterKeys.length > 0) {
