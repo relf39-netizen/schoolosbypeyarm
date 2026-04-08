@@ -104,6 +104,9 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const [promoteToClass, setPromoteToClass] = useState('');
     const [graduationYear, setGraduationYear] = useState<string>((new Date().getFullYear() + 543).toString());
     const [batchNumber, setBatchNumber] = useState<string>('');
+    const [importPreview, setImportPreview] = useState<any[] | null>(null);
+    const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
+    const [isDeletingBulk, setIsDeletingBulk] = useState(false);
 
     const handlePhotoUpload = async (file: File, isEdit: boolean) => {
         if (!config.scriptUrl || !config.driveFolderId) {
@@ -746,16 +749,101 @@ function setTelegramWebhook() {
                 guardian_name: row.guardianName || row['ชื่อผู้ปกครอง'],
                 medical_conditions: row.medicalConditions || row['โรคประจำตัว'] || row['แพ้อาหาร']
             })).filter(s => s.name && s.current_class);
-            if (toInsert.length > 0 && supabase) {
-                const { error } = await supabase.from('students').insert(toInsert);
-                if (!error) { fetchStudentData(); alert('นำเข้าสำเร็จ'); }
-                else alert('ขัดข้อง: ' + error.message);
+            
+            if (toInsert.length > 0) {
+                setImportPreview(toInsert);
+            } else {
+                alert('ไม่พบข้อมูลที่ถูกต้องในไฟล์');
             }
+            // Reset input
+            e.target.value = '';
         };
         reader.readAsBinaryString(file);
     };
 
+    const confirmImport = async () => {
+        if (!importPreview || !supabase) return;
+        setIsLoadingStudents(true);
+        try {
+            const { error } = await supabase.from('students').insert(importPreview);
+            if (!error) {
+                fetchStudentData();
+                alert(`นำเข้าสำเร็จ ${importPreview.length} รายการ`);
+                setImportPreview(null);
+            } else {
+                alert('ขัดข้อง: ' + error.message);
+            }
+        } catch (err: any) {
+            alert('ขัดข้อง: ' + err.message);
+        } finally {
+            setIsLoadingStudents(false);
+        }
+    };
+
+    const toggleSelectStudent = (id: string) => {
+        const newSelected = new Set(selectedStudentIds);
+        if (newSelected.has(id)) newSelected.delete(id);
+        else newSelected.add(id);
+        setSelectedStudentIds(newSelected);
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedStudentIds.size === filteredStudents.length) {
+            setSelectedStudentIds(new Set());
+        } else {
+            setSelectedStudentIds(new Set(filteredStudents.map(s => s.id)));
+        }
+    };
+
+    const handleDeleteBulk = async () => {
+        if (selectedStudentIds.size === 0 || !supabase) return;
+        if (!confirm(`ยืนยันลบนักเรียนที่เลือกทั้งหมด ${selectedStudentIds.size} รายการ?`)) return;
+        
+        setIsDeletingBulk(true);
+        try {
+            const { error } = await supabase
+                .from('students')
+                .delete()
+                .in('id', Array.from(selectedStudentIds));
+            
+            if (error) throw error;
+            
+            fetchStudentData();
+            setSelectedStudentIds(new Set());
+            alert('ลบข้อมูลสำเร็จ');
+        } catch (err: any) {
+            alert('ลบข้อมูลล้มเหลว: ' + err.message);
+        } finally {
+            setIsDeletingBulk(false);
+        }
+    };
+
+    const handleDeleteAllInClass = async () => {
+        if (!selectedClass || selectedClass === 'All' || !supabase) return;
+        if (!confirm(`ยืนยันลบนักเรียนทั้งหมดในชั้น ${selectedClass}?`)) return;
+        
+        setIsDeletingBulk(true);
+        try {
+            const { error } = await supabase
+                .from('students')
+                .delete()
+                .eq('school_id', currentSchool.id)
+                .eq('current_class', selectedClass);
+            
+            if (error) throw error;
+            
+            fetchStudentData();
+            setSelectedStudentIds(new Set());
+            alert(`ลบข้อมูลนักเรียนในชั้น ${selectedClass} สำเร็จ`);
+        } catch (err: any) {
+            alert('ลบข้อมูลล้มเหลว: ' + err.message);
+        } finally {
+            setIsDeletingBulk(false);
+        }
+    };
+
     const filteredStudents = students.filter(s => 
+        s.isActive &&
         (selectedClass === 'All' || s.currentClass === selectedClass) &&
         (s.name.includes(studentSearch) || s.id.includes(studentSearch))
     );
@@ -1241,6 +1329,21 @@ function setTelegramWebhook() {
                                     <div className="flex gap-2 w-full md:w-auto">
                                         <button onClick={() => setIsAddStudentOpen(true)} className="flex-1 md:flex-none px-6 py-3 bg-indigo-600 text-white rounded-xl text-xs font-black shadow-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 active:scale-95"><Plus size={18}/> เพิ่มนักเรียน</button>
                                         <div className="flex gap-1">
+                                            <input 
+                                                type="file" 
+                                                id="student-import-input" 
+                                                className="hidden" 
+                                                accept=".xlsx, .xls" 
+                                                onChange={handleImportExcel}
+                                            />
+                                            <button 
+                                                onClick={() => document.getElementById('student-import-input')?.click()}
+                                                className="px-4 py-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-all border border-emerald-100 flex items-center gap-2" 
+                                                title="นำเข้าข้อมูลจาก Excel"
+                                            >
+                                                <FileSpreadsheet size={18}/>
+                                                <span className="text-[10px] font-black uppercase hidden md:inline">นำเข้า Excel</span>
+                                            </button>
                                             <button onClick={() => setIsManageClassesOpen(true)} className="px-4 py-3 bg-slate-50 text-slate-500 rounded-xl hover:bg-slate-100 transition-all border border-slate-100 flex items-center gap-2" title="จัดการห้องเรียน">
                                                 <LayoutGrid size={18}/>
                                                 <span className="text-[10px] font-black uppercase hidden md:inline">ห้องเรียน</span>
@@ -1255,22 +1358,55 @@ function setTelegramWebhook() {
 
                                 <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
                                     <div className="p-6 border-b border-slate-50 flex flex-col md:flex-row gap-4 items-center justify-between bg-slate-50/50">
-                                        <div className="relative w-full md:w-72">
-                                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18}/>
-                                            <input type="text" placeholder="ค้นหาชื่อนักเรียน..." value={studentSearch} onChange={e => setStudentSearch(e.target.value)} className="w-full pl-12 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 ring-indigo-500/10 transition-all shadow-inner"/>
+                                        <div className="flex flex-col md:flex-row gap-4 items-center w-full md:w-auto">
+                                            <div className="relative w-full md:w-72">
+                                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18}/>
+                                                <input type="text" placeholder="ค้นหาชื่อนักเรียน..." value={studentSearch} onChange={e => setStudentSearch(e.target.value)} className="w-full pl-12 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 ring-indigo-500/10 transition-all shadow-inner"/>
+                                            </div>
+                                            <div className="flex items-center gap-3 w-full md:w-auto">
+                                                <Filter className="text-slate-400" size={18}/>
+                                                <select value={selectedClass} onChange={e => { setSelectedClass(e.target.value); setSelectedStudentIds(new Set()); }} className="flex-1 md:w-40 px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 ring-indigo-500/10 shadow-inner">
+                                                    <option value="All">ทุกชั้นเรียน</option>
+                                                    {classRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                                </select>
+                                            </div>
                                         </div>
-                                        <div className="flex items-center gap-3 w-full md:w-auto">
-                                            <Filter className="text-slate-400" size={18}/>
-                                            <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)} className="flex-1 md:w-40 px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 ring-indigo-500/10 shadow-inner">
-                                                <option value="All">ทุกชั้นเรียน</option>
-                                                {classRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                                            </select>
+
+                                        <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto no-scrollbar">
+                                            {selectedStudentIds.size > 0 && (
+                                                <button 
+                                                    onClick={handleDeleteBulk}
+                                                    disabled={isDeletingBulk}
+                                                    className="px-4 py-2.5 bg-red-50 text-red-600 border border-red-100 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-100 transition-all flex items-center gap-2 shrink-0"
+                                                >
+                                                    {isDeletingBulk ? <Loader className="animate-spin" size={14}/> : <Trash2 size={14}/>}
+                                                    ลบที่เลือก ({selectedStudentIds.size})
+                                                </button>
+                                            )}
+                                            {selectedClass !== 'All' && filteredStudents.length > 0 && (
+                                                <button 
+                                                    onClick={handleDeleteAllInClass}
+                                                    disabled={isDeletingBulk}
+                                                    className="px-4 py-2.5 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all flex items-center gap-2 shrink-0"
+                                                >
+                                                    {isDeletingBulk ? <Loader className="animate-spin" size={14}/> : <Trash2 size={14}/>}
+                                                    ลบทั้งหมดในชั้น {selectedClass}
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-left border-collapse">
                                             <thead>
                                                 <tr className="bg-slate-50/50">
+                                                    <th className="px-6 py-4 w-10">
+                                                        <button 
+                                                            onClick={toggleSelectAll}
+                                                            className={`w-5 h-5 rounded border transition-all flex items-center justify-center ${selectedStudentIds.size === filteredStudents.length && filteredStudents.length > 0 ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-300'}`}
+                                                        >
+                                                            {selectedStudentIds.size === filteredStudents.length && filteredStudents.length > 0 && <Check size={14}/>}
+                                                        </button>
+                                                    </th>
                                                     <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">รูปภาพ</th>
                                                     <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">ชื่อ-นามสกุล</th>
                                                     <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">ชั้นเรียน</th>
@@ -1279,11 +1415,19 @@ function setTelegramWebhook() {
                                             </thead>
                                             <tbody className="divide-y divide-slate-50">
                                                 {isLoadingStudents ? (
-                                                    <tr><td colSpan={4} className="px-6 py-20 text-center text-slate-300 font-bold italic animate-pulse">กำลังโหลดข้อมูล...</td></tr>
+                                                    <tr><td colSpan={5} className="px-6 py-20 text-center text-slate-300 font-bold italic animate-pulse">กำลังโหลดข้อมูล...</td></tr>
                                                 ) : filteredStudents.length === 0 ? (
-                                                    <tr><td colSpan={4} className="px-6 py-20 text-center text-slate-300 font-bold italic">ไม่พบข้อมูลนักเรียน</td></tr>
+                                                    <tr><td colSpan={5} className="px-6 py-20 text-center text-slate-300 font-bold italic">ไม่พบข้อมูลนักเรียน</td></tr>
                                                 ) : filteredStudents.map(s => (
-                                                    <tr key={s.id} className="hover:bg-slate-50/50 transition-colors group">
+                                                    <tr key={s.id} className={`hover:bg-slate-50/50 transition-colors group ${selectedStudentIds.has(s.id) ? 'bg-indigo-50/30' : ''}`}>
+                                                        <td className="px-6 py-4">
+                                                            <button 
+                                                                onClick={() => toggleSelectStudent(s.id)}
+                                                                className={`w-5 h-5 rounded border transition-all flex items-center justify-center ${selectedStudentIds.has(s.id) ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-300'}`}
+                                                            >
+                                                                {selectedStudentIds.has(s.id) && <Check size={14}/>}
+                                                            </button>
+                                                        </td>
                                                         <td className="px-6 py-4">
                                                             <div className="w-10 h-12 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 shadow-inner">
                                                                 {s.photoUrl ? (
@@ -2043,6 +2187,67 @@ function setTelegramWebhook() {
 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100 shadow-inner">{AVAILABLE_ROLES.map(role => { const isChecked = editForm.roles?.includes(role.id); return (<div key={role.id} onClick={() => toggleRole(role.id)} className={`flex items-center gap-3 cursor-pointer p-3 rounded-xl transition-all border group ${isChecked ? 'border-blue-500 bg-white shadow-md' : 'border-transparent opacity-60 hover:opacity-100 hover:bg-white/80'}`}><div className={`transition-all ${isChecked ? 'text-blue-600' : 'text-slate-300'}`}>{isChecked ? <CheckSquare size={20}/> : <Square size={20}/>}</div><span className={`text-[11px] font-black transition-colors ${isChecked ? 'text-blue-900' : 'text-slate-500'}`}>{role.label}</span></div>); })}</div></div>
                             <div className="pt-6 flex gap-4"><button type="button" onClick={() => { setIsAdding(false); setEditingId(null); }} className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-xl font-black uppercase text-[10px] hover:bg-slate-200 transition-all">ยกเลิก</button><button type="submit" disabled={isSubmittingUser} className="flex-[2] py-3 bg-blue-600 text-white rounded-xl font-black text-base shadow-xl hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-3 border-b-4 border-blue-950 uppercase text-xs">{isSubmittingUser ? <Loader className="animate-spin" size={20}/> : <Save size={20}/>} ยืนยันบันทึกข้อมูล SQL</button></div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {importPreview && (
+                <div className="fixed inset-0 bg-slate-950/90 z-[90] flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl p-8 animate-scale-up border-2 border-emerald-50 overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h3 className="text-2xl font-black text-slate-800 flex items-center gap-3">
+                                    <FileSpreadsheet className="text-emerald-600" size={32}/> 
+                                    ตรวจสอบข้อมูลนำเข้า
+                                </h3>
+                                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">
+                                    พบข้อมูลทั้งหมด {importPreview.length} รายการ
+                                </p>
+                            </div>
+                            <button onClick={() => setImportPreview(null)} className="p-2 hover:bg-slate-50 rounded-full text-slate-300 transition-all"><X size={24}/></button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto border rounded-2xl mb-6 custom-scrollbar">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="sticky top-0 bg-slate-50 z-10">
+                                    <tr>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">ลำดับ</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">ชื่อ-นามสกุล</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">ชั้นเรียน</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">เบอร์โทร</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {importPreview.map((s, idx) => (
+                                        <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                                            <td className="px-6 py-4 text-xs font-bold text-slate-400">{idx + 1}</td>
+                                            <td className="px-6 py-4 text-sm font-bold text-slate-700">{s.name}</td>
+                                            <td className="px-6 py-4">
+                                                <span className="px-2 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black border border-emerald-100">{s.current_class}</span>
+                                            </td>
+                                            <td className="px-6 py-4 text-xs text-slate-500">{s.phone_number || '-'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="flex gap-4">
+                            <button 
+                                onClick={() => setImportPreview(null)} 
+                                className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all"
+                            >
+                                ยกเลิก
+                            </button>
+                            <button 
+                                onClick={confirmImport}
+                                disabled={isLoadingStudents}
+                                className="flex-[2] py-4 bg-emerald-600 text-white rounded-2xl font-black text-lg shadow-xl hover:bg-emerald-700 active:scale-95 transition-all flex items-center justify-center gap-3 border-b-4 border-emerald-900"
+                            >
+                                {isLoadingStudents ? <Loader className="animate-spin" size={24}/> : <CheckCircle2 size={24}/>}
+                                ยืนยันนำเข้า {importPreview.length} รายการ
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
