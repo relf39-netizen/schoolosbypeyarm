@@ -48,6 +48,25 @@ async function startServer() {
   // API Routes
   
   // 1. Schools
+  app.get('/api/db-check', async (req, res) => {
+    try {
+      const result = await query('SELECT 1 as connected');
+      res.json({ success: true, message: 'Database connected successfully', data: result });
+    } catch (err) {
+      res.status(500).json({ 
+        success: false, 
+        message: 'Database connection failed', 
+        error: err.message,
+        config: {
+          host: process.env.MYSQL_HOST || 'localhost',
+          user: process.env.MYSQL_USER || 'root',
+          database: process.env.MYSQL_DATABASE || 'school_os',
+          port: process.env.MYSQL_PORT || '3306'
+        }
+      });
+    }
+  });
+
   app.get('/api/schools', async (req, res) => {
     try {
       const schools = await query('SELECT * FROM schools');
