@@ -38,7 +38,7 @@ async function startServer() {
   // Helper to handle SQL queries
   const query = async (sql, params = []) => {
     try {
-      const [results] = await pool.execute(sql, params);
+      const [results] = await pool.query(sql, params);
       return results;
     } catch (error) {
       console.error('Database Error:', error);
@@ -350,7 +350,18 @@ async function startServer() {
       for (const sql of schema) {
         await query(sql);
       }
-      res.json({ success: true, message: 'Database initialized successfully' });
+
+      // Add default Super Admin
+      await query('INSERT IGNORE INTO super_admins (username, password) VALUES (?, ?)', ['admin', 'schoolos']);
+
+      // Add default School and Admin Profile
+      await query('INSERT IGNORE INTO schools (id, name) VALUES (?, ?)', ['demo-school', 'โรงเรียนสาธิต SchoolOS']);
+      await query(
+        'INSERT IGNORE INTO profiles (id, school_id, name, password, position, roles, is_approved) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ['admin', 'demo-school', 'ผู้ดูแลระบบ', 'password123', 'ผู้ดูแลระบบ', JSON.stringify(['SYSTEM_ADMIN', 'TEACHER']), 1]
+      );
+
+      res.json({ success: true, message: 'Database initialized successfully with default admin users' });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Failed to initialize database' });

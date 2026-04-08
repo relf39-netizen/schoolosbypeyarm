@@ -14,6 +14,7 @@ export const supabase = {
           const url = `${API_BASE}/table/${tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
           const res = await fetch(url);
           const data = await res.json();
+          if (data && data.error) return { data: null, error: data.error };
           return { data, error: null };
         } catch (error) {
           return { data: null, error };
@@ -27,6 +28,7 @@ export const supabase = {
             body: JSON.stringify(data)
           });
           const result = await res.json();
+          if (result && result.error) return { data: null, error: result.error };
           return { data: result, error: null };
         } catch (error) {
           return { data: null, error };
@@ -40,6 +42,7 @@ export const supabase = {
             body: JSON.stringify(data)
           });
           const result = await res.json();
+          if (result && result.error) return { data: null, error: result.error };
           return { data: result, error: null };
         } catch (error) {
           return { data: null, error };
@@ -53,6 +56,7 @@ export const supabase = {
             body: JSON.stringify(data)
           });
           const result = await res.json();
+          if (result && result.error) return { data: null, error: result.error };
           return { data: result, error: null };
         } catch (error) {
           return { data: null, error };
@@ -64,6 +68,7 @@ export const supabase = {
             method: 'DELETE'
           });
           const result = await res.json();
+          if (result && result.error) return { data: null, error: result.error };
           return { data: result, error: null };
         } catch (error) {
           return { data: null, error };

@@ -100,8 +100,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
             }
 
             onLogin(user);
-        } catch (err) {
-            setError("เกิดข้อผิดพลาดในการเชื่อมต่อระบบ");
+        } catch (err: any) {
+            setError(`เกิดข้อผิดพลาดในการเชื่อมต่อระบบ: ${err.message || 'Unknown error'}`);
         } finally {
             setIsAuthenticating(false);
         }

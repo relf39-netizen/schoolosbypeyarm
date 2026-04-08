@@ -69,8 +69,9 @@ const App: React.FC = () => {
         }
 
         try {
-            const { data: schoolsData } = await client.from('schools').select('*');
-            if (schoolsData) {
+            const { data: schoolsData, error: schoolsError } = await client.from('schools').select('*');
+            if (schoolsError) throw schoolsError;
+            if (Array.isArray(schoolsData)) {
                 setAllSchools(schoolsData.map((s: any) => ({
                     id: s.id, 
                     name: s.name, 
@@ -80,21 +81,23 @@ const App: React.FC = () => {
                     lng: s.lng, 
                     radius: s.radius, 
                     lateTimeThreshold: s.late_time_threshold, 
-                    autoCheckOutEnabled: s.auto_check_out_enabled,
+                    autoCheckOutEnabled: !!s.auto_check_out_enabled,
                     autoCheckOutTime: s.auto_check_out_time,
-                    wfhModeEnabled: s.wfh_mode_enabled,
+                    wfhModeEnabled: !!s.wfh_mode_enabled,
                     logoBase64: s.logo_base_64, 
-                    isSuspended: s.is_suspended
+                    isSuspended: !!s.is_suspended
                 })));
             }
 
-            const { data: profilesData } = await client.from('profiles').select('*');
-            if (profilesData) {
+            const { data: profilesData, error: profilesError } = await client.from('profiles').select('*');
+            if (profilesError) throw profilesError;
+            if (Array.isArray(profilesData)) {
                 const mappedTeachers: Teacher[] = profilesData.map((p: any) => ({
                     id: p.id, schoolId: p.school_id, name: p.name, password: p.password,
                     position: p.position, roles: (p.roles as TeacherRole[]) || [], 
                     signatureBase64: p.signature_base_64, telegramChatId: p.telegram_chat_id,
-                    isSuspended: p.is_suspended, isApproved: p.is_approved !== false,
+                    isSuspended: !!p.is_suspended, 
+                    isApproved: p.is_approved !== false && p.is_approved !== 0,
                     isActingDirector: ((p.roles as string[]) || [])?.includes('ACTING_DIRECTOR') || false,
                     assignedClasses: p.assigned_classes || [],
                     isFirstLogin: false
