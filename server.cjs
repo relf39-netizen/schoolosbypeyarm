@@ -46,6 +46,257 @@ async function startServer() {
     }
   };
 
+  // Function to ensure all tables exist
+  const ensureTablesExist = async () => {
+    console.log('Checking database tables...');
+    const schema = [
+      `CREATE TABLE IF NOT EXISTS schools (
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        district VARCHAR(255),
+        province VARCHAR(255),
+        lat FLOAT,
+        lng FLOAT,
+        radius INT DEFAULT 500,
+        late_time_threshold VARCHAR(255) DEFAULT '08:30',
+        logo_base_64 LONGTEXT,
+        is_suspended BOOLEAN DEFAULT FALSE,
+        auto_check_out_enabled BOOLEAN DEFAULT FALSE,
+        auto_check_out_time VARCHAR(255) DEFAULT '16:30'
+      )`,
+      `CREATE TABLE IF NOT EXISTS profiles (
+        id VARCHAR(255) PRIMARY KEY,
+        school_id VARCHAR(255),
+        name VARCHAR(255) NOT NULL,
+        password VARCHAR(255) DEFAULT '123456',
+        position VARCHAR(255),
+        roles JSON,
+        signature_base_64 LONGTEXT,
+        telegram_chat_id VARCHAR(255),
+        is_suspended BOOLEAN DEFAULT FALSE,
+        is_approved BOOLEAN DEFAULT FALSE,
+        assigned_classes JSON
+      )`,
+      `CREATE TABLE IF NOT EXISTS school_configs (
+        school_id VARCHAR(255) PRIMARY KEY,
+        drive_folder_id VARCHAR(255),
+        script_url TEXT,
+        telegram_bot_token VARCHAR(255),
+        telegram_bot_username VARCHAR(255),
+        app_base_url TEXT,
+        official_garuda_base_64 LONGTEXT,
+        officer_department VARCHAR(255),
+        internal_departments JSON,
+        external_agencies JSON,
+        director_signature_base_64 LONGTEXT,
+        director_signature_scale FLOAT DEFAULT 1.0,
+        director_signature_y_offset FLOAT DEFAULT 0
+      )`,
+      `CREATE TABLE IF NOT EXISTS class_rooms (
+        id VARCHAR(36) PRIMARY KEY,
+        school_id VARCHAR(255),
+        name VARCHAR(255) NOT NULL,
+        academic_year VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS students (
+        id VARCHAR(36) PRIMARY KEY,
+        school_id VARCHAR(255),
+        name VARCHAR(255) NOT NULL,
+        current_class VARCHAR(255) NOT NULL,
+        academic_year VARCHAR(255) NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        photo_url TEXT,
+        address TEXT,
+        phone_number VARCHAR(255),
+        father_name VARCHAR(255),
+        mother_name VARCHAR(255),
+        guardian_name VARCHAR(255),
+        medical_conditions TEXT,
+        family_annual_income FLOAT,
+        lat DOUBLE,
+        lng DOUBLE,
+        is_alumni BOOLEAN DEFAULT FALSE,
+        graduation_year VARCHAR(255),
+        batch_number VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS student_attendance (
+        id VARCHAR(36) PRIMARY KEY,
+        school_id VARCHAR(255) NOT NULL,
+        student_id VARCHAR(36),
+        date DATE NOT NULL,
+        status VARCHAR(255) NOT NULL,
+        academic_year VARCHAR(255) NOT NULL,
+        created_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(student_id, date)
+      )`,
+      `CREATE TABLE IF NOT EXISTS student_health_records (
+        id VARCHAR(36) PRIMARY KEY,
+        student_id VARCHAR(36),
+        school_id VARCHAR(255),
+        weight FLOAT,
+        height FLOAT,
+        recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        academic_year VARCHAR(255),
+        recorded_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS student_savings (
+        id VARCHAR(36) PRIMARY KEY,
+        student_id VARCHAR(36),
+        school_id VARCHAR(255),
+        amount FLOAT NOT NULL,
+        type VARCHAR(255) NOT NULL,
+        academic_year VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by VARCHAR(255),
+        edited_at TIMESTAMP NULL,
+        edited_by VARCHAR(255),
+        edit_reason TEXT
+      )`,
+      `CREATE TABLE IF NOT EXISTS academic_years (
+        id VARCHAR(36) PRIMARY KEY,
+        school_id VARCHAR(255),
+        year VARCHAR(255) NOT NULL,
+        is_current BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS attendance (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        school_id VARCHAR(255),
+        teacher_id VARCHAR(255),
+        date DATE,
+        check_in TEXT,
+        check_out TEXT,
+        status VARCHAR(255),
+        leave_type VARCHAR(255),
+        is_auto_checkout BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS leave_requests (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        school_id VARCHAR(255),
+        teacher_id VARCHAR(255),
+        type VARCHAR(255),
+        start_date DATE,
+        end_date DATE,
+        reason TEXT,
+        status VARCHAR(255) DEFAULT 'Pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS plan_projects (
+        id VARCHAR(255) PRIMARY KEY,
+        school_id VARCHAR(255),
+        department_name VARCHAR(255),
+        name VARCHAR(255),
+        subsidy_budget FLOAT DEFAULT 0,
+        learner_dev_budget FLOAT DEFAULT 0,
+        actual_expense FLOAT DEFAULT 0,
+        status VARCHAR(255) DEFAULT 'Draft',
+        fiscal_year VARCHAR(255)
+      )`,
+      `CREATE TABLE IF NOT EXISTS budget_settings (
+        id VARCHAR(255) PRIMARY KEY,
+        school_id VARCHAR(255),
+        fiscal_year VARCHAR(255),
+        subsidy FLOAT DEFAULT 0,
+        learner FLOAT DEFAULT 0,
+        allow_teacher_proposal BOOLEAN DEFAULT FALSE
+      )`,
+      `CREATE TABLE IF NOT EXISTS academic_enrollments (
+        id VARCHAR(255) PRIMARY KEY,
+        school_id VARCHAR(255),
+        year VARCHAR(255),
+        levels JSON
+      )`,
+      `CREATE TABLE IF NOT EXISTS academic_test_scores (
+        id VARCHAR(255) PRIMARY KEY,
+        school_id VARCHAR(255),
+        year VARCHAR(255),
+        test_type VARCHAR(255),
+        results JSON
+      )`,
+      `CREATE TABLE IF NOT EXISTS academic_calendar (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        school_id VARCHAR(255),
+        year VARCHAR(255),
+        title VARCHAR(255),
+        start_date DATE,
+        end_date DATE,
+        description TEXT
+      )`,
+      `CREATE TABLE IF NOT EXISTS academic_sar (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        school_id VARCHAR(255),
+        year VARCHAR(255),
+        type VARCHAR(255),
+        file_url TEXT,
+        file_name TEXT
+      )`,
+      `CREATE TABLE IF NOT EXISTS super_admins (
+        username VARCHAR(255) PRIMARY KEY,
+        password VARCHAR(255)
+      )`,
+      `CREATE TABLE IF NOT EXISTS documents (
+        id VARCHAR(36) PRIMARY KEY,
+        school_id VARCHAR(255),
+        category VARCHAR(255),
+        book_number VARCHAR(255),
+        title VARCHAR(255),
+        description TEXT,
+        \`from\` VARCHAR(255),
+        date DATE,
+        timestamp VARCHAR(255),
+        priority VARCHAR(255),
+        attachments JSON,
+        status VARCHAR(255),
+        director_command TEXT,
+        director_signature_date VARCHAR(255),
+        signed_file_url TEXT,
+        assigned_vice_director_id VARCHAR(255),
+        vice_director_command TEXT,
+        vice_director_signature_date VARCHAR(255),
+        target_teachers JSON,
+        acknowledged_by JSON
+      )`,
+      `CREATE TABLE IF NOT EXISTS director_events (
+        id VARCHAR(36) PRIMARY KEY,
+        school_id VARCHAR(255),
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        date DATE NOT NULL,
+        start_time VARCHAR(255) NOT NULL,
+        end_time VARCHAR(255),
+        location VARCHAR(255),
+        created_by VARCHAR(255),
+        notified_one_day_before BOOLEAN DEFAULT FALSE,
+        notified_on_day BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`
+    ];
+
+    for (const sql of schema) {
+      await query(sql);
+    }
+
+    // Add default Super Admin
+    await query('INSERT IGNORE INTO super_admins (username, password) VALUES (?, ?)', ['admin', 'schoolos']);
+    await query('INSERT IGNORE INTO super_admins (username, password) VALUES (?, ?)', ['peyarm', 'Siam@2520']);
+
+    // Add default School and Admin Profile
+    await query('INSERT IGNORE INTO schools (id, name) VALUES (?, ?)', ['demo-school', 'โรงเรียนสาธิต SchoolOS']);
+    await query(
+      'INSERT IGNORE INTO profiles (id, school_id, name, password, position, roles, is_approved) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['admin', 'demo-school', 'ผู้ดูแลระบบ', 'password123', 'ผู้ดูแลระบบ', JSON.stringify(['SYSTEM_ADMIN', 'TEACHER']), 1]
+    );
+    console.log('Database tables verified.');
+  };
+
+  // Run table check on start
+  await ensureTablesExist().catch(err => console.error('Initial Table Check Failed:', err));
+
   // API Routes
   
   // 1. Schools
@@ -301,237 +552,16 @@ async function startServer() {
     }
   });
 
-  // Database Initialization
+  // Database Initialization (Manual trigger if needed)
   app.post('/api/init-db', async (req, res) => {
     try {
-      const schema = [
-        `CREATE TABLE IF NOT EXISTS schools (
-          id VARCHAR(255) PRIMARY KEY,
-          name VARCHAR(255) NOT NULL,
-          district VARCHAR(255),
-          province VARCHAR(255),
-          lat FLOAT,
-          lng FLOAT,
-          radius INT DEFAULT 500,
-          late_time_threshold VARCHAR(255) DEFAULT '08:30',
-          logo_base_64 LONGTEXT,
-          is_suspended BOOLEAN DEFAULT FALSE,
-          auto_check_out_enabled BOOLEAN DEFAULT FALSE,
-          auto_check_out_time VARCHAR(255) DEFAULT '16:30'
-        )`,
-        `CREATE TABLE IF NOT EXISTS profiles (
-          id VARCHAR(255) PRIMARY KEY,
-          school_id VARCHAR(255),
-          name VARCHAR(255) NOT NULL,
-          password VARCHAR(255) DEFAULT '123456',
-          position VARCHAR(255),
-          roles JSON,
-          signature_base_64 LONGTEXT,
-          telegram_chat_id VARCHAR(255),
-          is_suspended BOOLEAN DEFAULT FALSE,
-          is_approved BOOLEAN DEFAULT FALSE,
-          assigned_classes JSON
-        )`,
-        `CREATE TABLE IF NOT EXISTS school_configs (
-          school_id VARCHAR(255) PRIMARY KEY,
-          drive_folder_id VARCHAR(255),
-          script_url TEXT,
-          telegram_bot_token VARCHAR(255),
-          telegram_bot_username VARCHAR(255),
-          app_base_url TEXT,
-          official_garuda_base_64 LONGTEXT,
-          officer_department VARCHAR(255),
-          internal_departments JSON,
-          external_agencies JSON,
-          director_signature_base_64 LONGTEXT,
-          director_signature_scale FLOAT DEFAULT 1.0,
-          director_signature_y_offset FLOAT DEFAULT 0
-        )`,
-        `CREATE TABLE IF NOT EXISTS class_rooms (
-          id VARCHAR(36) PRIMARY KEY,
-          school_id VARCHAR(255),
-          name VARCHAR(255) NOT NULL,
-          academic_year VARCHAR(255) NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`,
-        `CREATE TABLE IF NOT EXISTS students (
-          id VARCHAR(36) PRIMARY KEY,
-          school_id VARCHAR(255),
-          name VARCHAR(255) NOT NULL,
-          current_class VARCHAR(255) NOT NULL,
-          academic_year VARCHAR(255) NOT NULL,
-          is_active BOOLEAN DEFAULT TRUE,
-          photo_url TEXT,
-          address TEXT,
-          phone_number VARCHAR(255),
-          father_name VARCHAR(255),
-          mother_name VARCHAR(255),
-          guardian_name VARCHAR(255),
-          medical_conditions TEXT,
-          family_annual_income FLOAT,
-          lat DOUBLE,
-          lng DOUBLE,
-          is_alumni BOOLEAN DEFAULT FALSE,
-          graduation_year VARCHAR(255),
-          batch_number VARCHAR(255),
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`,
-        `CREATE TABLE IF NOT EXISTS student_attendance (
-          id VARCHAR(36) PRIMARY KEY,
-          school_id VARCHAR(255) NOT NULL,
-          student_id VARCHAR(36),
-          date DATE NOT NULL,
-          status VARCHAR(255) NOT NULL,
-          academic_year VARCHAR(255) NOT NULL,
-          created_by VARCHAR(255),
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(student_id, date)
-        )`,
-        `CREATE TABLE IF NOT EXISTS student_health_records (
-          id VARCHAR(36) PRIMARY KEY,
-          student_id VARCHAR(36),
-          school_id VARCHAR(255),
-          weight FLOAT,
-          height FLOAT,
-          recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          academic_year VARCHAR(255),
-          recorded_by VARCHAR(255),
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`,
-        `CREATE TABLE IF NOT EXISTS student_savings (
-          id VARCHAR(36) PRIMARY KEY,
-          student_id VARCHAR(36),
-          school_id VARCHAR(255),
-          amount FLOAT NOT NULL,
-          type VARCHAR(255) NOT NULL,
-          academic_year VARCHAR(255) NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          created_by VARCHAR(255),
-          edited_at TIMESTAMP NULL,
-          edited_by VARCHAR(255),
-          edit_reason TEXT
-        )`,
-        `CREATE TABLE IF NOT EXISTS academic_years (
-          id VARCHAR(36) PRIMARY KEY,
-          school_id VARCHAR(255),
-          year VARCHAR(255) NOT NULL,
-          is_current BOOLEAN DEFAULT FALSE,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`,
-        `CREATE TABLE IF NOT EXISTS attendance (
-          id BIGINT AUTO_INCREMENT PRIMARY KEY,
-          school_id VARCHAR(255),
-          teacher_id VARCHAR(255),
-          date DATE,
-          check_in TEXT,
-          check_out TEXT,
-          status VARCHAR(255),
-          leave_type VARCHAR(255),
-          is_auto_checkout BOOLEAN DEFAULT FALSE,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`,
-        `CREATE TABLE IF NOT EXISTS leave_requests (
-          id BIGINT AUTO_INCREMENT PRIMARY KEY,
-          school_id VARCHAR(255),
-          teacher_id VARCHAR(255),
-          type VARCHAR(255),
-          start_date DATE,
-          end_date DATE,
-          reason TEXT,
-          status VARCHAR(255) DEFAULT 'Pending',
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`,
-        `CREATE TABLE IF NOT EXISTS plan_projects (
-          id VARCHAR(255) PRIMARY KEY,
-          school_id VARCHAR(255),
-          department_name VARCHAR(255),
-          name VARCHAR(255),
-          subsidy_budget FLOAT DEFAULT 0,
-          learner_dev_budget FLOAT DEFAULT 0,
-          actual_expense FLOAT DEFAULT 0,
-          status VARCHAR(255) DEFAULT 'Draft',
-          fiscal_year VARCHAR(255)
-        )`,
-        `CREATE TABLE IF NOT EXISTS budget_settings (
-          id VARCHAR(255) PRIMARY KEY,
-          school_id VARCHAR(255),
-          fiscal_year VARCHAR(255),
-          subsidy FLOAT DEFAULT 0,
-          learner FLOAT DEFAULT 0,
-          allow_teacher_proposal BOOLEAN DEFAULT FALSE
-        )`,
-        `CREATE TABLE IF NOT EXISTS academic_enrollments (
-          id VARCHAR(255) PRIMARY KEY,
-          school_id VARCHAR(255),
-          year VARCHAR(255),
-          levels JSON
-        )`,
-        `CREATE TABLE IF NOT EXISTS academic_test_scores (
-          id VARCHAR(255) PRIMARY KEY,
-          school_id VARCHAR(255),
-          year VARCHAR(255),
-          test_type VARCHAR(255),
-          results JSON
-        )`,
-        `CREATE TABLE IF NOT EXISTS academic_calendar (
-          id BIGINT AUTO_INCREMENT PRIMARY KEY,
-          school_id VARCHAR(255),
-          year VARCHAR(255),
-          title VARCHAR(255),
-          start_date DATE,
-          end_date DATE,
-          description TEXT
-        )`,
-        `CREATE TABLE IF NOT EXISTS academic_sar (
-          id BIGINT AUTO_INCREMENT PRIMARY KEY,
-          school_id VARCHAR(255),
-          year VARCHAR(255),
-          type VARCHAR(255),
-          file_url TEXT,
-          file_name TEXT
-        )`,
-        `CREATE TABLE IF NOT EXISTS super_admins (
-          username VARCHAR(255) PRIMARY KEY,
-          password VARCHAR(255)
-        )`,
-        `CREATE TABLE IF NOT EXISTS director_events (
-          id VARCHAR(36) PRIMARY KEY,
-          school_id VARCHAR(255),
-          title VARCHAR(255) NOT NULL,
-          description TEXT,
-          date DATE NOT NULL,
-          start_time VARCHAR(255) NOT NULL,
-          end_time VARCHAR(255),
-          location VARCHAR(255),
-          created_by VARCHAR(255),
-          notified_one_day_before BOOLEAN DEFAULT FALSE,
-          notified_on_day BOOLEAN DEFAULT FALSE,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`
-      ];
-
-      for (const sql of schema) {
-        await query(sql);
-      }
-
-      // Add default Super Admin
-      await query('INSERT IGNORE INTO super_admins (username, password) VALUES (?, ?)', ['admin', 'schoolos']);
-      await query('INSERT IGNORE INTO super_admins (username, password) VALUES (?, ?)', ['peyarm', 'Siam@2520']);
-
-      // Add default School and Admin Profile
-      await query('INSERT IGNORE INTO schools (id, name) VALUES (?, ?)', ['demo-school', 'โรงเรียนสาธิต SchoolOS']);
-      await query(
-        'INSERT IGNORE INTO profiles (id, school_id, name, password, position, roles, is_approved) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        ['admin', 'demo-school', 'ผู้ดูแลระบบ', 'password123', 'ผู้ดูแลระบบ', JSON.stringify(['SYSTEM_ADMIN', 'TEACHER']), 1]
-      );
-
-      res.json({ success: true, message: 'Database initialized successfully with default admin users' });
+      await ensureTablesExist();
+      res.json({ success: true, message: 'Database initialized successfully' });
     } catch (err) {
       console.error(err);
-      res.status(500).json({ error: 'Failed to initialize database' });
+      res.status(500).json({ error: 'Initialization failed', details: err.message });
     }
   });
-
   app.post('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
     const data = req.body;
@@ -664,12 +694,23 @@ async function startServer() {
     }
   });
 
-  // Vite middleware for development (Removed for production server.cjs)
+  // Serve static files from dist folder
   const distPath = path.join(process.cwd(), 'dist');
-  app.use(express.static(distPath));
-  app.get('*all', (req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
+  
+  if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.get('*all', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
+    app.get('*all', (req, res) => {
+      res.status(404).send(`
+        <h1>SchoolOS: ไม่พบโฟลเดอร์ dist</h1>
+        <p>กรุณาทำการ Build โปรเจกต์ที่เครื่องของคุณ (npm run build) แล้วอัปโหลดโฟลเดอร์ <b>dist</b> ขึ้นมาไว้ที่เซิร์ฟเวอร์ก่อนครับ</p>
+        <p>หลังจากอัปโหลดแล้ว ให้กด <b>Restart App</b> อีกครั้งครับ</p>
+      `);
+    });
+  }
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

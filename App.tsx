@@ -262,6 +262,8 @@ const App: React.FC = () => {
         if (!confirm("ต้องการออกจากระบบใช่หรือไม่?")) return;
         setCurrentUser(null);
         setIsSuperAdminMode(false);
+        setIsSuperAdmin(false);
+        setImpersonatedSchoolId(null);
         localStorage.removeItem(SESSION_KEY);
         setCurrentView(SystemView.DASHBOARD);
     };
