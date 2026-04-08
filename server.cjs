@@ -594,6 +594,48 @@ async function startServer() {
     }
   });
 
+  // GAS Bridge
+  app.post('/api/gas/bridge', async (req, res) => {
+    const { secret, action, table, data, id } = req.body;
+    
+    // Simple secret check
+    if (secret !== 'MySecretKey0930935255') {
+      return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+    }
+
+    // Map 'teachers' to 'profiles' if needed
+    const targetTable = table === 'teachers' ? 'profiles' : table;
+
+    try {
+      if (action === 'update') {
+        const keys = Object.keys(data);
+        const values = keys.map(k => {
+          if (Array.isArray(data[k]) || (typeof data[k] === 'object' && data[k] !== null)) {
+            return JSON.stringify(data[k]);
+          }
+          return data[k];
+        });
+
+        let sql = `UPDATE ?? SET ` + keys.map(k => `?? = ?`).join(', ');
+        let params = [targetTable];
+        keys.forEach((k, i) => {
+          params.push(k, values[i]);
+        });
+
+        sql += ` WHERE id = ?`;
+        params.push(id);
+
+        await query(sql, params);
+        return res.json({ status: 'success' });
+      }
+      
+      res.status(400).json({ status: 'error', message: 'Unsupported action' });
+    } catch (err) {
+      console.error('GAS Bridge Error:', err);
+      res.status(500).json({ status: 'error', message: err.message });
+    }
+  });
+
   // Vite middleware for development (Removed for production server.cjs)
   const distPath = path.join(process.cwd(), 'dist');
   app.use(express.static(distPath));

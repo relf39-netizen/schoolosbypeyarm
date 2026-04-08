@@ -197,7 +197,7 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     });
 
     const gasCode = `/**
- * SchoolOS - Cloud Storage & Telegram Tracking Bridge v15.1
+ * SchoolOS - Cloud Storage & Telegram Tracking Bridge v17.0 (MySQL Edition)
  * 
  * *** ขั้นตอนสำคัญที่สุด (ต้องทำทุกครั้งที่แก้ไขโค้ด) ***
  * 1. กดปุ่ม "บันทึก" (Ctrl+S)
@@ -207,8 +207,8 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
  * 5. กด "ทำให้ใช้งานได้" (Deploy) และคัดลอก URL ใหม่มาใส่ในแอป
  */
 
-var SUPABASE_URL = "วาง URL Supabase ที่นี่";
-var SUPABASE_KEY = "วาง Anon Key ที่นี่";
+var BRIDGE_URL = "${window.location.origin}/api/gas/bridge";
+var BRIDGE_SECRET = "MySecretKey0930935255";
 
 function A_RUN_ME_FIRST_initialSetup() {
   try {
@@ -230,7 +230,7 @@ function A_RUN_ME_FIRST_initialSetup() {
 }
 
 function doGet(e) {
-  if (e.parameter.check === 'version') return ContentService.createTextOutput("v15.1");
+  if (e.parameter.check === 'version') return ContentService.createTextOutput("v17.0");
   var action = e.parameter.action;
   if (action === 'ack') {
     var docId = e.parameter.docId;
@@ -273,11 +273,11 @@ function doPost(e) {
         var blob = Utilities.newBlob(bytes, data.mimeType, data.fileName);
         var file = folder.createFile(blob);
         
-        // Robust Sharing: ลองแชร์ไฟล์ ถ้าติดนโยบายองค์กรให้ข้ามไป (ไม่ Error จนหยุดทำงาน)
+        // Robust Sharing
         try {
           file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
         } catch (shareErr) {
-          Logger.log("Warning: Could not set sharing to ANYONE_WITH_LINK. This is common in restricted Workspace domains.");
+          Logger.log("Warning: Could not set sharing.");
         }
         
         var directUrl = "https://lh3.googleusercontent.com/d/" + file.getId();
@@ -292,37 +292,33 @@ function doPost(e) {
   }
 }
 
-function testDriveAccess(folderId) {
+/**
+ * ฟังก์ชันส่งข้อมูลไปยังฐานข้อมูล MySQL ผ่าน Server Bridge
+ */
+function logToDatabase(table, action, data, id) {
   try {
-    if (!folderId) return createJsonResponse({'status': 'error', 'message': 'ไม่พบ Folder ID'});
-    var folder = DriveApp.getFolderById(folderId);
-    var folderName = folder.getName();
+    var payload = {
+      secret: BRIDGE_SECRET,
+      action: action,
+      table: table,
+      data: data,
+      id: id
+    };
     
-    // ทดสอบการเขียนไฟล์จริง (Write Test)
-    var testFile = folder.createFile("SchoolOS_Write_Test.txt", "Test at " + new Date().toString());
-    testFile.setTrashed(true);
+    var options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
     
-    return createJsonResponse({'status': 'success', 'message': 'เชื่อมต่อสมบูรณ์! อ่าน/เขียนโฟลเดอร์ "' + folderName + '" ได้ปกติ'});
+    var response = UrlFetchApp.fetch(BRIDGE_URL, options);
+    var result = JSON.parse(response.getContentText());
+    Logger.log("Bridge Response: " + JSON.stringify(result));
+    return result;
   } catch (e) {
-    var errStr = e.toString();
-    var msg = "ไม่สามารถเข้าถึง DriveApp ได้";
-    if (errStr.indexOf("Permission") !== -1 || errStr.indexOf("not authorized") !== -1 || errStr.indexOf("Access denied") !== -1) {
-      msg = "ไม่ได้รับอนุญาต (Permission Denied) กรุณารัน initialSetup และ Redeploy เป็น New Version";
-    } else if (errStr.indexOf("not found") !== -1) {
-      msg = "ไม่พบโฟลเดอร์ (Folder ID ไม่ถูกต้อง)";
-    }
-    return createJsonResponse({'status': 'error', 'message': msg + "\\nรายละเอียด: " + errStr});
-  }
-}
-
-function fetchRemoteFile(url) {
-  try {
-    var response = UrlFetchApp.fetch(url);
-    var blob = response.getBlob();
-    var base64 = Utilities.base64Encode(blob.getBytes());
-    return createJsonResponse({ 'status': 'success', 'fileData': base64, 'mimeType': blob.getContentType() });
-  } catch (e) {
-    return createJsonResponse({ 'status': 'error', 'message': e.toString() });
+    Logger.log("Bridge Error: " + e.toString());
+    return { status: 'error', message: e.toString() };
   }
 }
 
@@ -335,21 +331,38 @@ function handleTelegramWebhook(msg) {
       var parts = text.split(" ");
       if (parts.length > 1) {
         var citizenId = parts[1].trim();
-        var url = SUPABASE_URL + "/rest/v1/profiles?id=eq." + citizenId;
-        UrlFetchApp.fetch(url, { 
-          "method": "patch", 
-          "headers": { 
-            "apikey": SUPABASE_KEY, 
-            "Authorization": "Bearer " + SUPABASE_KEY, 
-            "Content-Type": "application/json" 
-          }, 
-          "payload": JSON.stringify({ "telegram_chat_id": chatId }) 
-        });
+        // บันทึก Telegram Chat ID ลงฐานข้อมูล MySQL ผ่าน Bridge
+        logToDatabase('teachers', 'update', { telegram_chat_id: chatId }, citizenId);
       }
     }
   } catch (e) {
+    Logger.log("Webhook Error: " + e.toString());
   }
   return ContentService.createTextOutput("ok");
+}
+
+function testDriveAccess(folderId) {
+  try {
+    if (!folderId) return createJsonResponse({'status': 'error', 'message': 'ไม่พบ Folder ID'});
+    var folder = DriveApp.getFolderById(folderId);
+    var folderName = folder.getName();
+    var testFile = folder.createFile("SchoolOS_Write_Test.txt", "Test at " + new Date().toString());
+    testFile.setTrashed(true);
+    return createJsonResponse({'status': 'success', 'message': 'เชื่อมต่อสมบูรณ์! อ่าน/เขียนโฟลเดอร์ "' + folderName + '" ได้ปกติ'});
+  } catch (e) {
+    return createJsonResponse({'status': 'error', 'message': e.toString()});
+  }
+}
+
+function fetchRemoteFile(url) {
+  try {
+    var response = UrlFetchApp.fetch(url);
+    var blob = response.getBlob();
+    var base64 = Utilities.base64Encode(blob.getBytes());
+    return createJsonResponse({ 'status': 'success', 'fileData': base64, 'mimeType': blob.getContentType() });
+  } catch (e) {
+    return createJsonResponse({ 'status': 'error', 'message': e.toString() });
+  }
 }
 
 function sendMessage(token, chatId, text) {
@@ -760,8 +773,8 @@ function setTelegramWebhook() {
             
             if (text.includes('<!DOCTYPE html>')) {
                 alert("❌ ตรวจสอบล้มเหลว: เซิร์ฟเวอร์ส่งคืนหน้าเว็บ HTML\n\nสาเหตุ: ท่านอาจยังไม่ได้ตั้งค่าการ Deploy เป็น 'Anyone' (ทุกคน)");
-            } else if (text.trim() === 'v15.0') {
-                alert("✅ ตรวจสอบสำเร็จ: สคริปต์ของท่านเป็นเวอร์ชันล่าสุด (v15.0)");
+            } else if (text.trim() === 'v17.0') {
+                alert("✅ ตรวจสอบสำเร็จ: สคริปต์ของท่านเป็นเวอร์ชันล่าสุด (v17.0)");
             } else {
                 alert(`⚠️ เวอร์ชันไม่ตรงกัน: สคริปต์ที่รันอยู่คือ ${text.trim() || 'ไม่ทราบเวอร์ชัน'}\n\nกรุณา Copy โค้ดใหม่ไปวาง และ 'Redeploy' เป็น 'รุ่นใหม่' (New Version)`);
             }
@@ -1562,20 +1575,20 @@ function setTelegramWebhook() {
                         </div>
 
                         <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-white rounded-[2rem] p-8 md:p-12 shadow-sm relative overflow-hidden">
-                            <div className="relative z-10"><div className="flex items-center gap-6 mb-10"><div className="p-6 bg-emerald-600 text-white rounded-2xl shadow-lg"><Cloud size={36}/></div><div><h3 className="text-2xl font-black text-emerald-900 tracking-tight leading-none mb-1">Direct Tracking Bridge v14.0</h3><p className="text-emerald-600 font-bold text-[10px] uppercase tracking-widest mt-1">Direct Access Protocol for Documents</p></div></div>
+                            <div className="relative z-10"><div className="flex items-center gap-6 mb-10"><div className="p-6 bg-emerald-600 text-white rounded-2xl shadow-lg"><Cloud size={36}/></div><div><h3 className="text-2xl font-black text-emerald-900 tracking-tight leading-none mb-1">Direct Tracking Bridge v17.0</h3><p className="text-emerald-600 font-bold text-[10px] uppercase tracking-widest mt-1">Direct Access Protocol for Documents</p></div></div>
                                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-10">
                                     <div className="space-y-8"><div className="p-6 bg-white rounded-xl border-l-8 border-blue-600 shadow-sm"><p className="text-slate-700 text-base leading-relaxed font-bold">เพื่อให้บุคลากรสามารถ <b>"พรีวิวไฟล์และรับทราบได้ทันทีผ่าน Telegram"</b> ต้องนำโค้ดด้านข้างไปติดตั้งใน Google Apps Script ครับ</p></div>
                                         <div className="space-y-6"><h4 className="text-[11px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-3"><ChevronRight className="text-emerald-500" size={24}/> Workflow การติดตั้งใช้งาน</h4>
                                             <ol className="space-y-4 text-sm text-slate-600 pl-6 list-decimal font-bold">
                                                 <li className="pl-2">เปิด <a href="https://script.google.com" target="_blank" className="text-blue-600 underline font-black hover:text-blue-800 transition-all">Google Apps Script Console</a></li>
                                                 <li className="pl-2">ลบโค้ดเดิมใน <code className="bg-slate-100 px-2 font-mono">Code.gs</code> ออกแล้ววางโค้ดที่คัดลอกไปลงแทน</li>
-                                                <li className="pl-2">ระบุ <code className="bg-slate-200 px-2 py-0.5 rounded text-blue-800">SUPABASE_URL</code> และ <code className="bg-slate-200 px-2 py-0.5 rounded text-blue-800">SUPABASE_KEY</code></li>
+                                                <li className="pl-2">โค้ดชุดนี้จะเชื่อมต่อกับ MySQL อัตโนมัติผ่าน <b>Bridge URL</b> ที่ระบุไว้ในโค้ด</li>
                                                 <li className="pl-2">กดปุ่ม <b>Deploy &gt; New Deployment</b> เลือกประเภท <b>Web App</b></li>
                                                 <li className="pl-2">ตั้งค่า Execute as: <b>Me</b> และ Who has access: <b>Anyone</b></li>
                                                 <li className="pl-2">คัดลอก URL ของ Web App ที่ได้มาใส่ในเมนู <b>"การเชื่อมต่อ"</b></li>
                                                 <li className="pl-2 text-rose-600 font-black"><b>สำคัญมาก:</b> ต้องเลือกฟังก์ชัน <code className="bg-rose-100 px-1">A_RUN_ME_FIRST_initialSetup</code> แล้วกด <b>Run</b> ก่อน</li>
                                                 <li className="pl-2 text-blue-600 font-black"><b>หลังจาก Run สำเร็จ:</b> ต้องกด <b>Deploy</b> อีกครั้งและเลือก <b>New Version</b> เพื่ออัปเดตสิทธิ์</li>
-                                                <li className="pl-2 text-emerald-600 font-black"><b>ตรวจสอบ:</b> กดปุ่ม "ตรวจสอบเวอร์ชันสคริปต์" ด้านล่าง ต้องเป็น <b>v14.0</b></li>
+                                                <li className="pl-2 text-emerald-600 font-black"><b>ตรวจสอบ:</b> กดปุ่ม "ตรวจสอบเวอร์ชันสคริปต์" ด้านล่าง ต้องเป็น <b>v17.0</b></li>
                                             </ol>
                                             <div className="pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                 <button 
