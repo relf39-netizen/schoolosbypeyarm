@@ -21,11 +21,20 @@ async function runBuild() {
       build: {
         outDir: 'dist',
         emptyOutDir: true,
+        chunkSizeWarningLimit: 1000, // ขยายขีดจำกัดคำเตือนเป็น 1000kB
         commonjsOptions: {
           transformMixedEsModules: true
         },
         rollupOptions: {
           input: path.resolve(__dirname, 'index.html'),
+          output: {
+            // แยก Library หลักๆ ออกเป็นไฟล์ต่างหากเพื่อลดขนาดไฟล์ index และลบคำเตือน
+            manualChunks: {
+              'vendor-react': ['react', 'react-dom'],
+              'vendor-ui': ['lucide-react', 'framer-motion'],
+              'vendor-utils': ['xlsx', 'pdf-lib']
+            }
+          }
         }
       },
       // บังคับให้ esbuild ทำงานเฉพาะในโฟลเดอร์นี้
