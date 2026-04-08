@@ -95,7 +95,21 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
         motherName: '',
         guardianName: '',
         medicalConditions: '',
-        photoUrl: ''
+        photoUrl: '',
+        studentId: '',
+        nationalId: '',
+        title: '',
+        firstName: '',
+        lastName: '',
+        gender: '',
+        birthday: '',
+        age: 0,
+        weight: 0,
+        height: 0,
+        bloodType: '',
+        religion: '',
+        nationality: '',
+        ethnicity: ''
     });
     const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
     const [newClassName, setNewClassName] = useState('');
@@ -534,7 +548,13 @@ function setTelegramWebhook() {
                 setStudents(studentsData.map((s: any) => ({
                     id: s.id,
                     schoolId: s.school_id,
+                    studentId: s.student_id,
+                    nationalId: s.national_id,
+                    title: s.title,
+                    firstName: s.first_name,
+                    lastName: s.last_name,
                     name: s.name,
+                    gender: s.gender,
                     currentClass: s.current_class,
                     academicYear: s.academic_year,
                     isActive: s.is_active,
@@ -547,6 +567,14 @@ function setTelegramWebhook() {
                     fatherName: s.father_name,
                     motherName: s.mother_name,
                     guardianName: s.guardian_name,
+                    birthday: s.birthday,
+                    age: s.age,
+                    weight: s.weight,
+                    height: s.height,
+                    bloodType: s.blood_type,
+                    religion: s.religion,
+                    nationality: s.nationality,
+                    ethnicity: s.ethnicity,
                     medicalConditions: s.medical_conditions,
                     familyAnnualIncome: s.family_annual_income,
                     location: (s.lat && s.lng) ? { lat: s.lat, lng: s.lng } : undefined
@@ -580,6 +608,20 @@ function setTelegramWebhook() {
             const { data, error } = await supabase
                 .from('students')
                 .insert([{
+                    student_id: newStudentForm.studentId,
+                    national_id: newStudentForm.nationalId,
+                    title: newStudentForm.title,
+                    first_name: newStudentForm.firstName,
+                    last_name: newStudentForm.lastName,
+                    gender: newStudentForm.gender,
+                    birthday: newStudentForm.birthday,
+                    age: newStudentForm.age,
+                    weight: newStudentForm.weight,
+                    height: newStudentForm.height,
+                    blood_type: newStudentForm.bloodType,
+                    religion: newStudentForm.religion,
+                    nationality: newStudentForm.nationality,
+                    ethnicity: newStudentForm.ethnicity,
                     school_id: currentSchool.id,
                     name: newStudentForm.name,
                     current_class: newStudentForm.currentClass,
@@ -613,7 +655,21 @@ function setTelegramWebhook() {
                     motherName: '',
                     guardianName: '',
                     medicalConditions: '',
-                    photoUrl: ''
+                    photoUrl: '',
+                    studentId: '',
+                    nationalId: '',
+                    title: '',
+                    firstName: '',
+                    lastName: '',
+                    gender: '',
+                    birthday: '',
+                    age: 0,
+                    weight: 0,
+                    height: 0,
+                    bloodType: '',
+                    religion: '',
+                    nationality: '',
+                    ethnicity: ''
                 });
                 alert('เพิ่มนักเรียนสำเร็จ');
             }
@@ -628,6 +684,20 @@ function setTelegramWebhook() {
             const { error } = await supabase
                 .from('students')
                 .update({
+                    student_id: selectedStudent.studentId,
+                    national_id: selectedStudent.nationalId,
+                    title: selectedStudent.title,
+                    first_name: selectedStudent.firstName,
+                    last_name: selectedStudent.lastName,
+                    gender: selectedStudent.gender,
+                    birthday: selectedStudent.birthday,
+                    age: selectedStudent.age,
+                    weight: selectedStudent.weight,
+                    height: selectedStudent.height,
+                    blood_type: selectedStudent.bloodType,
+                    religion: selectedStudent.religion,
+                    nationality: selectedStudent.nationality,
+                    ethnicity: selectedStudent.ethnicity,
                     name: selectedStudent.name,
                     current_class: selectedStudent.currentClass,
                     photo_url: selectedStudent.photoUrl,
@@ -761,24 +831,93 @@ function setTelegramWebhook() {
             const bstr = evt.target?.result;
             const wb = XLSX.read(bstr, { type: 'binary' });
             const ws = wb.Sheets[wb.SheetNames[0]];
-            const data = XLSX.utils.sheet_to_json(ws) as any[];
-            const toInsert = data.map(row => ({
-                school_id: currentSchool.id,
-                name: row.name || row['ชื่อ-นามสกุล'] || row['ชื่อ'] || row['ชื่อนักเรียน'],
-                current_class: row.class || row['ชั้น'] || row['ห้อง'] || row['ระดับชั้น'] || row['ชั้นเรียน'],
-                academic_year: currentAcademicYear || (new Date().getFullYear() + 543).toString(),
-                is_active: true,
-                address: row.address || row['ที่อยู่'],
-                phone_number: row.phoneNumber || row['เบอร์โทร'] || row['เบอร์โทรศัพท์'],
-                father_name: row.fatherName || row['ชื่อบิดา'],
-                mother_name: row.motherName || row['ชื่อมารดา'],
-                guardian_name: row.guardianName || row['ชื่อผู้ปกครอง'],
-                medical_conditions: row.medicalConditions || row['โรคประจำตัว'] || row['แพ้อาหาร']
-            })).filter(s => s.name && s.current_class);
+            
+            // DMC files often have metadata in the first few rows. 
+            // We try to find the header row by looking for common keywords.
+            const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+            let headerRowIndex = -1;
+            const dmcKeywords = ['เลขประจำตัวประชาชน', 'เลขประจำตัวนักเรียน', 'ชั้น', 'ชื่อ', 'นามสกุล'];
+            
+            for (let i = 0; i < Math.min(rawData.length, 10); i++) {
+                const row = rawData[i];
+                if (row && row.some(cell => typeof cell === 'string' && dmcKeywords.some(k => cell.includes(k)))) {
+                    headerRowIndex = i;
+                    break;
+                }
+            }
+
+            let data: any[] = [];
+            if (headerRowIndex !== -1) {
+                // If we found a DMC-like header, use it
+                const headers = rawData[headerRowIndex];
+                data = rawData.slice(headerRowIndex + 1).map(row => {
+                    const obj: any = {};
+                    headers.forEach((h, idx) => {
+                        if (h) obj[h] = row[idx];
+                    });
+                    return obj;
+                });
+            } else {
+                // Fallback to standard sheet_to_json
+                data = XLSX.utils.sheet_to_json(ws) as any[];
+            }
+
+            const toInsert = data.map(row => {
+                // Mapping DMC and common variations
+                const nationalId = row['เลขประจำตัวประชาชน'] || row['เลขบัตรประชาชน'] || row.nationalId;
+                const studentId = row['เลขประจำตัวนักเรียน'] || row.studentId;
+                const title = row['คำนำหน้าชื่อ'] || row.title;
+                const firstName = row['ชื่อ'] || row.firstName;
+                const lastName = row['นามสกุล'] || row.lastName;
+                const gender = row['เพศ'] || row.gender;
+                const level = row['ชั้น'] || row['ระดับชั้น'] || row.level;
+                const room = row['ห้อง'] || row.room;
+                
+                // Construct Full Name
+                let fullName = row.name || row['ชื่อ-นามสกุล'] || row['ชื่อนักเรียน'];
+                if (!fullName && firstName && lastName) {
+                    fullName = `${title || ''}${firstName} ${lastName}`.trim();
+                }
+
+                // Construct Class Name (e.g., ป.1/1)
+                let className = row.class || row['ชั้นเรียน'] || row.currentClass;
+                if (!className && level) {
+                    className = room ? `${level}/${room}` : level;
+                }
+
+                return {
+                    school_id: currentSchool.id,
+                    student_id: studentId,
+                    national_id: nationalId,
+                    title: title,
+                    first_name: firstName,
+                    last_name: lastName,
+                    name: fullName,
+                    gender: gender,
+                    current_class: className,
+                    academic_year: currentAcademicYear || (new Date().getFullYear() + 543).toString(),
+                    is_active: true,
+                    birthday: row['วันเกิด'] || row.birthday,
+                    age: row['อายุ'] || row.age,
+                    weight: row['น้ำหนัก'] || row.weight,
+                    height: row['ส่วนสูง'] || row.height,
+                    blood_type: row['หมู่เลือด'] || row.bloodType,
+                    religion: row['ศาสนา'] || row.religion,
+                    nationality: row['สัญชาติ'] || row.nationality,
+                    ethnicity: row['เชื้อชาติ'] || row.ethnicity,
+                    address: row['ที่อยู่'] || row.address,
+                    phone_number: row['เบอร์โทร'] || row['เบอร์โทรศัพท์'] || row.phoneNumber,
+                    father_name: row['ชื่อบิดา'] || row.fatherName,
+                    mother_name: row['ชื่อมารดา'] || row.motherName,
+                    guardian_name: row['ชื่อผู้ปกครอง'] || row.guardianName,
+                    medical_conditions: row['โรคประจำตัว'] || row['แพ้อาหาร'] || row.medicalConditions
+                };
+            }).filter(s => s.name && s.current_class);
             
             if (toInsert.length > 0) {
                 const order = ['อนุบาล 1', 'อนุบาล 2', 'อนุบาล 3', 'อ.1', 'อ.2', 'อ.3', 'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6', 'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'];
                 const getLevel = (name: string) => {
+                    if (!name) return 999;
                     const normalized = name.replace(/[\s.]/g, '');
                     for (let i = 0; i < order.length; i++) {
                         const normalizedOrder = order[i].replace(/[\s.]/g, '');
@@ -794,7 +933,7 @@ function setTelegramWebhook() {
                 });
                 setImportPreview(toInsert);
             } else {
-                alert('ไม่พบข้อมูลที่ถูกต้องในไฟล์');
+                alert('ไม่พบข้อมูลที่ถูกต้องในไฟล์ (ต้องการอย่างน้อย ชื่อ และ ชั้นเรียน)');
             }
             // Reset input
             e.target.value = '';
@@ -1480,7 +1619,11 @@ function setTelegramWebhook() {
                                                         </td>
                                                         <td className="px-6 py-4">
                                                             <p className="font-bold text-slate-700 leading-none mb-1">{s.name}</p>
-                                                            <p className="text-[9px] font-mono text-slate-300">ID: {s.id}</p>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                <p className="text-[9px] font-mono text-slate-300">ID: {s.id}</p>
+                                                                {s.studentId && <p className="text-[9px] font-mono text-indigo-400">SID: {s.studentId}</p>}
+                                                                {s.nationalId && <p className="text-[9px] font-mono text-emerald-400">NID: {s.nationalId}</p>}
+                                                            </div>
                                                         </td>
                                                         <td className="px-6 py-4">
                                                             <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-indigo-100">{s.currentClass}</span>
@@ -1949,17 +2092,83 @@ function setTelegramWebhook() {
                             </div>
                         </div>
 
-                        <div className="space-y-4">
-                            <div>
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อ-นามสกุล</label>
-                                <input type="text" value={newStudentForm.name} onChange={e => setNewStudentForm({...newStudentForm, name: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                        <div className="space-y-6">
+                            {/* ข้อมูลพื้นฐาน */}
+                            <div className="space-y-4">
+                                <h4 className="text-[10px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2">
+                                    <User size={14}/> ข้อมูลพื้นฐาน
+                                </h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">เลขประจำตัวนักเรียน</label>
+                                        <input type="text" value={newStudentForm.studentId} onChange={e => setNewStudentForm({...newStudentForm, studentId: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">เลขประจำตัวประชาชน</label>
+                                        <input type="text" value={newStudentForm.nationalId} onChange={e => setNewStudentForm({...newStudentForm, nationalId: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อ-นามสกุล</label>
+                                    <input type="text" value={newStudentForm.name} onChange={e => setNewStudentForm({...newStudentForm, name: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชั้นเรียน</label>
+                                        <select value={newStudentForm.currentClass} onChange={e => setNewStudentForm({...newStudentForm, currentClass: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner">
+                                            <option value="">-- เลือกชั้นเรียน --</option>
+                                            {sortedClassRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">เพศ</label>
+                                        <select value={newStudentForm.gender} onChange={e => setNewStudentForm({...newStudentForm, gender: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner">
+                                            <option value="">-- เลือกเพศ --</option>
+                                            <option value="ชาย">ชาย</option>
+                                            <option value="หญิง">หญิง</option>
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
-                            <div>
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชั้นเรียน</label>
-                                <select value={newStudentForm.currentClass} onChange={e => setNewStudentForm({...newStudentForm, currentClass: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner">
-                                    <option value="">-- เลือกชั้นเรียน --</option>
-                                    {sortedClassRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                                </select>
+
+                            {/* ข้อมูลสุขภาพ */}
+                            <div className="space-y-4 pt-4 border-t border-slate-100">
+                                <h4 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-2">
+                                    <Activity size={14}/> ข้อมูลสุขภาพ
+                                </h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">น้ำหนัก (กก.)</label>
+                                        <input type="number" value={newStudentForm.weight} onChange={e => setNewStudentForm({...newStudentForm, weight: parseFloat(e.target.value)})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ส่วนสูง (ซม.)</label>
+                                        <input type="number" value={newStudentForm.height} onChange={e => setNewStudentForm({...newStudentForm, height: parseFloat(e.target.value)})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">โรคประจำตัว/ประวัติการแพ้</label>
+                                    <textarea value={newStudentForm.medicalConditions} onChange={e => setNewStudentForm({...newStudentForm, medicalConditions: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner h-20"/>
+                                </div>
+                            </div>
+
+                            {/* ข้อมูลครอบครัว */}
+                            <div className="space-y-4 pt-4 border-t border-slate-100">
+                                <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2">
+                                    <Users size={14}/> ข้อมูลครอบครัว
+                                </h4>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อบิดา</label>
+                                    <input type="text" value={newStudentForm.fatherName} onChange={e => setNewStudentForm({...newStudentForm, fatherName: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อมารดา</label>
+                                    <input type="text" value={newStudentForm.motherName} onChange={e => setNewStudentForm({...newStudentForm, motherName: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">เบอร์โทรศัพท์ติดต่อ</label>
+                                    <input type="text" value={newStudentForm.phoneNumber} onChange={e => setNewStudentForm({...newStudentForm, phoneNumber: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                </div>
                             </div>
                             <div className="pt-4 border-t border-slate-50">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">หรือนำเข้าจาก Excel</label>
@@ -2019,16 +2228,82 @@ function setTelegramWebhook() {
                             </div>
                         </div>
 
-                        <div className="space-y-4">
-                            <div>
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อ-นามสกุล</label>
-                                <input type="text" value={selectedStudent.name} onChange={e => setSelectedStudent({...selectedStudent, name: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner"/>
+                        <div className="space-y-6">
+                            {/* ข้อมูลพื้นฐาน */}
+                            <div className="space-y-4">
+                                <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2">
+                                    <User size={14}/> ข้อมูลพื้นฐาน
+                                </h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">เลขประจำตัวนักเรียน</label>
+                                        <input type="text" value={selectedStudent.studentId} onChange={e => setSelectedStudent({...selectedStudent, studentId: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner"/>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">เลขประจำตัวประชาชน</label>
+                                        <input type="text" value={selectedStudent.nationalId} onChange={e => setSelectedStudent({...selectedStudent, nationalId: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner"/>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อ-นามสกุล</label>
+                                    <input type="text" value={selectedStudent.name} onChange={e => setSelectedStudent({...selectedStudent, name: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner"/>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชั้นเรียน</label>
+                                        <select value={selectedStudent.currentClass} onChange={e => setSelectedStudent({...selectedStudent, currentClass: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner">
+                                            {sortedClassRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">เพศ</label>
+                                        <select value={selectedStudent.gender} onChange={e => setSelectedStudent({...selectedStudent, gender: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner">
+                                            <option value="">-- เลือกเพศ --</option>
+                                            <option value="ชาย">ชาย</option>
+                                            <option value="หญิง">หญิง</option>
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
-                            <div>
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชั้นเรียน</label>
-                                <select value={selectedStudent.currentClass} onChange={e => setSelectedStudent({...selectedStudent, currentClass: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner">
-                                    {sortedClassRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                                </select>
+
+                            {/* ข้อมูลสุขภาพ */}
+                            <div className="space-y-4 pt-4 border-t border-slate-100">
+                                <h4 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-2">
+                                    <Activity size={14}/> ข้อมูลสุขภาพ
+                                </h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">น้ำหนัก (กก.)</label>
+                                        <input type="number" value={selectedStudent.weight} onChange={e => setSelectedStudent({...selectedStudent, weight: parseFloat(e.target.value)})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner"/>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ส่วนสูง (ซม.)</label>
+                                        <input type="number" value={selectedStudent.height} onChange={e => setSelectedStudent({...selectedStudent, height: parseFloat(e.target.value)})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner"/>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">โรคประจำตัว/ประวัติการแพ้</label>
+                                    <textarea value={selectedStudent.medicalConditions} onChange={e => setSelectedStudent({...selectedStudent, medicalConditions: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner h-20"/>
+                                </div>
+                            </div>
+
+                            {/* ข้อมูลครอบครัว */}
+                            <div className="space-y-4 pt-4 border-t border-slate-100">
+                                <h4 className="text-[10px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2">
+                                    <Users size={14}/> ข้อมูลครอบครัว
+                                </h4>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อบิดา</label>
+                                    <input type="text" value={selectedStudent.fatherName} onChange={e => setSelectedStudent({...selectedStudent, fatherName: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner"/>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อมารดา</label>
+                                    <input type="text" value={selectedStudent.motherName} onChange={e => setSelectedStudent({...selectedStudent, motherName: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner"/>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">เบอร์โทรศัพท์ติดต่อ</label>
+                                    <input type="text" value={selectedStudent.phoneNumber} onChange={e => setSelectedStudent({...selectedStudent, phoneNumber: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner"/>
+                                </div>
                             </div>
                         </div>
                         <div className="flex gap-3 pt-8 mt-8 border-t border-slate-100">

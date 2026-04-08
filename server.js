@@ -223,7 +223,13 @@ async function startServer() {
         `CREATE TABLE IF NOT EXISTS students (
           id VARCHAR(36) PRIMARY KEY,
           school_id VARCHAR(255),
+          student_id VARCHAR(255),
+          national_id VARCHAR(255),
+          title VARCHAR(255),
+          first_name VARCHAR(255),
+          last_name VARCHAR(255),
           name VARCHAR(255) NOT NULL,
+          gender VARCHAR(255),
           current_class VARCHAR(255) NOT NULL,
           academic_year VARCHAR(255) NOT NULL,
           is_active BOOLEAN DEFAULT TRUE,
@@ -234,6 +240,14 @@ async function startServer() {
           father_name VARCHAR(255),
           mother_name VARCHAR(255),
           guardian_name VARCHAR(255),
+          birthday VARCHAR(255),
+          age INT,
+          weight FLOAT,
+          height FLOAT,
+          blood_type VARCHAR(255),
+          religion VARCHAR(255),
+          nationality VARCHAR(255),
+          ethnicity VARCHAR(255),
           medical_conditions TEXT,
           photo_url TEXT,
           address TEXT,
@@ -371,6 +385,12 @@ async function startServer() {
         {
           table: 'students',
           columns: [
+            { name: 'student_id', type: 'VARCHAR(255)' },
+            { name: 'national_id', type: 'VARCHAR(255)' },
+            { name: 'title', type: 'VARCHAR(255)' },
+            { name: 'first_name', type: 'VARCHAR(255)' },
+            { name: 'last_name', type: 'VARCHAR(255)' },
+            { name: 'gender', type: 'VARCHAR(255)' },
             { name: 'is_alumni', type: 'BOOLEAN DEFAULT FALSE' },
             { name: 'graduation_year', type: 'VARCHAR(255)' },
             { name: 'batch_number', type: 'VARCHAR(255)' },
@@ -378,6 +398,14 @@ async function startServer() {
             { name: 'father_name', type: 'VARCHAR(255)' },
             { name: 'mother_name', type: 'VARCHAR(255)' },
             { name: 'guardian_name', type: 'VARCHAR(255)' },
+            { name: 'birthday', type: 'VARCHAR(255)' },
+            { name: 'age', type: 'INT' },
+            { name: 'weight', type: 'FLOAT' },
+            { name: 'height', type: 'FLOAT' },
+            { name: 'blood_type', type: 'VARCHAR(255)' },
+            { name: 'religion', type: 'VARCHAR(255)' },
+            { name: 'nationality', type: 'VARCHAR(255)' },
+            { name: 'ethnicity', type: 'VARCHAR(255)' },
             { name: 'medical_conditions', type: 'TEXT' },
             { name: 'photo_url', type: 'TEXT' },
             { name: 'address', type: 'TEXT' },
@@ -419,17 +447,26 @@ async function startServer() {
         }
       ];
 
+      const updatedTables = [];
       for (const m of migrations) {
+        let tableUpdated = false;
         for (const col of m.columns) {
           try {
             await query(`ALTER TABLE ?? ADD COLUMN ?? ${col.type}`, [m.table, col.name]);
+            tableUpdated = true;
           } catch (e) {
             // Ignore if column already exists
           }
         }
+        if (tableUpdated) updatedTables.push(m.table);
       }
 
-      res.json({ success: true, message: 'Database schema updated successfully' });
+      res.json({ 
+        success: true, 
+        message: updatedTables.length > 0 
+          ? `ปรับปรุงโครงสร้างตาราง: ${updatedTables.join(', ')} เรียบร้อยแล้ว` 
+          : 'โครงสร้างฐานข้อมูลเป็นปัจจุบันอยู่แล้ว' 
+      });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Failed to initialize database' });

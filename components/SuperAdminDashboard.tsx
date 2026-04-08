@@ -5,7 +5,8 @@ import {
     Loader2, ShieldCheck, Save, Shield, 
     Search, Users, Power, PowerOff, 
     ArrowLeft, Edit, Key, User as UserIcon, Eye, EyeOff,
-    Clock, Check, ShieldPlus, UserMinus
+    Clock, Check, ShieldPlus, UserMinus,
+    Database, RefreshCw, Zap
 } from 'lucide-react';
 import { supabase, isConfigured as isSupabaseConfigured } from '../supabaseClient';
 
@@ -427,12 +428,55 @@ const MigrationTool: React.FC = () => {
     };
 
     return (
-        <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 p-8 space-y-8">
-            <div className="text-center">
-                <div className="w-16 h-16 bg-blue-600 text-white rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-xl"><Power size={32}/></div>
-                <h2 className="text-xl font-black">Supabase Data Migration</h2>
-                <p className="text-xs text-slate-400 font-bold">ย้ายข้อมูลจาก Supabase เดิม มายัง MySQL ใหม่</p>
+        <div className="space-y-8">
+            <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 p-8 space-y-8">
+                <div className="text-center">
+                    <div className="w-16 h-16 bg-indigo-600 text-white rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-xl"><Database size={32}/></div>
+                    <h2 className="text-xl font-black">Database Improvement</h2>
+                    <p className="text-xs text-slate-400 font-bold">ปรับปรุงโครงสร้างฐานข้อมูลให้รองรับข้อมูล DMC</p>
+                </div>
+
+                <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 space-y-3">
+                    <h4 className="text-xs font-black text-indigo-700 uppercase tracking-widest flex items-center gap-2">
+                        <RefreshCw size={14}/> รายละเอียดการปรับปรุง
+                    </h4>
+                    <p className="text-[11px] text-indigo-600 font-bold leading-relaxed">
+                        ระบบจะทำการตรวจสอบตารางและคอลัมน์ในฐานข้อมูล MySQL หากพบว่ามีตารางหรือคอลัมน์ใดที่จำเป็นสำหรับการนำเข้าข้อมูล DMC ขาดหายไป ระบบจะทำการเพิ่มให้โดยอัตโนมัติ โดยไม่กระทบต่อข้อมูลเดิมที่มีอยู่
+                    </p>
+                    <ul className="text-[10px] text-indigo-500 space-y-1 list-disc ml-4 font-bold">
+                        <li>เพิ่มคอลัมน์ในตาราง students (เลขประจำตัว, เลขบัตรประชาชน, ข้อมูลสุขภาพ ฯลฯ)</li>
+                        <li>ตรวจสอบและสร้างตารางพื้นฐานที่จำเป็น</li>
+                        <li>ปรับปรุงโครงสร้างให้ตรงกับมาตรฐาน DMC ล่าสุด</li>
+                    </ul>
+                </div>
+
+                <button 
+                    onClick={async () => {
+                        if(!confirm("ยืนยันการปรับปรุงโครงสร้างฐานข้อมูล?")) return;
+                        try {
+                            const res = await fetch('/api/init-db', { method: 'POST' });
+                            const data = await res.json();
+                            if(data.success) {
+                                alert(data.message);
+                            } else {
+                                alert("เกิดข้อผิดพลาด: " + data.error);
+                            }
+                        } catch (e) {
+                            alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้");
+                        }
+                    }}
+                    className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black text-sm shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 active:scale-95"
+                >
+                    <Zap size={20}/> เริ่มกระบวนการปรับปรุงฐานข้อมูล
+                </button>
             </div>
+
+            <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 p-8 space-y-8">
+                <div className="text-center">
+                    <div className="w-16 h-16 bg-blue-600 text-white rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-xl"><Power size={32}/></div>
+                    <h2 className="text-xl font-black">Supabase Data Migration</h2>
+                    <p className="text-xs text-slate-400 font-bold">ย้ายข้อมูลจาก Supabase เดิม มายัง MySQL ใหม่</p>
+                </div>
 
             <div className="space-y-4">
                 <div>
@@ -473,7 +517,8 @@ const MigrationTool: React.FC = () => {
                 </div>
             )}
         </div>
-    );
+    </div>
+);
 };
 
 export default SuperAdminDashboard;

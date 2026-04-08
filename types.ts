@@ -281,7 +281,13 @@ export interface AcademicSAR {
 export interface Student {
   id: string;
   schoolId: string;
-  name: string;
+  studentId?: string; // เลขประจำตัวนักเรียน
+  nationalId?: string; // เลขประจำตัวประชาชน
+  title?: string; // คำนำหน้าชื่อ
+  firstName?: string; // ชื่อ
+  lastName?: string; // นามสกุล
+  name: string; // ชื่อ-นามสกุล (Full Name)
+  gender?: string; // เพศ
   currentClass: string; // e.g., "Prathom 1/1"
   academicYear: string; // e.g., "2567"
   isActive: boolean;
@@ -299,6 +305,14 @@ export interface Student {
   fatherName?: string;
   motherName?: string;
   guardianName?: string;
+  birthday?: string; // วันเกิด
+  age?: number; // อายุ
+  weight?: number; // น้ำหนัก
+  height?: number; // ส่วนสูง
+  bloodType?: string; // หมู่เลือด
+  religion?: string; // ศาสนา
+  nationality?: string; // สัญชาติ
+  ethnicity?: string; // เชื้อชาติ
   medicalConditions?: string;
   familyAnnualIncome?: number;
   location?: { lat: number; lng: number };
