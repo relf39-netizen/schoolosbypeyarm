@@ -1,15 +1,11 @@
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
-const { createServer: createViteServer } = require('vite');
 const path = require('path');
-
-// In CommonJS, __dirname and __filename are already available
-// const MY_SECRET_KEY = process.env.MY_SECRET_KEY;
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000; // iisnode passes the port via process.env.PORT
+  const PORT = process.env.PORT || 3000; 
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
@@ -451,9 +447,12 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});
