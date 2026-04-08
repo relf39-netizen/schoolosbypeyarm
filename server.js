@@ -366,31 +366,70 @@ async function startServer() {
         await query(sql);
       }
 
-      // Migration: Add missing columns to students table if they don't exist
-      const studentColumns = [
-        { name: 'is_alumni', type: 'BOOLEAN DEFAULT FALSE' },
-        { name: 'graduation_year', type: 'VARCHAR(255)' },
-        { name: 'batch_number', type: 'VARCHAR(255)' },
-        { name: 'phone_number', type: 'VARCHAR(255)' },
-        { name: 'father_name', type: 'VARCHAR(255)' },
-        { name: 'mother_name', type: 'VARCHAR(255)' },
-        { name: 'guardian_name', type: 'VARCHAR(255)' },
-        { name: 'medical_conditions', type: 'TEXT' },
-        { name: 'photo_url', type: 'TEXT' },
-        { name: 'address', type: 'TEXT' },
-        { name: 'lat', type: 'FLOAT' },
-        { name: 'lng', type: 'FLOAT' }
+      // Migration: Add missing columns to various tables if they don't exist
+      const migrations = [
+        {
+          table: 'students',
+          columns: [
+            { name: 'is_alumni', type: 'BOOLEAN DEFAULT FALSE' },
+            { name: 'graduation_year', type: 'VARCHAR(255)' },
+            { name: 'batch_number', type: 'VARCHAR(255)' },
+            { name: 'phone_number', type: 'VARCHAR(255)' },
+            { name: 'father_name', type: 'VARCHAR(255)' },
+            { name: 'mother_name', type: 'VARCHAR(255)' },
+            { name: 'guardian_name', type: 'VARCHAR(255)' },
+            { name: 'medical_conditions', type: 'TEXT' },
+            { name: 'photo_url', type: 'TEXT' },
+            { name: 'address', type: 'TEXT' },
+            { name: 'lat', type: 'FLOAT' },
+            { name: 'lng', type: 'FLOAT' }
+          ]
+        },
+        {
+          table: 'schools',
+          columns: [
+            { name: 'is_suspended', type: 'BOOLEAN DEFAULT FALSE' },
+            { name: 'auto_check_out_enabled', type: 'BOOLEAN DEFAULT FALSE' },
+            { name: 'auto_check_out_time', type: 'VARCHAR(255) DEFAULT "16:30"' },
+            { name: 'late_time_threshold', type: 'VARCHAR(255) DEFAULT "08:30"' },
+            { name: 'logo_base_64', type: 'LONGTEXT' }
+          ]
+        },
+        {
+          table: 'profiles',
+          columns: [
+            { name: 'is_suspended', type: 'BOOLEAN DEFAULT FALSE' },
+            { name: 'is_approved', type: 'BOOLEAN DEFAULT FALSE' },
+            { name: 'assigned_classes', type: 'JSON' },
+            { name: 'signature_base_64', type: 'LONGTEXT' },
+            { name: 'telegram_chat_id', type: 'VARCHAR(255)' }
+          ]
+        },
+        {
+          table: 'school_configs',
+          columns: [
+            { name: 'official_garuda_base_64', type: 'LONGTEXT' },
+            { name: 'officer_department', type: 'VARCHAR(255)' },
+            { name: 'internal_departments', type: 'JSON' },
+            { name: 'external_agencies', type: 'JSON' },
+            { name: 'director_signature_base_64', type: 'LONGTEXT' },
+            { name: 'director_signature_scale', type: 'FLOAT DEFAULT 1.0' },
+            { name: 'director_signature_y_offset', type: 'FLOAT DEFAULT 0' }
+          ]
+        }
       ];
 
-      for (const col of studentColumns) {
-        try {
-          await query(`ALTER TABLE students ADD COLUMN ?? ${col.type}`, [col.name]);
-        } catch (e) {
-          // Ignore if column already exists
+      for (const m of migrations) {
+        for (const col of m.columns) {
+          try {
+            await query(`ALTER TABLE ?? ADD COLUMN ?? ${col.type}`, [m.table, col.name]);
+          } catch (e) {
+            // Ignore if column already exists
+          }
         }
       }
 
-      res.json({ success: true, message: 'Database initialized and migrated successfully' });
+      res.json({ success: true, message: 'Database schema updated successfully' });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Failed to initialize database' });

@@ -25,7 +25,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     schools, teachers, onCreateSchool, onUpdateSchool, onDeleteSchool, 
     onUpdateTeacher, onDeleteTeacher, onLogout, onEnterSchool
 }) => {
-    const [activeTab, setActiveTab] = useState<'SCHOOLS' | 'PENDING' | 'ACCOUNT' | 'MIGRATION'>('SCHOOLS');
+    const [activeTab, setActiveTab] = useState<'SCHOOLS' | 'PENDING' | 'ACCOUNT' | 'DATABASE'>('SCHOOLS');
     const [showForm, setShowForm] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
     const [formData, setFormData] = useState<Partial<School>>({ id: '', name: '' });
@@ -174,7 +174,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                             {pendingGlobalUsers.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full animate-pulse">{pendingGlobalUsers.length}</span>}
                         </button>
                         <button onClick={() => { setActiveTab('ACCOUNT'); setSelectedSchoolId(null); }} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'ACCOUNT' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>ตั้งค่าบัญชี</button>
-                        <button onClick={() => { setActiveTab('MIGRATION'); setSelectedSchoolId(null); }} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'MIGRATION' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>ย้ายข้อมูล (Migration)</button>
+                        <button onClick={() => { setActiveTab('DATABASE'); setSelectedSchoolId(null); }} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'DATABASE' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>จัดการฐานข้อมูล</button>
                     </div>
                     <button onClick={onLogout} className="p-2 text-slate-400 hover:text-red-400 transition-colors flex items-center gap-2 font-bold">
                         <span className="text-xs">LOGOUT</span>
@@ -257,8 +257,49 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                     </div>
                 )}
 
-                {activeTab === 'MIGRATION' && (
-                    <div className="animate-fade-in max-w-2xl mx-auto">
+                {activeTab === 'DATABASE' && (
+                    <div className="animate-fade-in space-y-8 max-w-4xl mx-auto">
+                        <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 p-8">
+                            <div className="flex items-center gap-4 mb-6">
+                                <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg">
+                                    <ShieldPlus size={24}/>
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-black text-slate-800">ปรับปรุงโครงสร้างฐานข้อมูล (Database Improvement)</h2>
+                                    <p className="text-xs text-slate-400 font-bold">ตรวจสอบและเพิ่มตารางหรือคอลัมน์ที่ขาดหายไปในระบบ MySQL</p>
+                                </div>
+                            </div>
+                            
+                            <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 mb-8">
+                                <h4 className="text-indigo-900 font-black text-sm mb-2 flex items-center gap-2">
+                                    <Clock size={16}/> รายละเอียดการปรับปรุง
+                                </h4>
+                                <ul className="text-xs text-indigo-700 space-y-1 font-bold list-disc ml-4">
+                                    <li>ตรวจสอบตารางพื้นฐานทั้งหมด (Schools, Profiles, Students, etc.)</li>
+                                    <li>เพิ่มคอลัมน์ใหม่ที่จำเป็นสำหรับการทำงาน (เช่น ข้อมูลสุขภาพนักเรียน, ระบบระงับการใช้งาน)</li>
+                                    <li>ไม่ส่งผลกระทบต่อข้อมูลเดิมที่มีอยู่ในตาราง</li>
+                                    <li>ควรทำทุกครั้งที่มีการอัปเดตเวอร์ชันของระบบ</li>
+                                </ul>
+                            </div>
+
+                            <button 
+                                onClick={async () => {
+                                    if(!confirm("ยืนยันการปรับปรุงโครงสร้างฐานข้อมูล? ระบบจะตรวจสอบและเพิ่มส่วนที่ขาดหายไปโดยอัตโนมัติ")) return;
+                                    try {
+                                        const res = await fetch('/api/init-db', { method: 'POST' });
+                                        const data = await res.json();
+                                        if(data.success) alert("ปรับปรุงฐานข้อมูลสำเร็จ: " + data.message);
+                                        else alert("เกิดข้อผิดพลาด: " + data.error);
+                                    } catch(e) {
+                                        alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้");
+                                    }
+                                }}
+                                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 active:scale-[0.98]"
+                            >
+                                <ShieldPlus size={20}/> เริ่มการปรับปรุงฐานข้อมูล (Run Database Update)
+                            </button>
+                        </div>
+
                         <MigrationTool />
                     </div>
                 )}
@@ -280,26 +321,17 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                             </form>
 
                             <div className="pt-6 border-t border-slate-100">
-                                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 text-center">Database Management</h3>
-                                <button 
-                                    onClick={async () => {
-                                        if(!confirm("ยืนยันการตั้งค่าฐานข้อมูล MySQL? (จะสร้างตารางที่จำเป็นหากยังไม่มี)")) return;
-                                        try {
-                                            const res = await fetch('/api/init-db', { method: 'POST' });
-                                            const data = await res.json();
-                                            if(data.success) alert("ตั้งค่าฐานข้อมูลสำเร็จ: " + data.message);
-                                            else alert("เกิดข้อผิดพลาด: " + data.error);
-                                        } catch(e) {
-                                            alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้");
-                                        }
-                                    }}
-                                    className="w-full py-3 bg-blue-50 text-blue-600 border-2 border-blue-100 rounded-xl font-black text-xs hover:bg-blue-100 transition-all flex items-center justify-center gap-2"
-                                >
-                                    <ShieldPlus size={16}/> ตั้งค่าฐานข้อมูล MySQL (Init DB)
-                                </button>
-                                <p className="mt-2 text-[9px] text-slate-400 text-center font-bold italic">
-                                    * ใช้สำหรับสร้างตารางเริ่มต้นใน MySQL หลังจากเปลี่ยนจาก Supabase
-                                </p>
+                                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 text-center">System Information</h3>
+                                <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <span className="text-[10px] font-black text-slate-400 uppercase">Platform Version</span>
+                                        <span className="text-xs font-black text-slate-600">v1.2.0-stable</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-[10px] font-black text-slate-400 uppercase">Database Engine</span>
+                                        <span className="text-xs font-black text-blue-600">MySQL 8.0</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
