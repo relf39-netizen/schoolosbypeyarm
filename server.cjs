@@ -175,14 +175,21 @@ async function startServer() {
     const results = [];
 
     try {
+      // Disable foreign key checks during migration
+      await query('SET FOREIGN_KEY_CHECKS = 0');
+
       for (const table of tables) {
         console.log(`Migrating table: ${table}`);
         
-        // 1. Get target table columns from MySQL
+        // 1. Get target table columns and types from MySQL
         let targetColumns = [];
+        let columnTypes = {};
         try {
           const columnsInfo = await query(`SHOW COLUMNS FROM ??`, [table]);
           targetColumns = columnsInfo.map(c => c.Field);
+          columnsInfo.forEach(c => {
+            columnTypes[c.Field] = c.Type.toLowerCase();
+          });
         } catch (colErr) {
           results.push({ table, status: 'error', message: `ไม่พบตารางนี้ใน MySQL: ${colErr.message}` });
           continue;
@@ -213,10 +220,28 @@ async function startServer() {
             const rowKeys = Object.keys(row);
             
             targetColumns.forEach(targetCol => {
-              // Find a matching key in Supabase row (case-insensitive)
               const sourceKey = rowKeys.find(k => k.toLowerCase() === targetCol.toLowerCase());
               if (sourceKey !== undefined) {
-                filteredRow[targetCol] = row[sourceKey];
+                let val = row[sourceKey];
+                
+                // Format Date/Time for MySQL
+                const type = columnTypes[targetCol];
+                if (val && (type.includes('datetime') || type.includes('timestamp') || type.includes('date'))) {
+                  try {
+                    const d = new Date(val);
+                    if (!isNaN(d.getTime())) {
+                      if (type.includes('date') && !type.includes('time')) {
+                        val = d.toISOString().split('T')[0];
+                      } else {
+                        val = d.toISOString().slice(0, 19).replace('T', ' ');
+                      }
+                    }
+                  } catch (e) {
+                    console.error(`Date conversion error for ${targetCol}:`, e);
+                  }
+                }
+
+                filteredRow[targetCol] = val;
               }
             });
 
@@ -263,8 +288,14 @@ async function startServer() {
           results.push({ table, status: 'failed', successCount: 0, failCount, message: msg });
         }
       }
+      
+      // Re-enable foreign key checks
+      await query('SET FOREIGN_KEY_CHECKS = 1');
+      
       res.json({ success: true, results });
     } catch (err) {
+      // Ensure checks are re-enabled even on error
+      await query('SET FOREIGN_KEY_CHECKS = 1').catch(() => {});
       console.error('Migration Error:', err);
       res.status(500).json({ error: 'Migration failed', details: err.message });
     }
