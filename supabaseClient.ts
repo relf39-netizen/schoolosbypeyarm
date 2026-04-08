@@ -228,6 +228,18 @@ CREATE TABLE IF NOT EXISTS students (
   current_class TEXT NOT NULL,
   academic_year TEXT NOT NULL,
   is_active BOOLEAN DEFAULT TRUE,
+  is_alumni BOOLEAN DEFAULT FALSE,
+  graduation_year TEXT,
+  batch_number TEXT,
+  phone_number TEXT,
+  father_name TEXT,
+  mother_name TEXT,
+  guardian_name TEXT,
+  medical_conditions TEXT,
+  photo_url TEXT,
+  address TEXT,
+  lat FLOAT,
+  lng FLOAT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

@@ -4,6 +4,7 @@ import mysql from 'mysql2/promise';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,7 +38,8 @@ async function startServer() {
   // Helper to handle SQL queries
   const query = async (sql, params = []) => {
     try {
-      const [results] = await pool.execute(sql, params);
+      // Use query instead of execute to support ?? placeholders for identifiers
+      const [results] = await pool.query(sql, params);
       return results;
     } catch (error) {
       console.error('Database Error:', error);
@@ -225,6 +227,18 @@ async function startServer() {
           current_class VARCHAR(255) NOT NULL,
           academic_year VARCHAR(255) NOT NULL,
           is_active BOOLEAN DEFAULT TRUE,
+          is_alumni BOOLEAN DEFAULT FALSE,
+          graduation_year VARCHAR(255),
+          batch_number VARCHAR(255),
+          phone_number VARCHAR(255),
+          father_name VARCHAR(255),
+          mother_name VARCHAR(255),
+          guardian_name VARCHAR(255),
+          medical_conditions TEXT,
+          photo_url TEXT,
+          address TEXT,
+          lat FLOAT,
+          lng FLOAT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
         `CREATE TABLE IF NOT EXISTS student_savings (
@@ -351,7 +365,32 @@ async function startServer() {
       for (const sql of schema) {
         await query(sql);
       }
-      res.json({ success: true, message: 'Database initialized successfully' });
+
+      // Migration: Add missing columns to students table if they don't exist
+      const studentColumns = [
+        { name: 'is_alumni', type: 'BOOLEAN DEFAULT FALSE' },
+        { name: 'graduation_year', type: 'VARCHAR(255)' },
+        { name: 'batch_number', type: 'VARCHAR(255)' },
+        { name: 'phone_number', type: 'VARCHAR(255)' },
+        { name: 'father_name', type: 'VARCHAR(255)' },
+        { name: 'mother_name', type: 'VARCHAR(255)' },
+        { name: 'guardian_name', type: 'VARCHAR(255)' },
+        { name: 'medical_conditions', type: 'TEXT' },
+        { name: 'photo_url', type: 'TEXT' },
+        { name: 'address', type: 'TEXT' },
+        { name: 'lat', type: 'FLOAT' },
+        { name: 'lng', type: 'FLOAT' }
+      ];
+
+      for (const col of studentColumns) {
+        try {
+          await query(`ALTER TABLE students ADD COLUMN ?? ${col.type}`, [col.name]);
+        } catch (e) {
+          // Ignore if column already exists
+        }
+      }
+
+      res.json({ success: true, message: 'Database initialized and migrated successfully' });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Failed to initialize database' });
@@ -360,11 +399,21 @@ async function startServer() {
 
   app.post('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
-    const data = req.body;
+    let data = req.body;
     try {
+      const uuidTables = ['students', 'class_rooms', 'student_savings', 'academic_years', 'director_events'];
+      
       if (Array.isArray(data)) {
         if (data.length === 0) return res.json({ success: true });
         
+        // Ensure all items have IDs if needed
+        if (uuidTables.includes(tableName)) {
+          data = data.map(item => ({
+            id: item.id || crypto.randomUUID(),
+            ...item
+          }));
+        }
+
         const keys = Object.keys(data[0]);
         const values = [];
         const placeholders = data.map(() => `(${keys.map(() => '?').join(', ')})`).join(', ');
@@ -379,12 +428,16 @@ async function startServer() {
           });
         });
 
-        const updates = keys.map(k => `?? = VALUES(??)`).join(', ');
-        const updateParams = keys.flatMap(k => [k, k]);
-
-        const sql = `INSERT INTO ?? (??) VALUES ${placeholders} ON DUPLICATE KEY UPDATE ${updates}`;
-        await query(sql, [tableName, keys, ...values, ...updateParams]);
+        // For bulk insert, we'll use INSERT IGNORE to avoid collisions if IDs are provided
+        // or just a regular INSERT if we generated them.
+        const sql = `INSERT INTO ?? (??) VALUES ${placeholders}`;
+        await query(sql, [tableName, keys, ...values]);
       } else {
+        // Single insert
+        if (!data.id && uuidTables.includes(tableName)) {
+          data.id = crypto.randomUUID();
+        }
+
         const keys = Object.keys(data);
         const values = keys.map(k => {
           if (Array.isArray(data[k]) || (typeof data[k] === 'object' && data[k] !== null)) {
@@ -406,8 +459,8 @@ async function startServer() {
       
       res.json({ success: true });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: `Failed to save to ${tableName}` });
+      console.error('API Error:', err);
+      res.status(500).json({ error: `Failed to save to ${tableName}: ${err.message}` });
     }
   });
 
