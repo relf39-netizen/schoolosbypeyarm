@@ -177,26 +177,57 @@ async function startServer() {
     try {
       for (const table of tables) {
         console.log(`Migrating table: ${table}`);
+        
+        // 1. Get target table columns from MySQL
+        let targetColumns = [];
+        try {
+          const columnsInfo = await query(`SHOW COLUMNS FROM ??`, [table]);
+          targetColumns = columnsInfo.map(c => c.Field);
+        } catch (colErr) {
+          results.push({ table, status: 'error', message: `ไม่พบตารางนี้ใน MySQL: ${colErr.message}` });
+          continue;
+        }
+
+        // 2. Fetch data from Supabase
         const { data, error } = await supabaseSource.from(table).select('*');
         
         if (error) {
-          results.push({ table, status: 'error', message: error.message });
+          results.push({ table, status: 'error', message: `Supabase Error: ${error.message}` });
           continue;
         }
 
         if (!data || data.length === 0) {
-          results.push({ table, status: 'skipped', message: 'No data found' });
+          results.push({ table, status: 'skipped', message: 'ไม่พบข้อมูลใน Supabase' });
           continue;
         }
 
         let successCount = 0;
         let failCount = 0;
+        let lastError = null;
+        let columnMismatch = false;
 
         for (const row of data) {
           try {
-            const keys = Object.keys(row);
+            // 3. Map Supabase row to MySQL columns (Case-insensitive matching)
+            const filteredRow = {};
+            const rowKeys = Object.keys(row);
+            
+            targetColumns.forEach(targetCol => {
+              // Find a matching key in Supabase row (case-insensitive)
+              const sourceKey = rowKeys.find(k => k.toLowerCase() === targetCol.toLowerCase());
+              if (sourceKey !== undefined) {
+                filteredRow[targetCol] = row[sourceKey];
+              }
+            });
+
+            const keys = Object.keys(filteredRow);
+            if (keys.length === 0) {
+              columnMismatch = true;
+              continue;
+            }
+
             const values = keys.map(k => {
-              const val = row[k];
+              const val = filteredRow[k];
               if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
                 return JSON.stringify(val);
               }
@@ -206,7 +237,7 @@ async function startServer() {
             const placeholders = keys.map(() => '?').join(', ');
             const updates = keys.map(k => `?? = ?`).join(', ');
             const updateParams = keys.flatMap(k => {
-              const val = row[k];
+              const val = filteredRow[k];
               return [k, Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val];
             });
 
@@ -214,11 +245,23 @@ async function startServer() {
             await query(sql, [table, keys, ...values, ...updateParams]);
             successCount++;
           } catch (rowErr) {
-            console.error(`Error migrating row in ${table}:`, rowErr);
             failCount++;
+            lastError = rowErr.message;
           }
         }
-        results.push({ table, status: 'success', successCount, failCount });
+        
+        if (successCount > 0) {
+          results.push({ 
+            table, 
+            status: 'success', 
+            successCount, 
+            failCount, 
+            message: failCount > 0 ? `สำเร็จบางส่วน (Error: ${lastError})` : 'ย้ายข้อมูลสำเร็จ' 
+          });
+        } else {
+          const msg = columnMismatch ? 'ชื่อคอลัมน์ไม่ตรงกันเลย' : (lastError || 'ย้ายไม่สำเร็จ');
+          results.push({ table, status: 'failed', successCount: 0, failCount, message: msg });
+        }
       }
       res.json({ success: true, results });
     } catch (err) {
