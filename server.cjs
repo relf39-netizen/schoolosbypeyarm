@@ -62,7 +62,9 @@ async function startServer() {
         logo_base_64 LONGTEXT,
         is_suspended BOOLEAN DEFAULT FALSE,
         auto_check_out_enabled BOOLEAN DEFAULT FALSE,
-        auto_check_out_time VARCHAR(255) DEFAULT '16:30'
+        auto_check_out_time VARCHAR(255) DEFAULT '16:30',
+        wfh_mode_enabled BOOLEAN DEFAULT FALSE,
+        outgoing_book_prefix VARCHAR(255)
       )`,
       `CREATE TABLE IF NOT EXISTS profiles (
         id VARCHAR(255) PRIMARY KEY,
@@ -281,6 +283,23 @@ async function startServer() {
       await query(sql);
     }
 
+    // Migration: Add missing columns to schools if they don't exist
+    try {
+      const schoolCols = await query("SHOW COLUMNS FROM schools");
+      const colNames = schoolCols.map(c => c.Field || c.column_name); // Field for MySQL, column_name for some others
+      
+      if (!colNames.includes('wfh_mode_enabled')) {
+        console.log('Adding wfh_mode_enabled to schools...');
+        await query("ALTER TABLE schools ADD COLUMN wfh_mode_enabled BOOLEAN DEFAULT FALSE");
+      }
+      if (!colNames.includes('outgoing_book_prefix')) {
+        console.log('Adding outgoing_book_prefix to schools...');
+        await query("ALTER TABLE schools ADD COLUMN outgoing_book_prefix VARCHAR(255)");
+      }
+    } catch (migErr) {
+      console.error('Migration check failed (might be expected if table just created):', migErr.message);
+    }
+
     // Add default Super Admin
     await query('INSERT IGNORE INTO super_admins (username, password) VALUES (?, ?)', ['admin', 'schoolos']);
     await query('INSERT IGNORE INTO super_admins (username, password) VALUES (?, ?)', ['peyarm', 'Siam@2520']);
@@ -329,15 +348,35 @@ async function startServer() {
   });
 
   app.post('/api/schools', async (req, res) => {
-    const { id, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64 } = req.body;
+    const { 
+      id, name, district, province, lat, lng, radius, 
+      late_time_threshold, logo_base_64, auto_check_out_enabled, 
+      auto_check_out_time, wfh_mode_enabled, outgoing_book_prefix, is_suspended 
+    } = req.body;
     try {
       await query(
-        'INSERT INTO schools (id, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=?, district=?, province=?, lat=?, lng=?, radius=?, late_time_threshold=?, logo_base_64=?',
-        [id, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64]
+        `INSERT INTO schools (
+          id, name, district, province, lat, lng, radius, 
+          late_time_threshold, logo_base_64, auto_check_out_enabled, 
+          auto_check_out_time, wfh_mode_enabled, outgoing_book_prefix, is_suspended
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+        ON DUPLICATE KEY UPDATE 
+          name=?, district=?, province=?, lat=?, lng=?, radius=?, 
+          late_time_threshold=?, logo_base_64=?, auto_check_out_enabled=?, 
+          auto_check_out_time=?, wfh_mode_enabled=?, outgoing_book_prefix=?, is_suspended=?`,
+        [
+          id, name, district, province, lat, lng, radius, 
+          late_time_threshold, logo_base_64, auto_check_out_enabled ? 1 : 0, 
+          auto_check_out_time, wfh_mode_enabled ? 1 : 0, outgoing_book_prefix, is_suspended ? 1 : 0,
+          name, district, province, lat, lng, radius, 
+          late_time_threshold, logo_base_64, auto_check_out_enabled ? 1 : 0, 
+          auto_check_out_time, wfh_mode_enabled ? 1 : 0, outgoing_book_prefix, is_suspended ? 1 : 0
+        ]
       );
       res.json({ success: true });
     } catch (err) {
-      res.status(500).json({ error: 'Failed to save school' });
+      console.error('Save School Error:', err);
+      res.status(500).json({ error: 'Failed to save school', details: err.message });
     }
   });
 
@@ -564,9 +603,23 @@ async function startServer() {
   });
   app.post('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
-    const data = req.body;
+    let data = req.body;
+
+    // Handle Supabase-style array input
+    if (Array.isArray(data)) {
+      data = data[0];
+    }
+
+    if (!data || typeof data !== 'object') {
+      return res.status(400).json({ error: 'Invalid data format. Expected object or array of objects.' });
+    }
+
     try {
       const keys = Object.keys(data);
+      if (keys.length === 0) {
+        return res.status(400).json({ error: 'No data provided' });
+      }
+
       const values = keys.map(k => {
         if (Array.isArray(data[k]) || (typeof data[k] === 'object' && data[k] !== null)) {
           return JSON.stringify(data[k]);
@@ -586,8 +639,8 @@ async function startServer() {
       
       res.json({ success: true });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: `Failed to save to ${tableName}` });
+      console.error(`Error saving to ${tableName}:`, err);
+      res.status(500).json({ error: `Failed to save to ${tableName}`, details: err.message });
     }
   });
 
@@ -692,6 +745,16 @@ async function startServer() {
       console.error('GAS Bridge Error:', err);
       res.status(500).json({ status: 'error', message: err.message });
     }
+  });
+
+  // Global Error Handler
+  app.use((err, req, res, next) => {
+    console.error('Global Error:', err);
+    res.status(500).json({ 
+      error: 'Internal Server Error', 
+      message: err.message,
+      path: req.path
+    });
   });
 
   // Serve static files from dist folder
