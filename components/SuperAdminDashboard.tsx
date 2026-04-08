@@ -25,7 +25,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     schools, teachers, onCreateSchool, onUpdateSchool, onDeleteSchool, 
     onUpdateTeacher, onDeleteTeacher, onLogout, onEnterSchool
 }) => {
-    const [activeTab, setActiveTab] = useState<'SCHOOLS' | 'PENDING' | 'ACCOUNT'>('SCHOOLS');
+    const [activeTab, setActiveTab] = useState<'SCHOOLS' | 'PENDING' | 'ACCOUNT' | 'MIGRATION'>('SCHOOLS');
     const [showForm, setShowForm] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
     const [formData, setFormData] = useState<Partial<School>>({ id: '', name: '' });
@@ -174,6 +174,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                             {pendingGlobalUsers.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full animate-pulse">{pendingGlobalUsers.length}</span>}
                         </button>
                         <button onClick={() => { setActiveTab('ACCOUNT'); setSelectedSchoolId(null); }} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'ACCOUNT' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>ตั้งค่าบัญชี</button>
+                        <button onClick={() => { setActiveTab('MIGRATION'); setSelectedSchoolId(null); }} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'MIGRATION' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>ย้ายข้อมูล (Migration)</button>
                     </div>
                     <button onClick={onLogout} className="p-2 text-slate-400 hover:text-red-400 transition-colors flex items-center gap-2 font-bold">
                         <span className="text-xs">LOGOUT</span>
@@ -253,6 +254,12 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                                 </table>
                             </div>
                         </div>
+                    </div>
+                )}
+
+                {activeTab === 'MIGRATION' && (
+                    <div className="animate-fade-in max-w-2xl mx-auto">
+                        <MigrationTool />
                     </div>
                 )}
 
@@ -339,6 +346,96 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                             <div><label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-widest ml-1">ชื่อโรงเรียน</label><input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-2.5 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold" required /></div>
                             <div className="flex gap-3 pt-4"><button type="button" onClick={() => setShowForm(false)} className="flex-1 py-2.5 bg-slate-100 text-slate-500 rounded-xl font-black text-xs uppercase">ยกเลิก</button><button type="submit" disabled={isSavingSchool} className="flex-2 py-2.5 bg-blue-600 text-white rounded-xl font-black shadow-lg hover:bg-blue-700 transition-all active:scale-95 text-xs">{isSavingSchool ? <Loader2 className="animate-spin mx-auto" size={16}/> : 'บันทึกข้อมูล'}</button></div>
                         </form>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const MigrationTool: React.FC = () => {
+    const [url, setUrl] = useState('');
+    const [key, setKey] = useState('');
+    const [isMigrating, setIsMigrating] = useState(false);
+    const [results, setResults] = useState<any[] | null>(null);
+
+    const tables = [
+        'schools', 'profiles', 'school_configs', 'class_rooms', 'students', 
+        'student_savings', 'academic_years', 'attendance', 'leave_requests', 
+        'plan_projects', 'budget_settings', 'academic_enrollments', 
+        'academic_test_scores', 'academic_calendar', 'academic_sar', 'director_events'
+    ];
+
+    const handleMigrate = async () => {
+        if (!url || !key) return alert("กรุณากรอก Supabase URL และ Key");
+        if (!confirm("ยืนยันการย้ายข้อมูล? ข้อมูลที่มีอยู่เดิมใน MySQL อาจถูกเขียนทับหากมี ID ซ้ำกัน")) return;
+
+        setIsMigrating(true);
+        setResults(null);
+
+        try {
+            const res = await fetch('/api/migrate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ supabaseUrl: url, supabaseKey: key, tables })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setResults(data.results);
+                alert("ย้ายข้อมูลสำเร็จ!");
+            } else {
+                alert("เกิดข้อผิดพลาด: " + data.error);
+            }
+        } catch (e) {
+            alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้");
+        } finally {
+            setIsMigrating(false);
+        }
+    };
+
+    return (
+        <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 p-8 space-y-8">
+            <div className="text-center">
+                <div className="w-16 h-16 bg-blue-600 text-white rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-xl"><Power size={32}/></div>
+                <h2 className="text-xl font-black">Supabase Data Migration</h2>
+                <p className="text-xs text-slate-400 font-bold">ย้ายข้อมูลจาก Supabase เดิม มายัง MySQL ใหม่</p>
+            </div>
+
+            <div className="space-y-4">
+                <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Supabase Project URL</label>
+                    <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://xyz.supabase.co" className="w-full px-4 py-2.5 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-sm"/>
+                </div>
+                <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Supabase Service Role Key (Secret)</label>
+                    <input type="password" value={key} onChange={e => setKey(e.target.value)} placeholder="eyJhbG..." className="w-full px-4 py-2.5 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-sm"/>
+                </div>
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                    <p className="text-[10px] text-blue-700 font-bold leading-relaxed">
+                        * ระบบจะดึงข้อมูลจากตารางทั้งหมด ({tables.length} ตาราง) และนำมาใส่ใน MySQL โดยใช้คำสั่ง ON DUPLICATE KEY UPDATE เพื่อป้องกันข้อมูลซ้ำ
+                    </p>
+                </div>
+                <button 
+                    onClick={handleMigrate} 
+                    disabled={isMigrating}
+                    className="w-full py-4 bg-blue-600 text-white rounded-xl font-black text-sm shadow-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                >
+                    {isMigrating ? <Loader2 className="animate-spin" size={20}/> : <Power size={20}/>} เริ่มกระบวนการย้ายข้อมูล
+                </button>
+            </div>
+
+            {results && (
+                <div className="mt-8 space-y-4">
+                    <h3 className="text-sm font-black text-slate-800 border-b pb-2">สรุปผลการย้ายข้อมูล</h3>
+                    <div className="max-h-60 overflow-y-auto space-y-2">
+                        {results.map((res, i) => (
+                            <div key={i} className={`p-3 rounded-xl text-xs flex justify-between items-center ${res.status === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                                <span className="font-bold">{res.table}</span>
+                                <span>
+                                    {res.status === 'success' ? `สำเร็จ: ${res.successCount} | พลาด: ${res.failCount}` : res.message}
+                                </span>
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}

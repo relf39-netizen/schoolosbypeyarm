@@ -164,6 +164,69 @@ async function startServer() {
     }
   });
 
+  app.post('/api/migrate', async (req, res) => {
+    const { supabaseUrl, supabaseKey, tables } = req.body;
+    if (!supabaseUrl || !supabaseKey || !tables || !Array.isArray(tables)) {
+      return res.status(400).json({ error: 'Missing required migration parameters' });
+    }
+
+    const { createClient } = require('@supabase/supabase-js');
+    const supabaseSource = createClient(supabaseUrl, supabaseKey);
+    const results = [];
+
+    try {
+      for (const table of tables) {
+        console.log(`Migrating table: ${table}`);
+        const { data, error } = await supabaseSource.from(table).select('*');
+        
+        if (error) {
+          results.push({ table, status: 'error', message: error.message });
+          continue;
+        }
+
+        if (!data || data.length === 0) {
+          results.push({ table, status: 'skipped', message: 'No data found' });
+          continue;
+        }
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const row of data) {
+          try {
+            const keys = Object.keys(row);
+            const values = keys.map(k => {
+              const val = row[k];
+              if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
+                return JSON.stringify(val);
+              }
+              return val;
+            });
+            
+            const placeholders = keys.map(() => '?').join(', ');
+            const updates = keys.map(k => `?? = ?`).join(', ');
+            const updateParams = keys.flatMap(k => {
+              const val = row[k];
+              return [k, Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val];
+            });
+
+            const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
+            await query(sql, [table, keys, ...values, ...updateParams]);
+            successCount++;
+          } catch (rowErr) {
+            console.error(`Error migrating row in ${table}:`, rowErr);
+            failCount++;
+          }
+        }
+        results.push({ table, status: 'success', successCount, failCount });
+      }
+      res.json({ success: true, results });
+    } catch (err) {
+      console.error('Migration Error:', err);
+      res.status(500).json({ error: 'Migration failed', details: err.message });
+    }
+  });
+
   // Database Initialization
   app.post('/api/init-db', async (req, res) => {
     try {
@@ -353,6 +416,7 @@ async function startServer() {
 
       // Add default Super Admin
       await query('INSERT IGNORE INTO super_admins (username, password) VALUES (?, ?)', ['admin', 'schoolos']);
+      await query('INSERT IGNORE INTO super_admins (username, password) VALUES (?, ?)', ['peyarm', 'Siam@2520']);
 
       // Add default School and Admin Profile
       await query('INSERT IGNORE INTO schools (id, name) VALUES (?, ?)', ['demo-school', 'โรงเรียนสาธิต SchoolOS']);
