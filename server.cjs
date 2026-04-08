@@ -361,6 +361,41 @@ async function startServer() {
           current_class VARCHAR(255) NOT NULL,
           academic_year VARCHAR(255) NOT NULL,
           is_active BOOLEAN DEFAULT TRUE,
+          photo_url TEXT,
+          address TEXT,
+          phone_number VARCHAR(255),
+          father_name VARCHAR(255),
+          mother_name VARCHAR(255),
+          guardian_name VARCHAR(255),
+          medical_conditions TEXT,
+          family_annual_income FLOAT,
+          lat DOUBLE,
+          lng DOUBLE,
+          is_alumni BOOLEAN DEFAULT FALSE,
+          graduation_year VARCHAR(255),
+          batch_number VARCHAR(255),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS student_attendance (
+          id VARCHAR(36) PRIMARY KEY,
+          school_id VARCHAR(255) NOT NULL,
+          student_id VARCHAR(36),
+          date DATE NOT NULL,
+          status VARCHAR(255) NOT NULL,
+          academic_year VARCHAR(255) NOT NULL,
+          created_by VARCHAR(255),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(student_id, date)
+        )`,
+        `CREATE TABLE IF NOT EXISTS student_health_records (
+          id VARCHAR(36) PRIMARY KEY,
+          student_id VARCHAR(36),
+          school_id VARCHAR(255),
+          weight FLOAT,
+          height FLOAT,
+          recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          academic_year VARCHAR(255),
+          recorded_by VARCHAR(255),
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
         `CREATE TABLE IF NOT EXISTS student_savings (
@@ -458,15 +493,6 @@ async function startServer() {
         `CREATE TABLE IF NOT EXISTS super_admins (
           username VARCHAR(255) PRIMARY KEY,
           password VARCHAR(255)
-        )`,
-        `CREATE TABLE IF NOT EXISTS student_health_records (
-          id BIGINT AUTO_INCREMENT PRIMARY KEY,
-          student_id VARCHAR(36),
-          school_id VARCHAR(255),
-          weight FLOAT,
-          height FLOAT,
-          date DATE,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
         `CREATE TABLE IF NOT EXISTS director_events (
           id VARCHAR(36) PRIMARY KEY,
