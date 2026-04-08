@@ -29,8 +29,16 @@ export const supabase = {
       // This makes the builder "awaitable"
       then: async (onfulfilled: any) => {
         try {
+          const method = builder.method || 'GET';
           const url = `${API_BASE}/table/${tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-          const res = await fetch(url);
+          
+          const options: any = { method };
+          if (builder.body) {
+            options.headers = { 'Content-Type': 'application/json' };
+            options.body = JSON.stringify(builder.body);
+          }
+
+          const res = await fetch(url, options);
           const data = await res.json();
           const result = (data && data.error) ? { data: null, error: data.error } : { data, error: null };
           return onfulfilled ? onfulfilled(result) : result;
@@ -73,31 +81,14 @@ export const supabase = {
           return { data: null, error };
         }
       },
-      update: async (data: any) => {
-        try {
-          const url = `${API_BASE}/table/${tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-          const res = await fetch(url, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-          });
-          const result = await res.json();
-          return (result && result.error) ? { data: null, error: result.error } : { data: result, error: null };
-        } catch (error) {
-          return { data: null, error };
-        }
+      update: (data: any) => {
+        builder.method = 'PATCH';
+        builder.body = data;
+        return builder;
       },
-      delete: async () => {
-        try {
-          const url = `${API_BASE}/table/${tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-          const res = await fetch(url, {
-            method: 'DELETE'
-          });
-          const result = await res.json();
-          return (result && result.error) ? { data: null, error: result.error } : { data: result, error: null };
-        } catch (error) {
-          return { data: null, error };
-        }
+      delete: () => {
+        builder.method = 'DELETE';
+        return builder;
       }
     };
     

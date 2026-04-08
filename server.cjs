@@ -555,12 +555,14 @@ async function startServer() {
       });
 
       const filterKeys = Object.keys(filters);
-      if (filterKeys.length > 0) {
-        sql += ` WHERE ` + filterKeys.map(k => `?? = ?`).join(' AND ');
-        filterKeys.forEach(k => {
-          params.push(k, filters[k]);
-        });
+      if (filterKeys.length === 0) {
+        return res.status(400).json({ error: `Update without filters is not allowed for safety.` });
       }
+      
+      sql += ` WHERE ` + filterKeys.map(k => `?? = ?`).join(' AND ');
+      filterKeys.forEach(k => {
+        params.push(k, filters[k]);
+      });
       
       await query(sql, params);
       res.json({ success: true });
