@@ -108,6 +108,32 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
     const [isDeletingBulk, setIsDeletingBulk] = useState(false);
 
+    const sortedClassRooms = useMemo(() => {
+        const order = [
+            'อนุบาล 1', 'อนุบาล 2', 'อนุบาล 3',
+            'อ.1', 'อ.2', 'อ.3',
+            'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6',
+            'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'
+        ];
+        
+        return [...classRooms].sort((a, b) => {
+            const getLevel = (name: string) => {
+                const normalized = name.replace(/[\s.]/g, '');
+                for (let i = 0; i < order.length; i++) {
+                    const normalizedOrder = order[i].replace(/[\s.]/g, '');
+                    if (normalized.includes(normalizedOrder)) return i;
+                }
+                return 999;
+            };
+
+            const levelA = getLevel(a.name);
+            const levelB = getLevel(b.name);
+
+            if (levelA !== levelB) return levelA - levelB;
+            return a.name.localeCompare(b.name, 'th');
+        });
+    }, [classRooms]);
+
     const handlePhotoUpload = async (file: File, isEdit: boolean) => {
         if (!config.scriptUrl || !config.driveFolderId) {
             alert("กรุณาตั้งค่า Google Drive ในแท็บ 'การเชื่อมต่อ' ก่อน");
@@ -751,6 +777,21 @@ function setTelegramWebhook() {
             })).filter(s => s.name && s.current_class);
             
             if (toInsert.length > 0) {
+                const order = ['อนุบาล 1', 'อนุบาล 2', 'อนุบาล 3', 'อ.1', 'อ.2', 'อ.3', 'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6', 'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'];
+                const getLevel = (name: string) => {
+                    const normalized = name.replace(/[\s.]/g, '');
+                    for (let i = 0; i < order.length; i++) {
+                        const normalizedOrder = order[i].replace(/[\s.]/g, '');
+                        if (normalized.includes(normalizedOrder)) return i;
+                    }
+                    return 999;
+                };
+                toInsert.sort((a, b) => {
+                    const levelA = getLevel(a.current_class);
+                    const levelB = getLevel(b.current_class);
+                    if (levelA !== levelB) return levelA - levelB;
+                    return a.name.localeCompare(b.name, 'th');
+                });
                 setImportPreview(toInsert);
             } else {
                 alert('ไม่พบข้อมูลที่ถูกต้องในไฟล์');
@@ -1367,7 +1408,7 @@ function setTelegramWebhook() {
                                                 <Filter className="text-slate-400" size={18}/>
                                                 <select value={selectedClass} onChange={e => { setSelectedClass(e.target.value); setSelectedStudentIds(new Set()); }} className="flex-1 md:w-40 px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 ring-indigo-500/10 shadow-inner">
                                                     <option value="All">ทุกชั้นเรียน</option>
-                                                    {classRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                                    {sortedClassRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                                                 </select>
                                             </div>
                                         </div>
@@ -1917,7 +1958,7 @@ function setTelegramWebhook() {
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชั้นเรียน</label>
                                 <select value={newStudentForm.currentClass} onChange={e => setNewStudentForm({...newStudentForm, currentClass: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner">
                                     <option value="">-- เลือกชั้นเรียน --</option>
-                                    {classRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                    {sortedClassRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                                 </select>
                             </div>
                             <div className="pt-4 border-t border-slate-50">
@@ -1986,7 +2027,7 @@ function setTelegramWebhook() {
                             <div>
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชั้นเรียน</label>
                                 <select value={selectedStudent.currentClass} onChange={e => setSelectedStudent({...selectedStudent, currentClass: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 shadow-inner">
-                                    {classRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                    {sortedClassRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                                 </select>
                             </div>
                         </div>
@@ -2011,7 +2052,7 @@ function setTelegramWebhook() {
                                 <button onClick={handleAddClass} className="bg-indigo-600 text-white px-4 rounded-xl font-bold hover:bg-indigo-700 transition-all"><Plus size={20}/></button>
                             </div>
                             <div className="max-h-64 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                                {classRooms.length === 0 ? <p className="text-center text-slate-300 italic py-4">ยังไม่มีข้อมูลห้องเรียน</p> : classRooms.map(c => (
+                                {sortedClassRooms.length === 0 ? <p className="text-center text-slate-300 italic py-4">ยังไม่มีข้อมูลห้องเรียน</p> : sortedClassRooms.map(c => (
                                     <div key={c.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
                                         <span className="font-bold text-slate-700">{c.name}</span>
                                         <button onClick={() => handleDeleteClass(c.id)} className="text-red-400 hover:text-red-600 transition-all"><Trash2 size={16}/></button>
@@ -2066,7 +2107,7 @@ function setTelegramWebhook() {
                                     <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-2">จากชั้นเรียน</label>
                                     <select value={promoteFromClass} onChange={e => setPromoteFromClass(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-amber-500 shadow-inner">
                                         <option value="">-- เลือกชั้นต้นทาง --</option>
-                                        {classRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                        {sortedClassRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                                     </select>
                                 </div>
                                 <div className="flex justify-center py-2 text-slate-300"><ChevronDown size={24}/></div>
@@ -2074,7 +2115,7 @@ function setTelegramWebhook() {
                                     <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-2">ไปยังชั้นเรียน</label>
                                     <select value={promoteToClass} onChange={e => setPromoteToClass(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-amber-500 shadow-inner">
                                         <option value="">-- เลือกชั้นปลายทาง --</option>
-                                        {classRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                        {sortedClassRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                                     </select>
                                 </div>
                             </div>
@@ -2096,7 +2137,7 @@ function setTelegramWebhook() {
                                 <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-2">เลือกชั้นเรียนที่จบ</label>
                                 <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-rose-500 shadow-inner">
                                     <option value="All">-- เลือกชั้นเรียน --</option>
-                                    {classRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                    {sortedClassRooms.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                                 </select>
                             </div>
                             <div className="grid grid-cols-2 gap-4">

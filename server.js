@@ -362,23 +362,47 @@ async function startServer() {
     const { tableName } = req.params;
     const data = req.body;
     try {
-      const keys = Object.keys(data);
-      const values = keys.map(k => {
-        if (Array.isArray(data[k]) || (typeof data[k] === 'object' && data[k] !== null)) {
-          return JSON.stringify(data[k]);
-        }
-        return data[k];
-      });
-      
-      const placeholders = keys.map(() => '?').join(', ');
-      const updates = keys.map(k => `?? = ?`).join(', ');
-      const updateParams = keys.flatMap(k => {
-        const val = data[k];
-        return [k, Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val];
-      });
+      if (Array.isArray(data)) {
+        if (data.length === 0) return res.json({ success: true });
+        
+        const keys = Object.keys(data[0]);
+        const values = [];
+        const placeholders = data.map(() => `(${keys.map(() => '?').join(', ')})`).join(', ');
+        
+        data.forEach(item => {
+          keys.forEach(k => {
+            let val = item[k];
+            if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
+              val = JSON.stringify(val);
+            }
+            values.push(val);
+          });
+        });
 
-      const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
-      await query(sql, [tableName, keys, ...values, ...updateParams]);
+        const updates = keys.map(k => `?? = VALUES(??)`).join(', ');
+        const updateParams = keys.flatMap(k => [k, k]);
+
+        const sql = `INSERT INTO ?? (??) VALUES ${placeholders} ON DUPLICATE KEY UPDATE ${updates}`;
+        await query(sql, [tableName, keys, ...values, ...updateParams]);
+      } else {
+        const keys = Object.keys(data);
+        const values = keys.map(k => {
+          if (Array.isArray(data[k]) || (typeof data[k] === 'object' && data[k] !== null)) {
+            return JSON.stringify(data[k]);
+          }
+          return data[k];
+        });
+        
+        const placeholders = keys.map(() => '?').join(', ');
+        const updates = keys.map(k => `?? = ?`).join(', ');
+        const updateParams = keys.flatMap(k => {
+          const val = data[k];
+          return [k, Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val];
+        });
+
+        const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
+        await query(sql, [tableName, keys, ...values, ...updateParams]);
+      }
       
       res.json({ success: true });
     } catch (err) {
