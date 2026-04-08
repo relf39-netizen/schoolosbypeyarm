@@ -7,18 +7,45 @@ export const isConfigured = true;
 
 export const supabase = {
   from: (tableName: string) => {
-    let queryParams = new URLSearchParams();
-    return {
-      select: async (columns: string = '*') => {
+    const queryParams = new URLSearchParams();
+    
+    const builder: any = {
+      select: (columns: string = '*') => {
+        // In this mock, we don't really filter columns, but we return the builder for chaining
+        return builder;
+      },
+      eq: (column: string, value: any) => {
+        queryParams.append(column, value);
+        return builder;
+      },
+      order: (column: string, { ascending = true } = {}) => {
+        queryParams.append('order', `${column}.${ascending ? 'asc' : 'desc'}`);
+        return builder;
+      },
+      limit: (count: number) => {
+        queryParams.append('limit', count.toString());
+        return builder;
+      },
+      // This makes the builder "awaitable"
+      then: async (onfulfilled: any) => {
         try {
           const url = `${API_BASE}/table/${tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
           const res = await fetch(url);
           const data = await res.json();
-          if (data && data.error) return { data: null, error: data.error };
-          return { data, error: null };
+          const result = (data && data.error) ? { data: null, error: data.error } : { data, error: null };
+          return onfulfilled ? onfulfilled(result) : result;
         } catch (error) {
-          return { data: null, error };
+          const result = { data: null, error };
+          return onfulfilled ? onfulfilled(result) : result;
         }
+      },
+      single: async () => {
+        const { data, error } = await builder;
+        return { data: (data && data.length > 0) ? data[0] : null, error };
+      },
+      maybeSingle: async () => {
+        const { data, error } = await builder;
+        return { data: (data && data.length > 0) ? data[0] : null, error };
       },
       insert: async (data: any) => {
         try {
@@ -28,8 +55,7 @@ export const supabase = {
             body: JSON.stringify(data)
           });
           const result = await res.json();
-          if (result && result.error) return { data: null, error: result.error };
-          return { data: result, error: null };
+          return (result && result.error) ? { data: null, error: result.error } : { data: result, error: null };
         } catch (error) {
           return { data: null, error };
         }
@@ -42,59 +68,40 @@ export const supabase = {
             body: JSON.stringify(data)
           });
           const result = await res.json();
-          if (result && result.error) return { data: null, error: result.error };
-          return { data: result, error: null };
+          return (result && result.error) ? { data: null, error: result.error } : { data: result, error: null };
         } catch (error) {
           return { data: null, error };
         }
       },
       update: async (data: any) => {
         try {
-          const res = await fetch(`${API_BASE}/table/${tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`, {
+          const url = `${API_BASE}/table/${tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+          const res = await fetch(url, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
           });
           const result = await res.json();
-          if (result && result.error) return { data: null, error: result.error };
-          return { data: result, error: null };
+          return (result && result.error) ? { data: null, error: result.error } : { data: result, error: null };
         } catch (error) {
           return { data: null, error };
         }
       },
       delete: async () => {
         try {
-          const res = await fetch(`${API_BASE}/table/${tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`, {
+          const url = `${API_BASE}/table/${tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+          const res = await fetch(url, {
             method: 'DELETE'
           });
           const result = await res.json();
-          if (result && result.error) return { data: null, error: result.error };
-          return { data: result, error: null };
+          return (result && result.error) ? { data: null, error: result.error } : { data: result, error: null };
         } catch (error) {
           return { data: null, error };
         }
-      },
-      eq: function(column: string, value: any) {
-         queryParams.append(column, value);
-         return this;
-      },
-      order: function(column: string, { ascending = true } = {}) {
-         queryParams.append('order', `${column}.${ascending ? 'asc' : 'desc'}`);
-         return this;
-      },
-      limit: function(count: number) {
-         queryParams.append('limit', count.toString());
-         return this;
-      },
-      single: async function() {
-         const { data, error } = await this.select();
-         return { data: (data && data.length > 0) ? data[0] : null, error };
-      },
-      maybeSingle: async function() {
-         const { data, error } = await this.select();
-         return { data: (data && data.length > 0) ? data[0] : null, error };
       }
     };
+    
+    return builder;
   },
   channel: () => ({
     on: () => ({
