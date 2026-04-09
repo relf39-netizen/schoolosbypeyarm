@@ -49,6 +49,8 @@ async function startServer() {
       return results;
     } catch (error) {
       console.error('Database Error:', error);
+      console.error('SQL:', sql);
+      console.error('Params:', JSON.stringify(params).substring(0, 500) + (JSON.stringify(params).length > 500 ? '...' : ''));
       throw error;
     }
   };
@@ -510,13 +512,26 @@ async function startServer() {
           }));
         }
 
-        const keys = Object.keys(data[0]);
+        // Collect all unique keys from all objects in the array
+        const allKeys = new Set();
+        data.forEach(item => {
+          Object.keys(item).forEach(key => allKeys.add(key));
+        });
+        const keys = Array.from(allKeys);
+        
         const values = [];
         const placeholders = data.map(() => `(${keys.map(() => '?').join(', ')})`).join(', ');
         
         data.forEach(item => {
           keys.forEach(k => {
             let val = item[k];
+            // Convert undefined to null for MySQL
+            if (val === undefined) val = null;
+            // Handle empty strings for numeric columns (optional but safer)
+            if (val === '' && ['age', 'weight', 'height', 'lat', 'lng', 'radius', 'family_annual_income'].includes(k)) {
+              val = null;
+            }
+            
             if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
               val = JSON.stringify(val);
             }
@@ -524,7 +539,7 @@ async function startServer() {
           });
         });
 
-        // Use ON DUPLICATE KEY UPDATE for bulk inserts too
+        // Use ON DUPLICATE KEY UPDATE for bulk inserts
         const updates = keys.filter(k => k !== 'id').map(k => `?? = VALUES(??)`).join(', ');
         const updateParams = [];
         keys.filter(k => k !== 'id').forEach(k => updateParams.push(k, k));
@@ -534,7 +549,7 @@ async function startServer() {
           sql += ` ON DUPLICATE KEY UPDATE ${updates}`;
         }
         
-        console.log(`[${new Date().toISOString()}] Executing bulk insert SQL for ${tableName}`);
+        console.log(`[${new Date().toISOString()}] Executing bulk insert SQL for ${tableName} with ${keys.length} columns`);
         await query(sql, [tableName, keys, ...values, ...updateParams]);
       } else {
         // Single insert

@@ -888,6 +888,12 @@ function setTelegramWebhook() {
                     className = room ? `${level}/${room}` : level;
                 }
 
+                const parseNum = (val: any) => {
+                    if (val === undefined || val === null || val === '') return null;
+                    const num = parseFloat(val);
+                    return isNaN(num) ? null : num;
+                };
+
                 return {
                     school_id: currentSchool.id,
                     student_id: studentId,
@@ -901,9 +907,9 @@ function setTelegramWebhook() {
                     academic_year: currentAcademicYear || (new Date().getFullYear() + 543).toString(),
                     is_active: true,
                     birthday: row['วันเกิด'] || row.birthday,
-                    age: row['อายุ'] || row.age,
-                    weight: row['น้ำหนัก'] || row.weight,
-                    height: row['ส่วนสูง'] || row.height,
+                    age: parseNum(row['อายุ'] || row.age),
+                    weight: parseNum(row['น้ำหนัก'] || row.weight),
+                    height: parseNum(row['ส่วนสูง'] || row.height),
                     blood_type: row['หมู่เลือด'] || row.bloodType,
                     religion: row['ศาสนา'] || row.religion,
                     nationality: row['สัญชาติ'] || row.nationality,
