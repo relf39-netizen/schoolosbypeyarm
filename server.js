@@ -443,6 +443,28 @@ async function startServer() {
     }
   });
 
+  // API Route พิเศษเพื่อกู้คืนบัญชีผู้ใช้งาน
+  app.get('/api/fix-my-login', async (req, res) => {
+    try {
+      const userId = '3300600837116';
+      const [schools] = await query('SELECT id FROM schools LIMIT 1');
+      let schoolId = '12345678';
+      if (!schools || schools.length === 0) {
+        await query('INSERT INTO schools (id, name) VALUES (?, ?)', [schoolId, 'โรงเรียนตัวอย่าง']);
+      } else {
+        schoolId = schools[0].id;
+      }
+
+      await query(
+        'INSERT INTO profiles (id, school_id, name, password, position, roles, is_approved) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE password=?, is_approved=1, roles=?',
+        [userId, schoolId, 'ผู้ดูแลระบบ', '123456789', 'ผู้อำนวยการ', JSON.stringify(['SYSTEM_ADMIN', 'DIRECTOR']), 1, '123456789', JSON.stringify(['SYSTEM_ADMIN', 'DIRECTOR'])]
+      );
+      res.json({ success: true, message: 'กู้คืนบัญชี 3300600837116 เรียบร้อยแล้ว รหัสผ่านคือ 123456789' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 3. Generic Table Access (for other tables)
   app.get('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
@@ -451,7 +473,7 @@ async function startServer() {
       let sql = `SELECT * FROM ??`;
       let params = [tableName];
       
-      const filterKeys = Object.keys(filters).filter(k => k !== 'order' && k !== 'limit');
+      const filterKeys = Object.keys(filters).filter(k => k !== 'order' && k !== 'limit' && k !== 'select' && k !== 'head');
       if (filterKeys.length > 0) {
         sql += ` WHERE ` + filterKeys.map(k => `?? = ?`).join(' AND ');
         filterKeys.forEach(k => {
