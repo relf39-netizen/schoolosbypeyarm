@@ -227,6 +227,7 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const [isSavingStudent, setIsSavingStudent] = useState(false);
     const [isSavingClass, setIsSavingClass] = useState(false);
     const [isSavingYear, setIsSavingYear] = useState(false);
+    const [showAdvancedFields, setShowAdvancedFields] = useState(false);
     const [isTestingDB, setIsTestingDB] = useState(false);
     const [isMigrating, setIsMigrating] = useState(false);
     const [migrationStats, setMigrationStats] = useState<{ total: number, success: number, error: number } | null>(null);
@@ -2253,45 +2254,59 @@ function setTelegramWebhook() {
                                 </div>
                             </div>
 
-                            {/* ข้อมูลสุขภาพ */}
-                            <div className="space-y-4 pt-4 border-t border-slate-100">
-                                <h4 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-2">
-                                    <Activity size={14}/> ข้อมูลสุขภาพ
-                                </h4>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">น้ำหนัก (กก.)</label>
-                                        <input type="number" value={newStudentForm.weight} onChange={e => setNewStudentForm({...newStudentForm, weight: parseFloat(e.target.value)})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ส่วนสูง (ซม.)</label>
-                                        <input type="number" value={newStudentForm.height} onChange={e => setNewStudentForm({...newStudentForm, height: parseFloat(e.target.value)})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">โรคประจำตัว/ประวัติการแพ้</label>
-                                    <textarea value={newStudentForm.medicalConditions} onChange={e => setNewStudentForm({...newStudentForm, medicalConditions: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner h-20"/>
-                                </div>
-                            </div>
+                            <button 
+                                type="button"
+                                onClick={() => setShowAdvancedFields(!showAdvancedFields)}
+                                className="w-full py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center justify-center gap-2 hover:text-indigo-600 transition-colors"
+                            >
+                                {showAdvancedFields ? 'ซ่อนรายละเอียดเพิ่มเติม' : 'แสดงรายละเอียดเพิ่มเติม (วันเกิด, ที่อยู่, ข้อมูลผู้ปกครอง)'}
+                                <ChevronDown size={14} className={`transition-transform ${showAdvancedFields ? 'rotate-180' : ''}`} />
+                            </button>
 
-                            {/* ข้อมูลครอบครัว */}
-                            <div className="space-y-4 pt-4 border-t border-slate-100">
-                                <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2">
-                                    <Users size={14}/> ข้อมูลครอบครัว
-                                </h4>
-                                <div>
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อบิดา</label>
-                                    <input type="text" value={newStudentForm.fatherName} onChange={e => setNewStudentForm({...newStudentForm, fatherName: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                            {showAdvancedFields && (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                                    {/* ข้อมูลสุขภาพ */}
+                                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                                        <h4 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-2">
+                                            <Activity size={14}/> ข้อมูลสุขภาพ
+                                        </h4>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">น้ำหนัก (กก.)</label>
+                                                <input type="number" value={newStudentForm.weight} onChange={e => setNewStudentForm({...newStudentForm, weight: parseFloat(e.target.value)})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ส่วนสูง (ซม.)</label>
+                                                <input type="number" value={newStudentForm.height} onChange={e => setNewStudentForm({...newStudentForm, height: parseFloat(e.target.value)})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">โรคประจำตัว/ประวัติการแพ้</label>
+                                            <textarea value={newStudentForm.medicalConditions} onChange={e => setNewStudentForm({...newStudentForm, medicalConditions: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner h-20"/>
+                                        </div>
+                                    </div>
+
+                                    {/* ข้อมูลครอบครัว */}
+                                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                                        <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2">
+                                            <Users size={14}/> ข้อมูลครอบครัว
+                                        </h4>
+                                        <div>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อบิดา</label>
+                                            <input type="text" value={newStudentForm.fatherName} onChange={e => setNewStudentForm({...newStudentForm, fatherName: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อมารดา</label>
+                                            <input type="text" value={newStudentForm.motherName} onChange={e => setNewStudentForm({...newStudentForm, motherName: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">เบอร์โทรศัพท์ติดต่อ</label>
+                                            <input type="text" value={newStudentForm.phoneNumber} onChange={e => setNewStudentForm({...newStudentForm, phoneNumber: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อมารดา</label>
-                                    <input type="text" value={newStudentForm.motherName} onChange={e => setNewStudentForm({...newStudentForm, motherName: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">เบอร์โทรศัพท์ติดต่อ</label>
-                                    <input type="text" value={newStudentForm.phoneNumber} onChange={e => setNewStudentForm({...newStudentForm, phoneNumber: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
-                                </div>
-                            </div>
+                            )}
+
                             <div className="pt-4 border-t border-slate-50">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">หรือนำเข้าจาก Excel</label>
                                 <div className="flex flex-col md:flex-row gap-2 mt-2">

@@ -495,6 +495,11 @@ async function startServer() {
   app.post('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
     let data = req.body;
+    
+    if (!data) {
+      return res.status(400).json({ error: 'No data provided' });
+    }
+
     console.log(`[${new Date().toISOString()}] POST /api/table/${tableName} - Data size: ${JSON.stringify(data).length} bytes`);
     
     try {
@@ -515,31 +520,47 @@ async function startServer() {
         // Collect all unique keys from all objects in the array
         const allKeys = new Set();
         data.forEach(item => {
-          Object.keys(item).forEach(key => allKeys.add(key));
+          if (item && typeof item === 'object') {
+            Object.keys(item).forEach(key => {
+              if (item[key] !== undefined) allKeys.add(key);
+            });
+          }
         });
         const keys = Array.from(allKeys);
         
+        if (keys.length === 0) return res.json({ success: true });
+
         const values = [];
         const placeholders = data.map(() => `(${keys.map(() => '?').join(', ')})`).join(', ');
         
         data.forEach(item => {
           keys.forEach(k => {
             let val = item[k];
-            // Convert undefined to null for MySQL
             if (val === undefined) val = null;
-            // Handle empty strings for numeric columns and unique identifiers
-            if (val === '' && ['age', 'weight', 'height', 'lat', 'lng', 'radius', 'family_annual_income', 'student_id', 'national_id'].includes(k)) {
+            
+            // Convert empty strings to null for specific columns to avoid unique constraint issues or type errors
+            const nullIfEmpty = [
+              'student_id', 'national_id', 'age', 'weight', 'height', 
+              'lat', 'lng', 'radius', 'family_annual_income', 'birthday'
+            ];
+            if (val === '' && nullIfEmpty.includes(k)) {
               val = null;
             }
             
             if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
-              val = JSON.stringify(val);
+              try {
+                val = JSON.stringify(val);
+              } catch (e) {
+                console.error(`Failed to stringify field ${k}:`, e);
+                val = null;
+              }
             }
             values.push(val);
           });
         });
 
         // Use ON DUPLICATE KEY UPDATE for bulk inserts
+        // Standard MySQL syntax: col = VALUES(col)
         const updates = keys.filter(k => k !== 'id').map(k => `?? = VALUES(??)`).join(', ');
         const updateParams = [];
         keys.filter(k => k !== 'id').forEach(k => updateParams.push(k, k));
@@ -549,7 +570,6 @@ async function startServer() {
           sql += ` ON DUPLICATE KEY UPDATE ${updates}`;
         }
         
-        console.log(`[${new Date().toISOString()}] Executing bulk insert SQL for ${tableName} with ${keys.length} columns`);
         await query(sql, [tableName, keys, ...values, ...updateParams]);
       } else {
         // Single insert
@@ -558,28 +578,42 @@ async function startServer() {
           data.id = crypto.randomUUID();
         }
 
-        const keys = Object.keys(data);
-        const values = keys.map(k => {
+        const keys = Object.keys(data).filter(k => data[k] !== undefined);
+        const values = [];
+        
+        keys.forEach(k => {
           let val = data[k];
-          if (val === undefined) val = null;
-          if (val === '' && ['age', 'weight', 'height', 'lat', 'lng', 'radius', 'family_annual_income', 'student_id', 'national_id'].includes(k)) {
+          const nullIfEmpty = [
+            'student_id', 'national_id', 'age', 'weight', 'height', 
+            'lat', 'lng', 'radius', 'family_annual_income', 'birthday'
+          ];
+          if (val === '' && nullIfEmpty.includes(k)) {
             val = null;
           }
           if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
-            return JSON.stringify(val);
+            try {
+              val = JSON.stringify(val);
+            } catch (e) {
+              val = null;
+            }
           }
-          return val;
+          values.push(val);
         });
         
         const placeholders = keys.map(() => '?').join(', ');
-        const updates = keys.map(k => `?? = ?`).join(', ');
-        const updateParams = keys.flatMap(k => {
+        const updates = keys.filter(k => k !== 'id').map(k => `?? = ?`).join(', ');
+        const updateParams = [];
+        keys.filter(k => k !== 'id').forEach(k => {
           let val = data[k];
-          if (val === undefined) val = null;
-          if (val === '' && ['age', 'weight', 'height', 'lat', 'lng', 'radius', 'family_annual_income', 'student_id', 'national_id'].includes(k)) {
+          const nullIfEmpty = [
+            'student_id', 'national_id', 'age', 'weight', 'height', 
+            'lat', 'lng', 'radius', 'family_annual_income', 'birthday'
+          ];
+          if (val === '' && nullIfEmpty.includes(k)) {
             val = null;
           }
-          return [k, Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val];
+          updateParams.push(k);
+          updateParams.push(Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val);
         });
 
         const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
@@ -590,7 +624,7 @@ async function startServer() {
       res.json({ success: true });
     } catch (err) {
       console.error(`[${new Date().toISOString()}] API Error for ${tableName}:`, err);
-      res.status(500).json({ error: `Failed to save to ${tableName}: ${err.message}` });
+      res.status(500).json({ error: `Failed to save to ${tableName}: ${err.message || String(err)}` });
     }
   });
 
