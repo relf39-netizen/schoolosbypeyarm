@@ -45,7 +45,19 @@ export const supabase = {
             data = JSON.parse(text);
           } catch (e) {
             console.error('Failed to parse JSON response:', text);
-            const result = { data: null, error: { message: `Server returned non-JSON response: ${text.substring(0, 100)}...` } };
+            // Try to extract a title or status from HTML if possible
+            let errorDetail = text.substring(0, 200);
+            const titleMatch = text.match(/<title>(.*?)<\/title>/i);
+            const h1Match = text.match(/<h1>(.*?)<\/h1>/i);
+            if (titleMatch) errorDetail = `Title: ${titleMatch[1]}`;
+            else if (h1Match) errorDetail = `Header: ${h1Match[1]}`;
+            
+            const result = { 
+              data: null, 
+              error: { 
+                message: `Server returned non-JSON response (Status: ${res.status} ${res.statusText}). ${errorDetail}` 
+              } 
+            };
             return onfulfilled ? onfulfilled(result) : result;
           }
           const result = (data && data.error) ? { data: null, error: data.error } : { data, error: null };

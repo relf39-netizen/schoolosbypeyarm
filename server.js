@@ -516,10 +516,17 @@ async function startServer() {
           });
         });
 
-        // For bulk insert, we'll use INSERT IGNORE to avoid collisions if IDs are provided
-        // or just a regular INSERT if we generated them.
-        const sql = `INSERT INTO ?? (??) VALUES ${placeholders}`;
-        await query(sql, [tableName, keys, ...values]);
+        // Use ON DUPLICATE KEY UPDATE for bulk inserts too
+        const updates = keys.filter(k => k !== 'id').map(k => `?? = VALUES(??)`).join(', ');
+        const updateParams = [];
+        keys.filter(k => k !== 'id').forEach(k => updateParams.push(k, k));
+
+        let sql = `INSERT INTO ?? (??) VALUES ${placeholders}`;
+        if (updates) {
+          sql += ` ON DUPLICATE KEY UPDATE ${updates}`;
+        }
+        
+        await query(sql, [tableName, keys, ...values, ...updateParams]);
       } else {
         // Single insert
         if (!data.id && uuidTables.includes(tableName)) {

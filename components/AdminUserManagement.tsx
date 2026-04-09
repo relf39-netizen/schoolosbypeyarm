@@ -74,6 +74,8 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const [classRooms, setClassRooms] = useState<ClassRoom[]>([]);
     const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
     const [isLoadingStudents, setIsLoadingStudents] = useState(false);
+    const [importProgress, setImportProgress] = useState(0);
+    const [importTotal, setImportTotal] = useState(0);
     const [studentSearch, setStudentSearch] = useState('');
     const [selectedClass, setSelectedClass] = useState<string>('All');
     const [currentAcademicYear, setCurrentAcademicYear] = useState<string>('');
@@ -944,19 +946,37 @@ function setTelegramWebhook() {
     const confirmImport = async () => {
         if (!importPreview || !supabase) return;
         setIsLoadingStudents(true);
+        setImportProgress(0);
+        setImportTotal(importPreview.length);
+        
         try {
-            const { error } = await supabase.from('students').insert(importPreview);
-            if (!error) {
-                fetchStudentData();
-                alert(`นำเข้าสำเร็จ ${importPreview.length} รายการ`);
-                setImportPreview(null);
-            } else {
-                alert('ขัดข้อง: ' + error.message);
+            // Chunk the import to avoid payload size limits (e.g., Nginx 1MB limit)
+            const chunkSize = 50;
+            const chunks = [];
+            for (let i = 0; i < importPreview.length; i += chunkSize) {
+                chunks.push(importPreview.slice(i, i + chunkSize));
             }
+
+            let successCount = 0;
+            for (let i = 0; i < chunks.length; i++) {
+                const { error } = await supabase.from('students').insert(chunks[i]);
+                if (error) {
+                    throw error;
+                }
+                successCount += chunks[i].length;
+                setImportProgress(successCount);
+            }
+
+            fetchStudentData();
+            setImportPreview(null);
+            alert(`นำเข้าข้อมูลสำเร็จ ${successCount} รายการ`);
         } catch (err: any) {
-            alert('ขัดข้อง: ' + err.message);
+            console.error('Import error:', err);
+            alert('เกิดข้อผิดพลาดในการนำเข้า: ' + (err.message || err));
         } finally {
             setIsLoadingStudents(false);
+            setImportProgress(0);
+            setImportTotal(0);
         }
     };
 
@@ -2524,6 +2544,30 @@ function setTelegramWebhook() {
                         </div>
 
                         <div className="flex-1 overflow-y-auto border rounded-2xl mb-6 custom-scrollbar">
+                            {isLoadingStudents && importTotal > 0 && (
+                                <div className="p-8 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm absolute inset-0 z-20">
+                                    <div className="w-full max-w-md space-y-4">
+                                        <div className="flex justify-between items-end">
+                                            <div className="space-y-1">
+                                                <p className="text-xs font-black text-indigo-600 uppercase tracking-widest">กำลังนำเข้าข้อมูล...</p>
+                                                <p className="text-2xl font-black text-slate-800">{Math.round((importProgress / importTotal) * 100)}%</p>
+                                            </div>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                                {importProgress} / {importTotal} รายการ
+                                            </p>
+                                        </div>
+                                        <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200">
+                                            <div 
+                                                className="h-full bg-emerald-500 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(16,185,129,0.4)]"
+                                                style={{ width: `${(importProgress / importTotal) * 100}%` }}
+                                            />
+                                        </div>
+                                        <p className="text-center text-[10px] text-slate-400 font-bold italic">
+                                            กรุณาอย่าปิดหน้าต่างนี้จนกว่าการนำเข้าจะเสร็จสิ้น
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
                             <table className="w-full text-left border-collapse">
                                 <thead className="sticky top-0 bg-slate-50 z-10">
                                     <tr>
