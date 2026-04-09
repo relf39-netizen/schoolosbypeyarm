@@ -8,109 +8,123 @@ export const isConfigured = true;
 export const supabase = {
   from: (tableName: string) => {
     const queryParams = new URLSearchParams();
-    const builder: any = {
+    const state = {
       method: 'GET',
-      body: null,
-      then: async (onfulfilled: any) => {
-        try {
-          const method = builder.method || 'GET';
-          const url = `${API_BASE}/table/${tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-          
-          const options: any = { method };
-          if (builder.body) {
-            options.headers = { 'Content-Type': 'application/json' };
-            options.body = JSON.stringify(builder.body);
-          }
+      body: null as any
+    };
 
-          const res = await fetch(url, options);
-          const text = await res.text();
-          let data;
-          try {
-            data = JSON.parse(text);
-          } catch (e) {
-            console.error('Failed to parse JSON response:', text);
-            let errorDetail = text.substring(0, 200);
-            const titleMatch = text.match(/<title>(.*?)<\/title>/i);
-            const h1Match = text.match(/<h1>(.*?)<\/h1>/i);
-            if (titleMatch) errorDetail = `Title: ${titleMatch[1]}`;
-            else if (h1Match) errorDetail = `Header: ${h1Match[1]}`;
-            
-            const result = { 
-              data: null, 
-              error: { 
-                message: `Server returned non-JSON response (Status: ${res.status} ${res.statusText}). ${errorDetail}` 
-              } 
-            };
-            return onfulfilled ? onfulfilled(result) : result;
-          }
-          
-          const result = (data && data.error) ? { data: null, error: data.error } : { data, error: null };
-          return onfulfilled ? onfulfilled(result) : result;
-        } catch (error: any) {
-          const result = { data: null, error: { message: error.message || String(error) } };
-          return onfulfilled ? onfulfilled(result) : result;
+    const execute = async () => {
+      try {
+        const url = `${API_BASE}/table/${tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+        const options: any = { method: state.method };
+        
+        if (state.body) {
+          options.headers = { 'Content-Type': 'application/json' };
+          options.body = JSON.stringify(state.body);
         }
+
+        const res = await fetch(url, options);
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          console.error('Failed to parse JSON response:', text);
+          let errorDetail = text.substring(0, 200);
+          const titleMatch = text.match(/<title>(.*?)<\/title>/i);
+          const h1Match = text.match(/<h1>(.*?)<\/h1>/i);
+          if (titleMatch) errorDetail = `Title: ${titleMatch[1]}`;
+          else if (h1Match) errorDetail = `Header: ${h1Match[1]}`;
+          
+          return { 
+            data: null, 
+            error: { 
+              message: `Server returned non-JSON response (Status: ${res.status} ${res.statusText}). ${errorDetail}` 
+            } 
+          };
+        }
+        
+        if (data && data.error) {
+          return { data: null, error: data.error };
+        }
+        return { data, error: null };
+      } catch (error: any) {
+        return { data: null, error: { message: error.message || String(error) } };
       }
     };
 
-    const chain: any = {
+    const queryBuilder: any = {
       select: (columns: string = '*') => {
         queryParams.set('select', columns);
-        return builder;
+        return queryBuilder;
       },
       insert: (data: any) => {
-        builder.method = 'POST';
-        builder.body = data;
-        return {
-          select: () => builder,
-          then: builder.then
-        };
+        state.method = 'POST';
+        state.body = data;
+        return queryBuilder;
       },
       upsert: (data: any) => {
-        builder.method = 'POST';
-        builder.body = data;
-        return {
-          select: () => builder,
-          then: builder.then
-        };
+        state.method = 'POST';
+        state.body = data;
+        return queryBuilder;
       },
       update: (data: any) => {
-        builder.method = 'PATCH';
-        builder.body = data;
-        return chain;
+        state.method = 'PATCH';
+        state.body = data;
+        return queryBuilder;
       },
       delete: () => {
-        builder.method = 'DELETE';
-        return chain;
+        state.method = 'DELETE';
+        return queryBuilder;
       },
       eq: (column: string, value: any) => {
         queryParams.append(column, `eq.${value}`);
-        return chain;
+        return queryBuilder;
+      },
+      neq: (column: string, value: any) => {
+        queryParams.append(column, `neq.${value}`);
+        return queryBuilder;
+      },
+      gt: (column: string, value: any) => {
+        queryParams.append(column, `gt.${value}`);
+        return queryBuilder;
+      },
+      lt: (column: string, value: any) => {
+        queryParams.append(column, `lt.${value}`);
+        return queryBuilder;
+      },
+      in: (column: string, values: any[]) => {
+        queryParams.append(column, `in.(${values.join(',')})`);
+        return queryBuilder;
       },
       order: (column: string, { ascending = true } = {}) => {
         queryParams.set('order', `${column}.${ascending ? 'asc' : 'desc'}`);
-        return chain;
+        return queryBuilder;
       },
       limit: (count: number) => {
         queryParams.set('limit', count.toString());
-        return chain;
+        return queryBuilder;
       },
-      single: () => {
-        return builder.then((res: any) => ({
-          data: (res.data && res.data.length > 0) ? res.data[0] : null,
+      single: async () => {
+        const res = await execute();
+        return {
+          data: (res.data && Array.isArray(res.data) && res.data.length > 0) ? res.data[0] : (Array.isArray(res.data) ? null : res.data),
           error: res.error
-        }));
+        };
       },
-      maybeSingle: () => {
-        return builder.then((res: any) => ({
-          data: (res.data && res.data.length > 0) ? res.data[0] : null,
+      maybeSingle: async () => {
+        const res = await execute();
+        return {
+          data: (res.data && Array.isArray(res.data) && res.data.length > 0) ? res.data[0] : (Array.isArray(res.data) ? null : res.data),
           error: res.error
-        }));
+        };
       },
-      then: builder.then
+      then: (onfulfilled: any) => {
+        return execute().then(onfulfilled);
+      }
     };
 
-    return chain;
+    return queryBuilder;
   },
   channel: () => ({
     on: () => ({
