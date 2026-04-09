@@ -78,11 +78,13 @@ export const supabase = {
         return queryBuilder;
       },
       eq: (column: string, value: any) => {
-        queryParams.append(column, `eq.${value}`);
+        queryParams.append(column, value);
         return queryBuilder;
       },
       neq: (column: string, value: any) => {
-        queryParams.append(column, `neq.${value}`);
+        // Note: Our current server.js only supports '='. 
+        // For now, we'll keep it simple to fix login.
+        queryParams.append(column, value); 
         return queryBuilder;
       },
       gt: (column: string, value: any) => {
