@@ -39,11 +39,19 @@ export const supabase = {
           }
 
           const res = await fetch(url, options);
-          const data = await res.json();
+          const text = await res.text();
+          let data;
+          try {
+            data = JSON.parse(text);
+          } catch (e) {
+            console.error('Failed to parse JSON response:', text);
+            const result = { data: null, error: { message: `Server returned non-JSON response: ${text.substring(0, 100)}...` } };
+            return onfulfilled ? onfulfilled(result) : result;
+          }
           const result = (data && data.error) ? { data: null, error: data.error } : { data, error: null };
           return onfulfilled ? onfulfilled(result) : result;
-        } catch (error) {
-          const result = { data: null, error };
+        } catch (error: any) {
+          const result = { data: null, error: { message: error.message || String(error) } };
           return onfulfilled ? onfulfilled(result) : result;
         }
       },
@@ -62,10 +70,17 @@ export const supabase = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
           });
-          const result = await res.json();
+          const text = await res.text();
+          let result;
+          try {
+            result = JSON.parse(text);
+          } catch (e) {
+            console.error('Failed to parse JSON response:', text);
+            return { data: null, error: { message: `Server returned non-JSON response: ${text.substring(0, 100)}...` } };
+          }
           return (result && result.error) ? { data: null, error: result.error } : { data: result, error: null };
-        } catch (error) {
-          return { data: null, error };
+        } catch (error: any) {
+          return { data: null, error: { message: error.message || String(error) } };
         }
       },
       upsert: async (data: any) => {
@@ -75,10 +90,17 @@ export const supabase = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
           });
-          const result = await res.json();
+          const text = await res.text();
+          let result;
+          try {
+            result = JSON.parse(text);
+          } catch (e) {
+            console.error('Failed to parse JSON response:', text);
+            return { data: null, error: { message: `Server returned non-JSON response: ${text.substring(0, 100)}...` } };
+          }
           return (result && result.error) ? { data: null, error: result.error } : { data: result, error: null };
-        } catch (error) {
-          return { data: null, error };
+        } catch (error: any) {
+          return { data: null, error: { message: error.message || String(error) } };
         }
       },
       update: (data: any) => {

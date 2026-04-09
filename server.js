@@ -23,6 +23,12 @@ async function startServer() {
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
 
+  // Request Logger
+  app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
+  });
+
   // MySQL Connection Pool
   const pool = mysql.createPool({
     host: process.env.MYSQL_HOST || 'localhost',
@@ -47,128 +53,8 @@ async function startServer() {
     }
   };
 
-  // API Routes
-  
-  // 1. Schools
-  app.get('/api/db-check', async (req, res) => {
-    try {
-      const result = await query('SELECT 1 as connected');
-      res.json({ success: true, message: 'Database connected successfully', data: result });
-    } catch (err) {
-      res.status(500).json({ 
-        success: false, 
-        message: 'Database connection failed', 
-        error: err.message,
-        config: {
-          host: process.env.MYSQL_HOST || 'localhost',
-          user: process.env.MYSQL_USER || 'root',
-          database: process.env.MYSQL_DATABASE || 'school_os',
-          port: process.env.MYSQL_PORT || '3306'
-        }
-      });
-    }
-  });
-
-  app.get('/api/schools', async (req, res) => {
-    try {
-      const schools = await query('SELECT * FROM schools');
-      res.json(schools);
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to fetch schools' });
-    }
-  });
-
-  app.post('/api/schools', async (req, res) => {
-    const { id, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64 } = req.body;
-    try {
-      await query(
-        'INSERT INTO schools (id, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=?, district=?, province=?, lat=?, lng=?, radius=?, late_time_threshold=?, logo_base_64=?',
-        [id, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64]
-      );
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to save school' });
-    }
-  });
-
-  // 2. Profiles (Teachers)
-  app.get('/api/profiles', async (req, res) => {
-    try {
-      const profiles = await query('SELECT * FROM profiles');
-      // Parse JSON fields for MySQL
-      const parsed = profiles.map((p) => ({
-        ...p,
-        roles: typeof p.roles === 'string' ? JSON.parse(p.roles) : p.roles,
-        assigned_classes: typeof p.assigned_classes === 'string' ? JSON.parse(p.assigned_classes) : p.assigned_classes
-      }));
-      res.json(parsed);
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to fetch profiles' });
-    }
-  });
-
-  app.post('/api/profiles', async (req, res) => {
-    const { id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, is_suspended, is_approved, assigned_classes } = req.body;
-    try {
-      await query(
-        'INSERT INTO profiles (id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, is_suspended, is_approved, assigned_classes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE school_id=?, name=?, password=?, position=?, roles=?, signature_base_64=?, telegram_chat_id=?, is_suspended=?, is_approved=?, assigned_classes=?',
-        [
-          id, school_id, name, password, position, JSON.stringify(roles || []), signature_base_64, telegram_chat_id, is_suspended ? 1 : 0, is_approved ? 1 : 0, JSON.stringify(assigned_classes || []),
-          school_id, name, password, position, JSON.stringify(roles || []), signature_base_64, telegram_chat_id, is_suspended ? 1 : 0, is_approved ? 1 : 0, JSON.stringify(assigned_classes || [])
-        ]
-      );
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to save profile' });
-    }
-  });
-
-  // 3. Generic Table Access (for other tables)
-  app.get('/api/table/:tableName', async (req, res) => {
-    const { tableName } = req.params;
-    const filters = { ...req.query };
-    try {
-      let sql = `SELECT * FROM ??`;
-      let params = [tableName];
-      
-      const filterKeys = Object.keys(filters).filter(k => k !== 'order' && k !== 'limit');
-      if (filterKeys.length > 0) {
-        sql += ` WHERE ` + filterKeys.map(k => `?? = ?`).join(' AND ');
-        filterKeys.forEach(k => {
-          params.push(k, filters[k]);
-        });
-      }
-
-      if (filters.order) {
-        const [col, dir] = filters.order.split('.');
-        sql += ` ORDER BY ?? ${dir === 'desc' ? 'DESC' : 'ASC'}`;
-        params.push(col);
-      }
-
-      if (filters.limit) {
-        sql += ` LIMIT ?`;
-        params.push(parseInt(filters.limit));
-      }
-      
-      const results = await query(sql, params);
-      // Auto-parse JSON columns if any
-      const parsed = results.map((row) => {
-        const newRow = { ...row };
-        for (const key in newRow) {
-          if (typeof newRow[key] === 'string' && (newRow[key].startsWith('[') || newRow[key].startsWith('{'))) {
-            try { newRow[key] = JSON.parse(newRow[key]); } catch(e) {}
-          }
-        }
-        return newRow;
-      });
-      res.json(parsed);
-    } catch (err) {
-      res.status(500).json({ error: `Failed to fetch from ${tableName}` });
-    }
-  });
-
-  // Database Initialization
-  app.post('/api/init-db', async (req, res) => {
+  // Database Initialization Function
+  const initializeDatabase = async () => {
     try {
       const schema = [
         `CREATE TABLE IF NOT EXISTS schools (
@@ -380,7 +266,7 @@ async function startServer() {
         await query(sql);
       }
 
-      // Migration: Add missing columns to various tables if they don't exist
+      // Migration: Add missing columns
       const migrations = [
         {
           table: 'students',
@@ -447,25 +333,151 @@ async function startServer() {
         }
       ];
 
-      const updatedTables = [];
       for (const m of migrations) {
-        let tableUpdated = false;
         for (const col of m.columns) {
           try {
             await query(`ALTER TABLE ?? ADD COLUMN ?? ${col.type}`, [m.table, col.name]);
-            tableUpdated = true;
           } catch (e) {
             // Ignore if column already exists
           }
         }
-        if (tableUpdated) updatedTables.push(m.table);
+      }
+      console.log('Database initialized and migrated successfully');
+    } catch (err) {
+      console.error('Database initialization error:', err);
+    }
+  };
+
+  // Run initialization on startup
+  await initializeDatabase();
+
+  // API Routes
+  
+  // 1. Schools
+  app.get('/api/db-check', async (req, res) => {
+    try {
+      const result = await query('SELECT 1 as connected');
+      res.json({ success: true, message: 'Database connected successfully', data: result });
+    } catch (err) {
+      res.status(500).json({ 
+        success: false, 
+        message: 'Database connection failed', 
+        error: err.message,
+        config: {
+          host: process.env.MYSQL_HOST || 'localhost',
+          user: process.env.MYSQL_USER || 'root',
+          database: process.env.MYSQL_DATABASE || 'school_os',
+          port: process.env.MYSQL_PORT || '3306'
+        }
+      });
+    }
+  });
+
+  app.get('/api/schools', async (req, res) => {
+    try {
+      const schools = await query('SELECT * FROM schools');
+      res.json(schools);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch schools' });
+    }
+  });
+
+  app.post('/api/schools', async (req, res) => {
+    const { id, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64 } = req.body;
+    try {
+      await query(
+        'INSERT INTO schools (id, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=?, district=?, province=?, lat=?, lng=?, radius=?, late_time_threshold=?, logo_base_64=?',
+        [id, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64, name, district, province, lat, lng, radius, late_time_threshold, logo_base_64]
+      );
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to save school' });
+    }
+  });
+
+  // 2. Profiles (Teachers)
+  app.get('/api/profiles', async (req, res) => {
+    try {
+      const profiles = await query('SELECT * FROM profiles');
+      // Parse JSON fields for MySQL
+      const parsed = profiles.map((p) => ({
+        ...p,
+        roles: typeof p.roles === 'string' ? JSON.parse(p.roles) : p.roles,
+        assigned_classes: typeof p.assigned_classes === 'string' ? JSON.parse(p.assigned_classes) : p.assigned_classes
+      }));
+      res.json(parsed);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch profiles' });
+    }
+  });
+
+  app.post('/api/profiles', async (req, res) => {
+    const { id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, is_suspended, is_approved, assigned_classes } = req.body;
+    try {
+      await query(
+        'INSERT INTO profiles (id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, is_suspended, is_approved, assigned_classes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE school_id=?, name=?, password=?, position=?, roles=?, signature_base_64=?, telegram_chat_id=?, is_suspended=?, is_approved=?, assigned_classes=?',
+        [
+          id, school_id, name, password, position, JSON.stringify(roles || []), signature_base_64, telegram_chat_id, is_suspended ? 1 : 0, is_approved ? 1 : 0, JSON.stringify(assigned_classes || []),
+          school_id, name, password, position, JSON.stringify(roles || []), signature_base_64, telegram_chat_id, is_suspended ? 1 : 0, is_approved ? 1 : 0, JSON.stringify(assigned_classes || [])
+        ]
+      );
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to save profile' });
+    }
+  });
+
+  // 3. Generic Table Access (for other tables)
+  app.get('/api/table/:tableName', async (req, res) => {
+    const { tableName } = req.params;
+    const filters = { ...req.query };
+    try {
+      let sql = `SELECT * FROM ??`;
+      let params = [tableName];
+      
+      const filterKeys = Object.keys(filters).filter(k => k !== 'order' && k !== 'limit');
+      if (filterKeys.length > 0) {
+        sql += ` WHERE ` + filterKeys.map(k => `?? = ?`).join(' AND ');
+        filterKeys.forEach(k => {
+          params.push(k, filters[k]);
+        });
       }
 
+      if (filters.order) {
+        const [col, dir] = filters.order.split('.');
+        sql += ` ORDER BY ?? ${dir === 'desc' ? 'DESC' : 'ASC'}`;
+        params.push(col);
+      }
+
+      if (filters.limit) {
+        sql += ` LIMIT ?`;
+        params.push(parseInt(filters.limit));
+      }
+      
+      const results = await query(sql, params);
+      // Auto-parse JSON columns if any
+      const parsed = results.map((row) => {
+        const newRow = { ...row };
+        for (const key in newRow) {
+          if (typeof newRow[key] === 'string' && (newRow[key].startsWith('[') || newRow[key].startsWith('{'))) {
+            try { newRow[key] = JSON.parse(newRow[key]); } catch(e) {}
+          }
+        }
+        return newRow;
+      });
+      res.json(parsed);
+    } catch (err) {
+      res.status(500).json({ error: `Failed to fetch from ${tableName}` });
+    }
+  });
+
+  // Database Initialization (Manual Trigger)
+  app.post('/api/init-db', async (req, res) => {
+    try {
+      await initializeDatabase();
       res.json({ 
         success: true, 
-        message: updatedTables.length > 0 
-          ? `ปรับปรุงโครงสร้างตาราง: ${updatedTables.join(', ')} เรียบร้อยแล้ว` 
-          : 'โครงสร้างฐานข้อมูลเป็นปัจจุบันอยู่แล้ว' 
+        message: 'ปรับปรุงโครงสร้างฐานข้อมูลเรียบร้อยแล้ว' 
       });
     } catch (err) {
       console.error(err);
@@ -597,6 +609,22 @@ async function startServer() {
     } catch (err) {
       res.status(500).json({ error: `Failed to delete from ${tableName}` });
     }
+  });
+
+  // Catch-all for unmatched API routes
+  app.all('/api/*', (req, res) => {
+    console.log(`[${new Date().toISOString()}] Unmatched API Route: ${req.method} ${req.url}`);
+    res.status(404).json({ error: `Route ${req.method} ${req.url} not found` });
+  });
+
+  // Custom error handler for JSON parsing errors
+  app.use((err, req, res, next) => {
+    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+      console.error('JSON Parsing Error:', err.message);
+      return res.status(400).json({ error: 'Invalid JSON payload' });
+    }
+    console.error('Unhandled Error:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
   });
 
   // Vite middleware for development
