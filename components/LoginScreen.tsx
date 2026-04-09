@@ -64,37 +64,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
                 }
             }
 
-            // 2. Regular Teacher Login (Fetch from Database)
-            let user: Teacher | null = null;
-            
-            if (isSupabaseConfigured && client) {
-                const { data: dbUser, error: dbError } = await client
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', loginUsername)
-                    .maybeSingle();
-                
-                if (dbUser && !dbError) {
-                    // Map database fields to Teacher type
-                    user = {
-                        id: dbUser.id,
-                        schoolId: dbUser.school_id,
-                        name: dbUser.name,
-                        password: dbUser.password,
-                        position: dbUser.position,
-                        roles: Array.isArray(dbUser.roles) ? dbUser.roles : (typeof dbUser.roles === 'string' ? JSON.parse(dbUser.roles) : []),
-                        signatureBase64: dbUser.signature_base_64,
-                        telegramChatId: dbUser.telegram_chat_id,
-                        isSuspended: dbUser.is_suspended === 1 || dbUser.is_suspended === true,
-                        isApproved: dbUser.is_approved === 1 || dbUser.is_approved === true
-                    };
-                }
-            }
-
-            // Fallback to local state if DB fetch failed or not configured
-            if (!user) {
-                user = teachers.find(t => t.id === loginUsername) || null;
-            }
+            // 2. Regular Teacher Login (Local logic based on allTeachers state)
+            const user = teachers.find(t => t.id === loginUsername);
             
             if (!user) {
                 setError('ไม่พบข้อมูลผู้ใช้งาน (ตรวจสอบเลขบัตรประชาชน)');

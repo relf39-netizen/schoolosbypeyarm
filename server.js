@@ -341,20 +341,11 @@ async function startServer() {
       ];
 
       for (const m of migrations) {
-        if (m.columns) {
-          for (const col of m.columns) {
-            try {
-              await query(`ALTER TABLE ?? ADD COLUMN ?? ${col.type}`, [m.table, col.name]);
-            } catch (e) {
-              // Ignore if column already exists
-            }
-          }
-        }
-        if (m.sql) {
+        for (const col of m.columns) {
           try {
-            await query(m.sql);
+            await query(`ALTER TABLE ?? ADD COLUMN ?? ${col.type}`, [m.table, col.name]);
           } catch (e) {
-            // Ignore migration errors
+            // Ignore if column already exists
           }
         }
       }
