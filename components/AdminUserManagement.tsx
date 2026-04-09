@@ -9,7 +9,7 @@ import {
     FileCheck, BookOpen, Fingerprint, Key, Activity, BarChart3,
     Lock, Mail, Bell, ZapOff, ChevronDown, Image, GraduationCap,
     Calendar, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight,
-    Filter, Edit2, Download
+    Filter, Edit2, Download, Database
 } from 'lucide-react';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase, isConfigured as isSupabaseConfigured } from '../supabaseClient';
@@ -224,6 +224,7 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const [schoolForm, setSchoolForm] = useState<School>(currentSchool);
     const [isLoadingConfig, setIsLoadingConfig] = useState(false);
     const [isSavingConfig, setIsSavingConfig] = useState(false);
+    const [isTestingDB, setIsTestingDB] = useState(false);
     const [isMigrating, setIsMigrating] = useState(false);
     const [migrationStats, setMigrationStats] = useState<{ total: number, success: number, error: number } | null>(null);
     const [isGettingLocation, setIsGettingLocation] = useState(false);
@@ -1047,6 +1048,23 @@ function setTelegramWebhook() {
         (selectedClass === 'All' || s.currentClass === selectedClass) &&
         (s.name.includes(studentSearch) || s.id.includes(studentSearch))
     );
+
+    const testDatabaseConnection = async () => {
+        setIsTestingDB(true);
+        try {
+            const res = await fetch('/api/db-check');
+            const data = await res.json();
+            if (data.success) {
+                alert(`✅ เชื่อมต่อฐานข้อมูลสำเร็จ!\n\nHost: ${data.config.host}\nDatabase: ${data.config.database}`);
+            } else {
+                alert(`❌ เชื่อมต่อล้มเหลว: ${data.message}\n\nError: ${data.error}`);
+            }
+        } catch (err: any) {
+            alert(`❌ ไม่สามารถติดต่อ API ได้: ${err.message}\n\nหากท่านเห็นข้อความนี้ แสดงว่าแอปพลิเคชันไม่สามารถสื่อสารกับเซิร์ฟเวอร์ได้`);
+        } finally {
+            setIsTestingDB(false);
+        }
+    };
 
     const checkScriptVersion = async () => {
         if (!config.scriptUrl) {
@@ -1872,6 +1890,14 @@ function setTelegramWebhook() {
                                     <div className="lg:col-span-2"><div className="bg-slate-900 p-8 rounded-2xl border-2 border-slate-800 shadow-md relative overflow-hidden group"><h5 className="font-black text-white flex items-center gap-4 uppercase text-[10px] tracking-widest mb-6"><Zap className="text-yellow-400" size={24}/> Application URL</h5><div className="space-y-4"><input type="text" placeholder="https://your-app.vercel.app" value={config.appBaseUrl || ''} onChange={e => setConfig({...config, appBaseUrl: e.target.value})} className="w-full px-6 py-3 bg-white/5 border border-white/10 focus:border-yellow-400 rounded-xl font-mono text-base text-yellow-100 outline-none transition-all shadow-inner"/><div className="flex gap-4 items-center text-slate-500 px-6 py-2 bg-white/5 rounded-xl border border-white/10 w-fit backdrop-blur-md"><Info size={16} className="text-yellow-400 shrink-0"/><p className="text-[10px] font-bold uppercase tracking-widest">* URL หลักของแอปที่ท่านติดตั้ง เพื่อส่งลิงก์ใน Telegram</p></div></div></div></div>
                                 </div>
                                 <div className="flex flex-wrap gap-4">
+                                    <button
+                                        onClick={testDatabaseConnection}
+                                        disabled={isTestingDB}
+                                        className="flex-1 py-4 bg-emerald-600 text-white rounded-xl font-black text-base shadow-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-4 active:scale-95 uppercase tracking-widest border-b-4 border-emerald-950"
+                                    >
+                                        {isTestingDB ? <Loader className="animate-spin" size={24}/> : <Database size={24}/>}
+                                        ทดสอบการเชื่อมต่อ Database
+                                    </button>
                                     <button
                                         onClick={testDriveConnection}
                                         disabled={isSavingConfig}

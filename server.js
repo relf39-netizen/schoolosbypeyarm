@@ -139,7 +139,8 @@ async function startServer() {
           address TEXT,
           lat FLOAT,
           lng FLOAT,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY unique_student (school_id, student_id)
         )`,
         `CREATE TABLE IF NOT EXISTS student_savings (
           id VARCHAR(36) PRIMARY KEY,
@@ -298,6 +299,10 @@ async function startServer() {
             { name: 'lat', type: 'FLOAT' },
             { name: 'lng', type: 'FLOAT' }
           ]
+        },
+        {
+          table: 'students',
+          sql: 'ALTER TABLE students ADD UNIQUE KEY IF NOT EXISTS unique_student (school_id, student_id)'
         },
         {
           table: 'schools',
@@ -488,10 +493,13 @@ async function startServer() {
   app.post('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
     let data = req.body;
+    console.log(`[${new Date().toISOString()}] POST /api/table/${tableName} - Data size: ${JSON.stringify(data).length} bytes`);
+    
     try {
       const uuidTables = ['students', 'class_rooms', 'student_savings', 'academic_years', 'director_events'];
       
       if (Array.isArray(data)) {
+        console.log(`[${new Date().toISOString()}] Bulk insert into ${tableName}: ${data.length} items`);
         if (data.length === 0) return res.json({ success: true });
         
         // Ensure all items have IDs if needed
@@ -526,9 +534,11 @@ async function startServer() {
           sql += ` ON DUPLICATE KEY UPDATE ${updates}`;
         }
         
+        console.log(`[${new Date().toISOString()}] Executing bulk insert SQL for ${tableName}`);
         await query(sql, [tableName, keys, ...values, ...updateParams]);
       } else {
         // Single insert
+        console.log(`[${new Date().toISOString()}] Single insert into ${tableName}`);
         if (!data.id && uuidTables.includes(tableName)) {
           data.id = crypto.randomUUID();
         }
@@ -552,9 +562,10 @@ async function startServer() {
         await query(sql, [tableName, keys, ...values, ...updateParams]);
       }
       
+      console.log(`[${new Date().toISOString()}] Successfully saved to ${tableName}`);
       res.json({ success: true });
     } catch (err) {
-      console.error('API Error:', err);
+      console.error(`[${new Date().toISOString()}] API Error for ${tableName}:`, err);
       res.status(500).json({ error: `Failed to save to ${tableName}: ${err.message}` });
     }
   });
