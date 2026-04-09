@@ -527,8 +527,8 @@ async function startServer() {
             let val = item[k];
             // Convert undefined to null for MySQL
             if (val === undefined) val = null;
-            // Handle empty strings for numeric columns (optional but safer)
-            if (val === '' && ['age', 'weight', 'height', 'lat', 'lng', 'radius', 'family_annual_income'].includes(k)) {
+            // Handle empty strings for numeric columns and unique identifiers
+            if (val === '' && ['age', 'weight', 'height', 'lat', 'lng', 'radius', 'family_annual_income', 'student_id', 'national_id'].includes(k)) {
               val = null;
             }
             
@@ -560,16 +560,25 @@ async function startServer() {
 
         const keys = Object.keys(data);
         const values = keys.map(k => {
-          if (Array.isArray(data[k]) || (typeof data[k] === 'object' && data[k] !== null)) {
-            return JSON.stringify(data[k]);
+          let val = data[k];
+          if (val === undefined) val = null;
+          if (val === '' && ['age', 'weight', 'height', 'lat', 'lng', 'radius', 'family_annual_income', 'student_id', 'national_id'].includes(k)) {
+            val = null;
           }
-          return data[k];
+          if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
+            return JSON.stringify(val);
+          }
+          return val;
         });
         
         const placeholders = keys.map(() => '?').join(', ');
         const updates = keys.map(k => `?? = ?`).join(', ');
         const updateParams = keys.flatMap(k => {
-          const val = data[k];
+          let val = data[k];
+          if (val === undefined) val = null;
+          if (val === '' && ['age', 'weight', 'height', 'lat', 'lng', 'radius', 'family_annual_income', 'student_id', 'national_id'].includes(k)) {
+            val = null;
+          }
           return [k, Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val];
         });
 

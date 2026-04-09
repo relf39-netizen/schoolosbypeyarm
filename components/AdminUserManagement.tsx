@@ -3,7 +3,7 @@ import {
     Link as LinkIcon, AlertCircle, MapPin, Target, Crosshair, Clock, 
     RefreshCw, UserCheck, ShieldCheck, ShieldAlert, LogOut, 
     Send, Globe, Copy, Check, Cloud, Building2, Loader, 
-    CheckCircle, HardDrive, Smartphone, Zap, Eye, EyeOff, User, CheckCircle2,
+    CheckCircle, HardDrive, Smartphone, Zap, Eye, EyeOff, User, CheckCircle2, Loader2,
     ChevronRight, Info, Search, LayoutGrid, FileText,
     ChevronLeft, ChevronsLeft, ChevronsRight, Shield, UserCog,
     FileCheck, BookOpen, Fingerprint, Key, Activity, BarChart3,
@@ -224,6 +224,9 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const [schoolForm, setSchoolForm] = useState<School>(currentSchool);
     const [isLoadingConfig, setIsLoadingConfig] = useState(false);
     const [isSavingConfig, setIsSavingConfig] = useState(false);
+    const [isSavingStudent, setIsSavingStudent] = useState(false);
+    const [isSavingClass, setIsSavingClass] = useState(false);
+    const [isSavingYear, setIsSavingYear] = useState(false);
     const [isTestingDB, setIsTestingDB] = useState(false);
     const [isMigrating, setIsMigrating] = useState(false);
     const [migrationStats, setMigrationStats] = useState<{ total: number, success: number, error: number } | null>(null);
@@ -507,18 +510,20 @@ function setTelegramWebhook() {
         setIsLoadingStudents(true);
         try {
             // Fetch Years
-            const { data: yearsData } = await supabase
+            const { data: yearsData, error: yearsError } = await supabase
                 .from('academic_years')
                 .select('*')
                 .eq('school_id', currentSchool.id)
                 .order('year', { ascending: false });
             
+            if (yearsError) throw yearsError;
+
             if (yearsData) {
                 const mappedYears = yearsData.map((y: any) => ({
                     id: y.id,
                     schoolId: y.school_id,
                     year: y.year,
-                    isCurrent: y.is_current
+                    isCurrent: y.is_current === 1 || y.is_current === true
                 }));
                 setAcademicYears(mappedYears);
                 const current = mappedYears.find((y: any) => y.isCurrent);
@@ -526,11 +531,13 @@ function setTelegramWebhook() {
             }
 
             // Fetch Classes
-            const { data: classesData } = await supabase
+            const { data: classesData, error: classesError } = await supabase
                 .from('class_rooms')
                 .select('*')
                 .eq('school_id', currentSchool.id);
             
+            if (classesError) throw classesError;
+
             if (classesData) {
                 setClassRooms(classesData.map((c: any) => ({
                     id: c.id,
@@ -541,12 +548,14 @@ function setTelegramWebhook() {
             }
 
             // Fetch Students
-            const { data: studentsData } = await supabase
+            const { data: studentsData, error: studentsError } = await supabase
                 .from('students')
                 .select('*')
                 .eq('school_id', currentSchool.id)
                 .eq('is_active', true);
             
+            if (studentsError) throw studentsError;
+
             if (studentsData) {
                 setStudents(studentsData.map((s: any) => ({
                     id: s.id,
@@ -560,8 +569,8 @@ function setTelegramWebhook() {
                     gender: s.gender,
                     currentClass: s.current_class,
                     academicYear: s.academic_year,
-                    isActive: s.is_active,
-                    isAlumni: s.is_alumni,
+                    isActive: s.is_active === 1 || s.is_active === true,
+                    isAlumni: s.is_alumni === 1 || s.is_alumni === true,
                     graduationYear: s.graduation_year,
                     batchNumber: s.batch_number,
                     photoUrl: s.photo_url,
@@ -583,8 +592,9 @@ function setTelegramWebhook() {
                     location: (s.lat && s.lng) ? { lat: s.lat, lng: s.lng } : undefined
                 })));
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error("Error fetching student data:", err);
+            alert("ไม่สามารถโหลดข้อมูลนักเรียนได้: " + (err.message || String(err)));
         } finally {
             setIsLoadingStudents(false);
         }
@@ -597,7 +607,13 @@ function setTelegramWebhook() {
     }, [activeTab, currentSchool.id]);
 
     const handleAddStudent = async () => {
-        if (!newStudentForm.name) {
+        // Construct name if not provided but first/last name are
+        let finalName = newStudentForm.name;
+        if (!finalName && newStudentForm.firstName && newStudentForm.lastName) {
+            finalName = `${newStudentForm.title || ''}${newStudentForm.firstName} ${newStudentForm.lastName}`.trim();
+        }
+
+        if (!finalName) {
             alert('กรุณากรอกชื่อนักเรียน');
             return;
         }
@@ -605,120 +621,136 @@ function setTelegramWebhook() {
             alert('กรุณาเลือกชั้นเรียน');
             return;
         }
-        if (!supabase) return;
+        if (!supabase) {
+            alert('ระบบฐานข้อมูลไม่พร้อมใช้งาน');
+            return;
+        }
 
+        setIsSavingStudent(true);
         try {
+            const payload = {
+                student_id: newStudentForm.studentId || null,
+                national_id: newStudentForm.nationalId || null,
+                title: newStudentForm.title || null,
+                first_name: newStudentForm.firstName || null,
+                last_name: newStudentForm.lastName || null,
+                gender: newStudentForm.gender || null,
+                birthday: newStudentForm.birthday || null,
+                age: newStudentForm.age || 0,
+                weight: newStudentForm.weight || 0,
+                height: newStudentForm.height || 0,
+                blood_type: newStudentForm.bloodType || null,
+                religion: newStudentForm.religion || null,
+                nationality: newStudentForm.nationality || null,
+                ethnicity: newStudentForm.ethnicity || null,
+                school_id: currentSchool.id,
+                name: finalName,
+                current_class: newStudentForm.currentClass,
+                academic_year: currentAcademicYear || (new Date().getFullYear() + 543).toString(),
+                is_active: true,
+                photo_url: newStudentForm.photoUrl || null,
+                address: newStudentForm.address || null,
+                phone_number: newStudentForm.phoneNumber || null,
+                father_name: newStudentForm.fatherName || null,
+                mother_name: newStudentForm.motherName || null,
+                guardian_name: newStudentForm.guardianName || null,
+                medical_conditions: newStudentForm.medicalConditions || null,
+                lat: newStudentForm.location?.lat || null,
+                lng: newStudentForm.location?.lng || null
+            };
+
             const { data, error } = await supabase
                 .from('students')
-                .insert([{
-                    student_id: newStudentForm.studentId,
-                    national_id: newStudentForm.nationalId,
-                    title: newStudentForm.title,
-                    first_name: newStudentForm.firstName,
-                    last_name: newStudentForm.lastName,
-                    gender: newStudentForm.gender,
-                    birthday: newStudentForm.birthday,
-                    age: newStudentForm.age,
-                    weight: newStudentForm.weight,
-                    height: newStudentForm.height,
-                    blood_type: newStudentForm.bloodType,
-                    religion: newStudentForm.religion,
-                    nationality: newStudentForm.nationality,
-                    ethnicity: newStudentForm.ethnicity,
-                    school_id: currentSchool.id,
-                    name: newStudentForm.name,
-                    current_class: newStudentForm.currentClass,
-                    academic_year: currentAcademicYear || (new Date().getFullYear() + 543).toString(),
-                    is_active: true,
-                    photo_url: newStudentForm.photoUrl,
-                    address: newStudentForm.address,
-                    phone_number: newStudentForm.phoneNumber,
-                    father_name: newStudentForm.fatherName,
-                    mother_name: newStudentForm.motherName,
-                    guardian_name: newStudentForm.guardianName,
-                    medical_conditions: newStudentForm.medicalConditions,
-                    lat: newStudentForm.location?.lat,
-                    lng: newStudentForm.location?.lng
-                }])
+                .insert([payload])
                 .select();
+
             if (error) {
-                console.error(error);
-                alert('เกิดข้อผิดพลาดในการเพิ่มนักเรียน: ' + error.message);
-                throw error;
+                console.error("Supabase insert error:", error);
+                alert('เกิดข้อผิดพลาดในการเพิ่มนักเรียน: ' + (error.message || JSON.stringify(error)));
+                return;
             }
-            if (data) {
-                fetchStudentData();
-                setIsAddStudentOpen(false);
-                setNewStudentForm({
-                    name: '',
-                    currentClass: '',
-                    address: '',
-                    phoneNumber: '',
-                    fatherName: '',
-                    motherName: '',
-                    guardianName: '',
-                    medicalConditions: '',
-                    photoUrl: '',
-                    studentId: '',
-                    nationalId: '',
-                    title: '',
-                    firstName: '',
-                    lastName: '',
-                    gender: '',
-                    birthday: '',
-                    age: 0,
-                    weight: 0,
-                    height: 0,
-                    bloodType: '',
-                    religion: '',
-                    nationality: '',
-                    ethnicity: ''
-                });
-                alert('เพิ่มนักเรียนสำเร็จ');
-            }
-        } catch (err) { 
-            console.error(err);
+            
+            fetchStudentData();
+            setIsAddStudentOpen(false);
+            setNewStudentForm({
+                name: '',
+                currentClass: '',
+                address: '',
+                phoneNumber: '',
+                fatherName: '',
+                motherName: '',
+                guardianName: '',
+                medicalConditions: '',
+                photoUrl: '',
+                studentId: '',
+                nationalId: '',
+                title: '',
+                firstName: '',
+                lastName: '',
+                gender: '',
+                birthday: '',
+                age: 0,
+                weight: 0,
+                height: 0,
+                bloodType: '',
+                religion: '',
+                nationality: '',
+                ethnicity: ''
+            });
+            alert('เพิ่มนักเรียนสำเร็จ');
+        } catch (err: any) { 
+            console.error("handleAddStudent exception:", err);
+            alert('เกิดข้อผิดพลาด: ' + (err.message || String(err)));
+        } finally {
+            setIsSavingStudent(false);
         }
     };
 
     const handleEditStudent = async () => {
         if (!selectedStudent || !supabase) return;
+        setIsSavingStudent(true);
         try {
             const { error } = await supabase
                 .from('students')
                 .update({
-                    student_id: selectedStudent.studentId,
-                    national_id: selectedStudent.nationalId,
-                    title: selectedStudent.title,
-                    first_name: selectedStudent.firstName,
-                    last_name: selectedStudent.lastName,
-                    gender: selectedStudent.gender,
-                    birthday: selectedStudent.birthday,
-                    age: selectedStudent.age,
-                    weight: selectedStudent.weight,
-                    height: selectedStudent.height,
-                    blood_type: selectedStudent.bloodType,
-                    religion: selectedStudent.religion,
-                    nationality: selectedStudent.nationality,
-                    ethnicity: selectedStudent.ethnicity,
+                    student_id: selectedStudent.studentId || null,
+                    national_id: selectedStudent.nationalId || null,
+                    title: selectedStudent.title || null,
+                    first_name: selectedStudent.firstName || null,
+                    last_name: selectedStudent.lastName || null,
+                    gender: selectedStudent.gender || null,
+                    birthday: selectedStudent.birthday || null,
+                    age: selectedStudent.age || 0,
+                    weight: selectedStudent.weight || 0,
+                    height: selectedStudent.height || 0,
+                    blood_type: selectedStudent.bloodType || null,
+                    religion: selectedStudent.religion || null,
+                    nationality: selectedStudent.nationality || null,
+                    ethnicity: selectedStudent.ethnicity || null,
                     name: selectedStudent.name,
                     current_class: selectedStudent.currentClass,
-                    photo_url: selectedStudent.photoUrl,
-                    address: selectedStudent.address,
-                    phone_number: selectedStudent.phoneNumber,
-                    father_name: selectedStudent.fatherName,
-                    mother_name: selectedStudent.motherName,
-                    guardian_name: selectedStudent.guardianName,
-                    medical_conditions: selectedStudent.medicalConditions,
-                    lat: selectedStudent.location?.lat,
-                    lng: selectedStudent.location?.lng
+                    photo_url: selectedStudent.photoUrl || null,
+                    address: selectedStudent.address || null,
+                    phone_number: selectedStudent.phoneNumber || null,
+                    father_name: selectedStudent.fatherName || null,
+                    mother_name: selectedStudent.motherName || null,
+                    guardian_name: selectedStudent.guardianName || null,
+                    medical_conditions: selectedStudent.medicalConditions || null,
+                    lat: selectedStudent.location?.lat || null,
+                    lng: selectedStudent.location?.lng || null
                 })
                 .eq('id', selectedStudent.id);
             if (error) throw error;
             fetchStudentData();
             setIsEditStudentOpen(false);
             setSelectedStudent(null);
-        } catch (err) { console.error(err); }
+            alert('แก้ไขข้อมูลนักเรียนสำเร็จ');
+        } catch (err: any) { 
+            console.error(err);
+            alert('เกิดข้อผิดพลาดในการแก้ไขข้อมูลนักเรียน: ' + (err.message || String(err)));
+        } finally {
+            setIsSavingStudent(false);
+        }
     };
 
     const handleDeleteStudent = async (id: string) => {
@@ -727,7 +759,11 @@ function setTelegramWebhook() {
             const { error } = await supabase.from('students').delete().eq('id', id);
             if (error) throw error;
             fetchStudentData();
-        } catch (err) { console.error(err); }
+            alert('ลบข้อมูลนักเรียนสำเร็จ');
+        } catch (err: any) { 
+            console.error(err);
+            alert('เกิดข้อผิดพลาดในการลบข้อมูลนักเรียน: ' + (err.message || String(err)));
+        }
     };
 
     const handlePromoteStudents = async () => {
@@ -771,16 +807,23 @@ function setTelegramWebhook() {
 
     const handleAddClass = async () => {
         if (!newClassName || !supabase) return;
+        setIsSavingClass(true);
         try {
             const { error } = await supabase.from('class_rooms').insert([{
                 school_id: currentSchool.id,
                 name: newClassName,
-                academic_year: currentAcademicYear
+                academic_year: currentAcademicYear || (new Date().getFullYear() + 543).toString()
             }]);
             if (error) throw error;
             fetchStudentData();
             setNewClassName('');
-        } catch (err) { console.error(err); }
+            alert('เพิ่มชั้นเรียนสำเร็จ');
+        } catch (err: any) { 
+            console.error(err);
+            alert('เกิดข้อผิดพลาดในการเพิ่มชั้นเรียน: ' + (err.message || String(err)));
+        } finally {
+            setIsSavingClass(false);
+        }
     };
 
     const handleDeleteClass = async (id: string) => {
@@ -794,6 +837,7 @@ function setTelegramWebhook() {
 
     const handleAddYear = async () => {
         if (!newYearName || !supabase) return;
+        setIsSavingYear(true);
         try {
             const { error } = await supabase.from('academic_years').insert([{
                 school_id: currentSchool.id,
@@ -803,7 +847,13 @@ function setTelegramWebhook() {
             if (error) throw error;
             fetchStudentData();
             setNewYearName('');
-        } catch (err) { console.error(err); }
+            alert('เพิ่มปีการศึกษาสูงสุดสำเร็จ');
+        } catch (err: any) { 
+            console.error(err);
+            alert('เกิดข้อผิดพลาดในการเพิ่มปีการศึกษา: ' + (err.message || String(err)));
+        } finally {
+            setIsSavingYear(false);
+        }
     };
 
     const handleSetCurrentYear = async (id: string) => {
@@ -2161,8 +2211,28 @@ function setTelegramWebhook() {
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อ-นามสกุล</label>
-                                    <input type="text" value={newStudentForm.name} onChange={e => setNewStudentForm({...newStudentForm, name: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อ-นามสกุล (เต็ม)</label>
+                                    <input type="text" value={newStudentForm.name} onChange={e => setNewStudentForm({...newStudentForm, name: e.target.value})} placeholder="เช่น เด็กชายสมชาย ใจดี" className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                </div>
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">คำนำหน้า</label>
+                                        <select value={newStudentForm.title} onChange={e => setNewStudentForm({...newStudentForm, title: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner">
+                                            <option value="">-- เลือก --</option>
+                                            <option value="เด็กชาย">เด็กชาย</option>
+                                            <option value="เด็กหญิง">เด็กหญิง</option>
+                                            <option value="นาย">นาย</option>
+                                            <option value="นางสาว">นางสาว</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">ชื่อ</label>
+                                        <input type="text" value={newStudentForm.firstName} onChange={e => setNewStudentForm({...newStudentForm, firstName: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">นามสกุล</label>
+                                        <input type="text" value={newStudentForm.lastName} onChange={e => setNewStudentForm({...newStudentForm, lastName: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
+                                    </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
@@ -2237,7 +2307,18 @@ function setTelegramWebhook() {
                         </div>
                         <div className="flex gap-3 pt-8 mt-8 border-t border-slate-100">
                             <button onClick={() => setIsAddStudentOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all">ยกเลิก</button>
-                            <button onClick={handleAddStudent} className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-all uppercase tracking-widest">บันทึกข้อมูลนักเรียน</button>
+                            <button 
+                                onClick={handleAddStudent} 
+                                disabled={isSavingStudent}
+                                className={`flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl hover:bg-indigo-700 transition-all uppercase tracking-widest flex items-center justify-center gap-2 ${isSavingStudent ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                                {isSavingStudent ? (
+                                    <>
+                                        <Loader2 className="animate-spin" size={20}/>
+                                        กำลังบันทึก...
+                                    </>
+                                ) : 'บันทึกข้อมูลนักเรียน'}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -2360,7 +2441,18 @@ function setTelegramWebhook() {
                         </div>
                         <div className="flex gap-3 pt-8 mt-8 border-t border-slate-100">
                             <button onClick={() => setIsEditStudentOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 transition-all">ยกเลิก</button>
-                            <button onClick={handleEditStudent} className="flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black shadow-xl hover:bg-blue-700 transition-all uppercase tracking-widest">บันทึกการแก้ไข</button>
+                            <button 
+                                onClick={handleEditStudent} 
+                                disabled={isSavingStudent}
+                                className={`flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black shadow-xl hover:bg-blue-700 transition-all uppercase tracking-widest flex items-center justify-center gap-2 ${isSavingStudent ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                                {isSavingStudent ? (
+                                    <>
+                                        <Loader2 className="animate-spin" size={20}/>
+                                        กำลังบันทึก...
+                                    </>
+                                ) : 'บันทึกการแก้ไข'}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -2376,7 +2468,13 @@ function setTelegramWebhook() {
                         <div className="space-y-6">
                             <div className="flex gap-2">
                                 <input type="text" value={newClassName} onChange={e => setNewClassName(e.target.value)} placeholder="ชื่อห้อง เช่น ป.1/1" className="flex-1 p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
-                                <button onClick={handleAddClass} className="bg-indigo-600 text-white px-4 rounded-xl font-bold hover:bg-indigo-700 transition-all"><Plus size={20}/></button>
+                                <button 
+                                    onClick={handleAddClass} 
+                                    disabled={isSavingClass}
+                                    className={`bg-indigo-600 text-white px-4 rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center justify-center ${isSavingClass ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    {isSavingClass ? <Loader2 className="animate-spin" size={20}/> : <Plus size={20}/>}
+                                </button>
                             </div>
                             <div className="max-h-64 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                                 {sortedClassRooms.length === 0 ? <p className="text-center text-slate-300 italic py-4">ยังไม่มีข้อมูลห้องเรียน</p> : sortedClassRooms.map(c => (
@@ -2401,7 +2499,13 @@ function setTelegramWebhook() {
                         <div className="space-y-6">
                             <div className="flex gap-2">
                                 <input type="text" value={newYearName} onChange={e => setNewYearName(e.target.value)} placeholder="ปีการศึกษา เช่น 2567" className="flex-1 p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-500 shadow-inner"/>
-                                <button onClick={handleAddYear} className="bg-indigo-600 text-white px-4 rounded-xl font-bold hover:bg-indigo-700 transition-all"><Plus size={20}/></button>
+                                <button 
+                                    onClick={handleAddYear} 
+                                    disabled={isSavingYear}
+                                    className={`bg-indigo-600 text-white px-4 rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center justify-center ${isSavingYear ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    {isSavingYear ? <Loader2 className="animate-spin" size={20}/> : <Plus size={20}/>}
+                                </button>
                             </div>
                             <div className="max-h-64 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                                 {academicYears.map(y => (
