@@ -28,6 +28,16 @@ const formatToISODate = (date: Date) => {
     return `${y}-${m}-${d}`;
 };
 
+const formatToMySQLDateTime = (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    const h = String(date.getHours()).padStart(2, '0');
+    const min = String(date.getMinutes()).padStart(2, '0');
+    const s = String(date.getSeconds()).padStart(2, '0');
+    return `${y}-${m}-${d} ${h}:${min}:${s}`;
+};
+
 const formatToThaiDate = (dateString: string) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -294,7 +304,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                     school_id: currentUser.schoolId,
                     weight: parseFloat(newWeight),
                     height: parseFloat(newHeight),
-                    recorded_at: new Date().toISOString(),
+                    recorded_at: formatToMySQLDateTime(new Date()),
                     academic_year: currentAcademicYear,
                     recorded_by: currentUser.id
                 }]);

@@ -277,6 +277,23 @@ async function startServer() {
         notified_one_day_before BOOLEAN DEFAULT FALSE,
         notified_on_day BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS finance_accounts (
+        id VARCHAR(36) PRIMARY KEY,
+        school_id VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        type VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS finance_transactions (
+        id VARCHAR(36) PRIMARY KEY,
+        school_id VARCHAR(255) NOT NULL,
+        account_id VARCHAR(36) NOT NULL,
+        date DATE NOT NULL,
+        description TEXT,
+        amount FLOAT NOT NULL,
+        type VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`
     ];
 
@@ -659,7 +676,7 @@ async function startServer() {
   app.post('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
     const data = req.body;
-    const uuidTables = ['students', 'class_rooms', 'student_savings', 'student_attendance', 'student_health_records', 'academic_years', 'director_events', 'profiles', 'schools', 'documents'];
+    const uuidTables = ['students', 'class_rooms', 'student_savings', 'student_attendance', 'student_health_records', 'academic_years', 'director_events', 'profiles', 'schools', 'documents', 'finance_accounts', 'finance_transactions'];
 
     if (!data || (typeof data !== 'object' && !Array.isArray(data))) {
       return res.status(400).json({ error: 'Invalid data format. Expected object or array of objects.' });
@@ -678,6 +695,12 @@ async function startServer() {
       }
       
       const validColumns = columnsInfo.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
+      const columnTypes = {};
+      columnsInfo.forEach(c => {
+        const field = c.Field || c.column_name || c.COLUMN_NAME;
+        const type = (c.Type || c.data_type || c.DATA_TYPE || '').toLowerCase();
+        columnTypes[field] = type;
+      });
 
       if (Array.isArray(data)) {
         // Bulk insert
@@ -714,6 +737,26 @@ async function startServer() {
             ];
             if (val === '' && nullIfEmpty.includes(k)) {
               val = null;
+            }
+            
+            // Auto-format ISO date strings for MySQL date/time columns
+            if (typeof val === 'string' && val.includes('T') && (val.endsWith('Z') || val.length > 10)) {
+              const type = columnTypes[k];
+              if (type && (type.includes('datetime') || type.includes('timestamp') || type.includes('date'))) {
+                try {
+                  const d = new Date(val);
+                  if (!isNaN(d.getTime())) {
+                    if (type.includes('date') && !type.includes('time')) {
+                      val = d.toISOString().split('T')[0];
+                    } else {
+                      // Format as YYYY-MM-DD HH:mm:ss
+                      val = d.toISOString().slice(0, 19).replace('T', ' ');
+                    }
+                  }
+                } catch (e) {
+                  // Keep original value if parsing fails
+                }
+              }
             }
             
             if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
@@ -756,6 +799,27 @@ async function startServer() {
           if (val === '' && nullIfEmpty.includes(k)) {
             val = null;
           }
+
+          // Auto-format ISO date strings for MySQL date/time columns
+          if (typeof val === 'string' && val.includes('T') && (val.endsWith('Z') || val.length > 10)) {
+            const type = columnTypes[k];
+            if (type && (type.includes('datetime') || type.includes('timestamp') || type.includes('date'))) {
+              try {
+                const d = new Date(val);
+                if (!isNaN(d.getTime())) {
+                  if (type.includes('date') && !type.includes('time')) {
+                    val = d.toISOString().split('T')[0];
+                  } else {
+                    // Format as YYYY-MM-DD HH:mm:ss
+                    val = d.toISOString().slice(0, 19).replace('T', ' ');
+                  }
+                }
+              } catch (e) {
+                // Keep original value if parsing fails
+              }
+            }
+          }
+
           if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
             try {
               val = JSON.stringify(val);
