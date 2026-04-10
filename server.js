@@ -583,7 +583,7 @@ async function startServer() {
 
       if (Array.isArray(data)) {
         console.log(`[${new Date().toISOString()}] Bulk insert into ${tableName}: ${data.length} items`);
-        if (data.length === 0) return res.json({ success: true });
+        if (data.length === 0) return res.json([]);
         
         // Collect all unique keys from all objects in the array that are valid columns
         const allKeys = new Set();
@@ -600,7 +600,7 @@ async function startServer() {
         });
         const keys = Array.from(allKeys);
         
-        if (keys.length === 0) return res.json({ success: true });
+        if (keys.length === 0) return res.json([]);
 
         const values = [];
         const placeholders = data.map(() => `(${keys.map(() => '?').join(', ')})`).join(', ');
@@ -719,7 +719,7 @@ async function startServer() {
       }
       
       console.log(`[${new Date().toISOString()}] Successfully saved to ${tableName}`);
-      res.json({ success: true });
+      res.json(Array.isArray(data) ? data : [data]);
     } catch (err) {
       console.error(`[${new Date().toISOString()}] API Error for ${tableName}:`, err);
       res.status(500).json({ error: `Failed to save to ${tableName}: ${err.message || String(err)}` });
@@ -766,7 +766,7 @@ async function startServer() {
       }
       
       await query(sql, params);
-      res.json({ success: true });
+      res.json(Array.isArray(data) ? data : [data]);
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: `Failed to update ${tableName}` });

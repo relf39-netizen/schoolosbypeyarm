@@ -719,7 +719,7 @@ async function startServer() {
         });
         const keys = Array.from(allKeys);
         
-        if (keys.length === 0) return res.json({ success: true });
+        if (keys.length === 0) return res.json([]);
 
         const values = [];
         const placeholders = data.map(() => `(${keys.map(() => '?').join(', ')})`).join(', ');
@@ -837,7 +837,7 @@ async function startServer() {
         await query(sql, [tableName, keys, ...values]);
       }
       
-      res.json({ success: true });
+      res.json(Array.isArray(data) ? data : [data]);
     } catch (err) {
       console.error(`Error saving to ${tableName}:`, err);
       res.status(500).json({ error: `Failed to save to ${tableName}`, details: err.message });
@@ -886,7 +886,7 @@ async function startServer() {
       });
       
       await query(sql, params);
-      res.json({ success: true });
+      res.json(Array.isArray(data) ? data : [data]);
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: `Failed to update ${tableName}` });
