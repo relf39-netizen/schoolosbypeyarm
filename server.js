@@ -551,26 +551,23 @@ async function startServer() {
     console.log(`[${new Date().toISOString()}] POST /api/table/${tableName} - Data size: ${JSON.stringify(data).length} bytes`);
     
     try {
-      const uuidTables = ['students', 'class_rooms', 'student_savings', 'academic_years', 'director_events'];
+      const uuidTables = ['students', 'class_rooms', 'student_savings', 'academic_years', 'director_events', 'profiles', 'schools'];
       
+      // Get actual columns from the database to filter out extra fields
+      const result = await query(`DESCRIBE ??`, [tableName]);
+      const columnsInfo = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : (Array.isArray(result) ? result : []);
+      const validColumns = columnsInfo.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
+
       if (Array.isArray(data)) {
         console.log(`[${new Date().toISOString()}] Bulk insert into ${tableName}: ${data.length} items`);
         if (data.length === 0) return res.json({ success: true });
         
-        // Ensure all items have IDs if needed
-        if (uuidTables.includes(tableName)) {
-          data = data.map(item => ({
-            id: item.id || crypto.randomUUID(),
-            ...item
-          }));
-        }
-
-        // Collect all unique keys from all objects in the array
+        // Collect all unique keys from all objects in the array that are valid columns
         const allKeys = new Set();
         data.forEach(item => {
           if (item && typeof item === 'object') {
             Object.keys(item).forEach(key => {
-              if (item[key] !== undefined) allKeys.add(key);
+              if (item[key] !== undefined && validColumns.includes(key)) allKeys.add(key);
             });
           }
         });
@@ -582,6 +579,9 @@ async function startServer() {
         const placeholders = data.map(() => `(${keys.map(() => '?').join(', ')})`).join(', ');
         
         data.forEach(item => {
+          if (!item.id && uuidTables.includes(tableName)) {
+            item.id = crypto.randomUUID();
+          }
           keys.forEach(k => {
             let val = item[k];
             if (val === undefined) val = null;
@@ -608,17 +608,14 @@ async function startServer() {
         });
 
         // Use ON DUPLICATE KEY UPDATE for bulk inserts
-        // Standard MySQL syntax: col = VALUES(col)
-        const updates = keys.filter(k => k !== 'id').map(k => `?? = VALUES(??)`).join(', ');
-        const updateParams = [];
-        keys.filter(k => k !== 'id').forEach(k => updateParams.push(k, k));
+        const updates = keys.filter(k => k !== 'id').map(k => `\`${k}\` = VALUES(\`${k}\`)`).join(', ');
 
         let sql = `INSERT INTO ?? (??) VALUES ${placeholders}`;
         if (updates) {
           sql += ` ON DUPLICATE KEY UPDATE ${updates}`;
         }
         
-        await query(sql, [tableName, keys, ...values, ...updateParams]);
+        await query(sql, [tableName, keys, ...values]);
       } else {
         // Single insert
         console.log(`[${new Date().toISOString()}] Single insert into ${tableName}`);
@@ -626,7 +623,7 @@ async function startServer() {
           data.id = crypto.randomUUID();
         }
 
-        const keys = Object.keys(data).filter(k => data[k] !== undefined);
+        const keys = Object.keys(data).filter(k => data[k] !== undefined && validColumns.includes(k));
         const values = [];
         
         keys.forEach(k => {
@@ -649,23 +646,10 @@ async function startServer() {
         });
         
         const placeholders = keys.map(() => '?').join(', ');
-        const updates = keys.filter(k => k !== 'id').map(k => `?? = ?`).join(', ');
-        const updateParams = [];
-        keys.filter(k => k !== 'id').forEach(k => {
-          let val = data[k];
-          const nullIfEmpty = [
-            'student_id', 'national_id', 'age', 'weight', 'height', 
-            'lat', 'lng', 'radius', 'family_annual_income', 'birthday'
-          ];
-          if (val === '' && nullIfEmpty.includes(k)) {
-            val = null;
-          }
-          updateParams.push(k);
-          updateParams.push(Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val);
-        });
+        const updates = keys.filter(k => k !== 'id').map(k => `\`${k}\` = VALUES(\`${k}\`)`).join(', ');
 
         const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
-        await query(sql, [tableName, keys, ...values, ...updateParams]);
+        await query(sql, [tableName, keys, ...values]);
       }
       
       console.log(`[${new Date().toISOString()}] Successfully saved to ${tableName}`);
