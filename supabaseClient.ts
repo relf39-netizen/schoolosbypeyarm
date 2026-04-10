@@ -121,7 +121,9 @@ class SupabaseQueryBuilder {
   private async execute() {
     const queryParams = new URLSearchParams();
     Object.entries(this.filters).forEach(([key, value]) => {
-      queryParams.append(key, String(value));
+      let val = value;
+      if (typeof value === 'boolean') val = value ? 1 : 0;
+      queryParams.append(key, String(val));
     });
 
     if (this.orderCol) queryParams.append('order', `${this.orderCol}.${this.orderDir}`);

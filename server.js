@@ -586,6 +586,7 @@ async function startServer() {
           keys.forEach(k => {
             let val = item[k];
             if (val === undefined) val = null;
+            if (typeof val === 'string') val = val.trim();
             
             // Convert empty strings to null for specific columns to avoid unique constraint issues or type errors
             const nullIfEmpty = [

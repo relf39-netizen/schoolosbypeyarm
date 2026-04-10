@@ -558,7 +558,7 @@ function setTelegramWebhook() {
             if (studentsError) throw studentsError;
 
             if (studentsData) {
-                setStudents(studentsData.map((s: any) => ({
+                const mappedStudents = studentsData.map((s: any) => ({
                     id: s.id,
                     schoolId: s.school_id,
                     studentId: s.student_id,
@@ -591,7 +591,14 @@ function setTelegramWebhook() {
                     medicalConditions: s.medical_conditions,
                     familyAnnualIncome: s.family_annual_income,
                     location: (s.lat && s.lng) ? { lat: s.lat, lng: s.lng } : undefined
-                })));
+                }));
+                setStudents(mappedStudents);
+
+                // Update available classes from both class_rooms and students
+                const classesFromStudents = mappedStudents.map((s: any) => s.currentClass).filter(Boolean);
+                const classesFromRooms = (classesData || []).map((c: any) => c.name);
+                const allUniqueClasses = Array.from(new Set([...classesFromStudents, ...classesFromRooms])).sort();
+                setAvailableClasses(allUniqueClasses);
             }
         } catch (err: any) {
             console.error("Error fetching student data:", err);
