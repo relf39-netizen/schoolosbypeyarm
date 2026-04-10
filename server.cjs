@@ -617,39 +617,108 @@ async function startServer() {
   });
   app.post('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
-    let data = req.body;
+    const data = req.body;
 
-    // Handle Supabase-style array input
-    if (Array.isArray(data)) {
-      data = data[0];
-    }
-
-    if (!data || typeof data !== 'object') {
+    if (!data || (typeof data !== 'object' && !Array.isArray(data))) {
       return res.status(400).json({ error: 'Invalid data format. Expected object or array of objects.' });
     }
 
     try {
-      const keys = Object.keys(data);
-      if (keys.length === 0) {
-        return res.status(400).json({ error: 'No data provided' });
-      }
+      // Get actual columns from the database to filter out extra fields
+      const [columnsInfo] = await query(`DESCRIBE ??`, [tableName]);
+      const validColumns = columnsInfo.map(c => c.Field);
 
-      const values = keys.map(k => {
-        if (Array.isArray(data[k]) || (typeof data[k] === 'object' && data[k] !== null)) {
-          return JSON.stringify(data[k]);
+      if (Array.isArray(data)) {
+        // Bulk insert
+        console.log(`[${new Date().toISOString()}] Bulk insert into ${tableName} (${data.length} rows)`);
+        const allKeys = new Set();
+        data.forEach(item => {
+          if (item && typeof item === 'object') {
+            Object.keys(item).forEach(key => {
+              if (item[key] !== undefined && validColumns.includes(key)) allKeys.add(key);
+            });
+          }
+        });
+        const keys = Array.from(allKeys);
+        
+        if (keys.length === 0) return res.json({ success: true });
+
+        const values = [];
+        const placeholders = data.map(() => `(${keys.map(() => '?').join(', ')})`).join(', ');
+        
+        data.forEach(item => {
+          if (!item.id && uuidTables.includes(tableName)) {
+            item.id = crypto.randomUUID();
+          }
+          keys.forEach(k => {
+            let val = item[k];
+            if (val === undefined) val = null;
+            
+            // Convert empty strings to null for specific columns to avoid unique constraint issues or type errors
+            const nullIfEmpty = [
+              'student_id', 'national_id', 'age', 'weight', 'height', 
+              'lat', 'lng', 'radius', 'family_annual_income', 'birthday'
+            ];
+            if (val === '' && nullIfEmpty.includes(k)) {
+              val = null;
+            }
+            
+            if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
+              try {
+                val = JSON.stringify(val);
+              } catch (e) {
+                console.error(`Failed to stringify field ${k}:`, e);
+                val = null;
+              }
+            }
+            values.push(val);
+          });
+        });
+
+        // Use ON DUPLICATE KEY UPDATE for bulk inserts
+        const updates = keys.filter(k => k !== 'id').map(k => `\`${k}\` = VALUES(\`${k}\`)`).join(', ');
+
+        let sql = `INSERT INTO ?? (??) VALUES ${placeholders}`;
+        if (updates) {
+          sql += ` ON DUPLICATE KEY UPDATE ${updates}`;
         }
-        return data[k];
-      });
-      
-      const placeholders = keys.map(() => '?').join(', ');
-      const updates = keys.map(k => `?? = ?`).join(', ');
-      const updateParams = keys.flatMap(k => {
-        const val = data[k];
-        return [k, Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val];
-      });
+        
+        await query(sql, [tableName, keys, ...values]);
+      } else {
+        // Single insert
+        console.log(`[${new Date().toISOString()}] Single insert into ${tableName}`);
+        if (!data.id && uuidTables.includes(tableName)) {
+          data.id = crypto.randomUUID();
+        }
 
-      const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
-      await query(sql, [tableName, keys, ...values, ...updateParams]);
+        const keys = Object.keys(data).filter(k => data[k] !== undefined && validColumns.includes(k));
+        const values = [];
+        
+        keys.forEach(k => {
+          let val = data[k];
+          const nullIfEmpty = [
+            'student_id', 'national_id', 'age', 'weight', 'height', 
+            'lat', 'lng', 'radius', 'family_annual_income', 'birthday'
+          ];
+          if (val === '' && nullIfEmpty.includes(k)) {
+            val = null;
+          }
+          if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
+            try {
+              val = JSON.stringify(val);
+            } catch (e) {
+              val = null;
+            }
+          }
+          values.push(val);
+        });
+        
+        const placeholders = keys.map(() => '?').join(', ');
+        const updates = keys.filter(k => k !== 'id').map(k => `\`${k}\` = VALUES(\`${k}\`)`).join(', ');
+
+        const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
+        await query(sql, [tableName, keys, ...values]);
+      }
       
       res.json({ success: true });
     } catch (err) {
