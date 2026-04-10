@@ -713,10 +713,39 @@ async function startServer() {
     const { tableName } = req.params;
     const filters = { ...req.query };
     try {
+      const filterKeys = Object.keys(filters);
+
+      // Cascade Delete for students
+      if (tableName === 'students' && filterKeys.length > 0) {
+        let selectSql = `SELECT id FROM students`;
+        let selectParams = [];
+        selectSql += ` WHERE ` + filterKeys.map(k => {
+          if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) return `?? IN (?)`;
+          return `?? = ?`;
+        }).join(' AND ');
+        filterKeys.forEach(k => {
+          selectParams.push(k);
+          if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
+            const values = filters[k].substring(4, filters[k].length - 1).split(',');
+            selectParams.push(values);
+          } else {
+            selectParams.push(filters[k]);
+          }
+        });
+        
+        const studentsToDelete = await query(selectSql, selectParams);
+        const studentIds = studentsToDelete.map(s => s.id);
+        
+        if (studentIds.length > 0) {
+          await query(`DELETE FROM student_attendance WHERE student_id IN (?)`, [studentIds]);
+          await query(`DELETE FROM student_health_records WHERE student_id IN (?)`, [studentIds]);
+          await query(`DELETE FROM student_savings WHERE student_id IN (?)`, [studentIds]);
+        }
+      }
+
       let sql = `DELETE FROM ??`;
       let params = [tableName];
       
-      const filterKeys = Object.keys(filters);
       if (filterKeys.length > 0) {
         sql += ` WHERE ` + filterKeys.map(k => {
           if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
