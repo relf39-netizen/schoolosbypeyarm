@@ -10,121 +10,101 @@ class SupabaseQueryBuilder {
   private orderCol?: string;
   private orderDir?: 'asc' | 'desc';
   private limitCount?: number;
+  private method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET';
+  private bodyData: any = null;
 
   constructor(tableName: string) {
     this.tableName = tableName;
   }
 
-  eq(column: string, value: any) {
+  select(columns: string = '*', options?: any): any {
+    return this;
+  }
+
+  eq(column: string, value: any): any {
     this.filters[column] = value;
     return this;
   }
 
-  in(column: string, values: any[]) {
+  neq(column: string, value: any): any {
+    this.filters[column] = `neq.${value}`;
+    return this;
+  }
+
+  gt(column: string, value: any): any {
+    this.filters[column] = `gt.${value}`;
+    return this;
+  }
+
+  gte(column: string, value: any): any {
+    this.filters[column] = `gte.${value}`;
+    return this;
+  }
+
+  lt(column: string, value: any): any {
+    this.filters[column] = `lt.${value}`;
+    return this;
+  }
+
+  lte(column: string, value: any): any {
+    this.filters[column] = `lte.${value}`;
+    return this;
+  }
+
+  in(column: string, values: any[]): any {
     this.filters[column] = `in.(${values.join(',')})`;
     return this;
   }
 
-  order(column: string, { ascending = true } = {}) {
+  match(filters: Record<string, any>): any {
+    Object.assign(this.filters, filters);
+    return this;
+  }
+
+  order(column: string, { ascending = true } = {}): any {
     this.orderCol = column;
     this.orderDir = ascending ? 'asc' : 'desc';
     return this;
   }
 
-  limit(count: number) {
+  limit(count: number): any {
     this.limitCount = count;
     return this;
   }
 
-  async then(onfulfilled?: (value: any) => any) {
-    const queryParams = new URLSearchParams(this.filters);
-    if (this.orderCol) queryParams.append('order', `${this.orderCol}.${this.orderDir}`);
-    if (this.limitCount) queryParams.append('limit', this.limitCount.toString());
-
-    try {
-      const response = await fetch(`${API_URL}/api/table/${this.tableName}?${queryParams.toString()}`);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const data = await response.json();
-      const result = { data, error: null };
-      return onfulfilled ? onfulfilled(result) : result;
-    } catch (error: any) {
-      const result = { data: null, error: { message: error.message } };
-      return onfulfilled ? onfulfilled(result) : result;
-    }
-  }
-
-  async insert(data: any) {
-    try {
-      const response = await fetch(`${API_URL}/api/table/${this.tableName}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const result = await response.json();
-      return { data: result, error: null };
-    } catch (error: any) {
-      return { data: null, error: { message: error.message } };
-    }
-  }
-
-  async update(data: any) {
-    // For update, we need to know which record to update. 
-    // Our generic backend might need a more specific route or query params.
-    // For now, let's assume we use the filters to identify the record.
-    const queryParams = new URLSearchParams(this.filters);
-    try {
-      const response = await fetch(`${API_URL}/api/table/${this.tableName}?${queryParams.toString()}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const result = await response.json();
-      return { data: result, error: null };
-    } catch (error: any) {
-      return { data: null, error: { message: error.message } };
-    }
-  }
-
-  async delete() {
-    const queryParams = new URLSearchParams(this.filters);
-    try {
-      const response = await fetch(`${API_URL}/api/table/${this.tableName}?${queryParams.toString()}`, {
-        method: 'DELETE',
-      });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const result = await response.json();
-      return { data: result, error: null };
-    } catch (error: any) {
-      return { data: null, error: { message: error.message } };
-    }
-  }
-
-  async upsert(data: any) {
-    // In our backend, POST to /api/table handles upsert (INSERT ... ON DUPLICATE KEY UPDATE)
-    return this.insert(data);
-  }
-
-  select(columns: string = '*') {
-    // If this is called as a chained method after insert/update/delete, 
-    // it just returns this for chaining.
-    // If it's called on the builder itself, it's already handled by the constructor.
+  insert(data: any, options?: any): any {
+    this.method = 'POST';
+    this.bodyData = data;
     return this;
   }
 
-  // Add maybeSingle() support
-  async maybeSingle() {
-    const result = await this.then();
+  update(data: any, options?: any): any {
+    this.method = 'PATCH';
+    this.bodyData = data;
+    return this;
+  }
+
+  upsert(data: any, options?: any): any {
+    this.method = 'POST';
+    this.bodyData = data;
+    return this;
+  }
+
+  delete(options?: any): any {
+    this.method = 'DELETE';
+    return this;
+  }
+
+  async maybeSingle(): Promise<any> {
+    const result = await this.execute();
     if (result.data && Array.isArray(result.data)) {
       return { data: result.data[0] || null, error: result.error };
     }
     return result;
   }
 
-  // Add single() support
-  async single() {
-    const result = await this.then();
+  async single(): Promise<any> {
+    const result = await this.execute();
     if (result.data && Array.isArray(result.data)) {
       if (result.data.length === 0) {
         return { data: null, error: { message: 'JSON object requested, but no rows returned' } };
@@ -133,14 +113,61 @@ class SupabaseQueryBuilder {
     }
     return result;
   }
+
+  then(onfulfilled?: (value: any) => any, onrejected?: (reason: any) => any): Promise<any> {
+    return this.execute().then(onfulfilled, onrejected);
+  }
+
+  private async execute() {
+    const queryParams = new URLSearchParams();
+    Object.entries(this.filters).forEach(([key, value]) => {
+      queryParams.append(key, String(value));
+    });
+
+    if (this.orderCol) queryParams.append('order', `${this.orderCol}.${this.orderDir}`);
+    if (this.limitCount) queryParams.append('limit', this.limitCount.toString());
+
+    try {
+      const options: RequestInit = {
+        method: this.method,
+        headers: { 'Content-Type': 'application/json' },
+      };
+
+      if (this.bodyData) {
+        options.body = JSON.stringify(this.bodyData);
+      }
+
+      const url = `${API_URL}/api/table/${this.tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+      const response = await fetch(url, options);
+      
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      return { data, error: null, count: Array.isArray(data) ? data.length : (data ? 1 : 0) };
+    } catch (error: any) {
+      console.error(`Supabase Mock Error (${this.method} ${this.tableName}):`, error);
+      return { data: null, error: { message: error.message }, count: 0 };
+    }
+  }
 }
 
-export const supabase = {
+class MockChannel {
+  on(event: string, filter: any, callback: any): any { return this; }
+  subscribe(): any { return this; }
+}
+
+export const supabase: any = {
   from: (tableName: string) => new SupabaseQueryBuilder(tableName),
+  channel: (name: string) => new MockChannel(),
+  removeChannel: (channel: any) => Promise.resolve(),
   auth: {
     getUser: async () => ({ data: { user: null }, error: null }),
     signInWithPassword: async () => ({ data: { user: null }, error: new Error('Use custom login') }),
     signOut: async () => ({ error: null }),
+    onAuthStateChange: (callback: any) => ({ data: { subscription: { unsubscribe: () => {} } } }),
   }
 };
 
