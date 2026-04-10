@@ -491,7 +491,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                     id: a.id,
                     schoolId: a.school_id,
                     studentId: a.student_id,
-                    date: a.date,
+                    date: typeof a.date === 'string' ? a.date.split('T')[0] : formatToISODate(new Date(a.date)),
                     status: a.status as StudentAttendanceStatus,
                     academicYear: a.academic_year,
                     createdBy: a.created_by,
@@ -544,7 +544,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                     id: a.id,
                     schoolId: a.school_id,
                     studentId: a.student_id,
-                    date: a.date,
+                    date: typeof a.date === 'string' ? a.date.split('T')[0] : formatToISODate(new Date(a.date)),
                     status: a.status as StudentAttendanceStatus,
                     academicYear: a.academic_year,
                     createdBy: a.created_by,
@@ -676,7 +676,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
     const dailyStats = useMemo(() => {
         const classStudents = students.filter(s => s.currentClass === selectedClass);
-        const classAttendance = attendance.filter(a => a.date === selectedDate && classStudents.some(s => s.id === a.studentId));
+        const classAttendance = attendance.filter(a => classStudents.some(s => s.id === a.studentId));
         
         const stats = {
             present: classAttendance.filter(a => a.status === 'Present').length,
@@ -688,7 +688,19 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         };
         
         return stats;
-    }, [students, attendance, selectedClass, selectedDate]);
+    }, [students, attendance, selectedClass]);
+
+    const schoolStats = useMemo(() => {
+        const stats = {
+            present: attendance.filter(a => a.status === 'Present').length,
+            late: attendance.filter(a => a.status === 'Late').length,
+            sick: attendance.filter(a => a.status === 'Sick').length,
+            absent: attendance.filter(a => a.status === 'Absent').length,
+            total: students.length,
+            recorded: attendance.length
+        };
+        return stats;
+    }, [students, attendance]);
 
     const studentHistory = useMemo(() => {
         if (!individualStudent) return [];
@@ -788,19 +800,19 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-3xl text-white shadow-lg shadow-emerald-100">
                             <p className="text-emerald-100 text-xs font-black uppercase tracking-widest">มาเรียน</p>
-                            <h3 className="text-3xl font-black mt-1">{dailyStats.present} <span className="text-sm font-normal">คน</span></h3>
+                            <h3 className="text-3xl font-black mt-1">{schoolStats.present} <span className="text-sm font-normal">คน</span></h3>
                         </div>
                         <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-6 rounded-3xl text-white shadow-lg shadow-amber-100">
                             <p className="text-amber-100 text-xs font-black uppercase tracking-widest">สาย</p>
-                            <h3 className="text-3xl font-black mt-1">{dailyStats.late} <span className="text-sm font-normal">คน</span></h3>
+                            <h3 className="text-3xl font-black mt-1">{schoolStats.late} <span className="text-sm font-normal">คน</span></h3>
                         </div>
                         <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-6 rounded-3xl text-white shadow-lg shadow-blue-100">
                             <p className="text-blue-100 text-xs font-black uppercase tracking-widest">ลา</p>
-                            <h3 className="text-3xl font-black mt-1">{dailyStats.sick} <span className="text-sm font-normal">คน</span></h3>
+                            <h3 className="text-3xl font-black mt-1">{schoolStats.sick} <span className="text-sm font-normal">คน</span></h3>
                         </div>
                         <div className="bg-gradient-to-br from-rose-500 to-pink-600 p-6 rounded-3xl text-white shadow-lg shadow-rose-100">
                             <p className="text-rose-100 text-xs font-black uppercase tracking-widest">ขาด</p>
-                            <h3 className="text-3xl font-black mt-1">{dailyStats.absent} <span className="text-sm font-normal">คน</span></h3>
+                            <h3 className="text-3xl font-black mt-1">{schoolStats.absent} <span className="text-sm font-normal">คน</span></h3>
                         </div>
                     </div>
 
@@ -942,16 +954,16 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                 <div className="space-y-4">
                                     <div className="flex justify-between items-center">
                                         <span className="text-sm font-bold text-slate-500">นักเรียนทั้งหมด</span>
-                                        <span className="font-black text-slate-800">{dailyStats.total} คน</span>
+                                        <span className="font-black text-slate-800">{schoolStats.total} คน</span>
                                     </div>
                                     <div className="flex justify-between items-center">
                                         <span className="text-sm font-bold text-slate-500">บันทึกแล้ว</span>
-                                        <span className="font-black text-indigo-600">{dailyStats.recorded} / {dailyStats.total}</span>
+                                        <span className="font-black text-indigo-600">{schoolStats.recorded} / {schoolStats.total}</span>
                                     </div>
                                     <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                                         <div 
                                             className="bg-indigo-500 h-full transition-all duration-500" 
-                                            style={{ width: `${(dailyStats.recorded / dailyStats.total) * 100}%` }}
+                                            style={{ width: `${(schoolStats.recorded / schoolStats.total) * 100}%` }}
                                         ></div>
                                     </div>
                                 </div>
