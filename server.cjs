@@ -314,7 +314,9 @@ async function startServer() {
   };
 
   // Run table check on start
-  await ensureTablesExist().catch(err => console.error('Initial Table Check Failed:', err));
+  await ensureTablesExist().catch(err => {
+    console.warn('Initial Database Table Check Failed. The server will continue, but MySQL features may not work:', err.message);
+  });
 
   // API Routes
   
@@ -421,9 +423,21 @@ async function startServer() {
       
       const filterKeys = Object.keys(filters).filter(k => k !== 'order' && k !== 'limit');
       if (filterKeys.length > 0) {
-        sql += ` WHERE ` + filterKeys.map(k => `?? = ?`).join(' AND ');
+        sql += ` WHERE ` + filterKeys.map(k => {
+          if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
+            return `?? IN (?)`;
+          }
+          return `?? = ?`;
+        }).join(' AND ');
+        
         filterKeys.forEach(k => {
-          params.push(k, filters[k]);
+          params.push(k);
+          if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
+            const values = filters[k].substring(4, filters[k].length - 1).split(',');
+            params.push(values);
+          } else {
+            params.push(filters[k]);
+          }
         });
       }
 
@@ -668,9 +682,21 @@ async function startServer() {
         return res.status(400).json({ error: `Update without filters is not allowed for safety.` });
       }
       
-      sql += ` WHERE ` + filterKeys.map(k => `?? = ?`).join(' AND ');
+      sql += ` WHERE ` + filterKeys.map(k => {
+        if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
+          return `?? IN (?)`;
+        }
+        return `?? = ?`;
+      }).join(' AND ');
+      
       filterKeys.forEach(k => {
-        params.push(k, filters[k]);
+        params.push(k);
+        if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
+          const values = filters[k].substring(4, filters[k].length - 1).split(',');
+          params.push(values);
+        } else {
+          params.push(filters[k]);
+        }
       });
       
       await query(sql, params);
@@ -690,9 +716,21 @@ async function startServer() {
       
       const filterKeys = Object.keys(filters);
       if (filterKeys.length > 0) {
-        sql += ` WHERE ` + filterKeys.map(k => `?? = ?`).join(' AND ');
+        sql += ` WHERE ` + filterKeys.map(k => {
+          if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
+            return `?? IN (?)`;
+          }
+          return `?? = ?`;
+        }).join(' AND ');
+        
         filterKeys.forEach(k => {
-          params.push(k, filters[k]);
+          params.push(k);
+          if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
+            const values = filters[k].substring(4, filters[k].length - 1).split(',');
+            params.push(values);
+          } else {
+            params.push(filters[k]);
+          }
         });
       } else {
         return res.status(400).json({ error: 'Delete requires filters to prevent accidental full table wipe' });

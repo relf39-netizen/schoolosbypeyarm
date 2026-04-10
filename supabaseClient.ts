@@ -1,171 +1,182 @@
-// Supabase client replaced with Express API proxy
+// Mock Supabase Client that proxies requests to our MySQL Express Backend
+// This allows us to keep using the Supabase-style syntax in the frontend
+// while actually storing data in MySQL.
 
-// Mock Supabase client that uses our Express API
-const API_BASE = '/api';
+const API_URL = ''; // Relative to the current host
 
-export const isConfigured = true;
+class SupabaseQueryBuilder {
+  private tableName: string;
+  private filters: Record<string, any> = {};
+  private orderCol?: string;
+  private orderDir?: 'asc' | 'desc';
+  private limitCount?: number;
+
+  constructor(tableName: string) {
+    this.tableName = tableName;
+  }
+
+  eq(column: string, value: any) {
+    this.filters[column] = value;
+    return this;
+  }
+
+  in(column: string, values: any[]) {
+    this.filters[column] = `in.(${values.join(',')})`;
+    return this;
+  }
+
+  order(column: string, { ascending = true } = {}) {
+    this.orderCol = column;
+    this.orderDir = ascending ? 'asc' : 'desc';
+    return this;
+  }
+
+  limit(count: number) {
+    this.limitCount = count;
+    return this;
+  }
+
+  async then(onfulfilled?: (value: any) => any) {
+    const queryParams = new URLSearchParams(this.filters);
+    if (this.orderCol) queryParams.append('order', `${this.orderCol}.${this.orderDir}`);
+    if (this.limitCount) queryParams.append('limit', this.limitCount.toString());
+
+    try {
+      const response = await fetch(`${API_URL}/api/table/${this.tableName}?${queryParams.toString()}`);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+      const result = { data, error: null };
+      return onfulfilled ? onfulfilled(result) : result;
+    } catch (error: any) {
+      const result = { data: null, error: { message: error.message } };
+      return onfulfilled ? onfulfilled(result) : result;
+    }
+  }
+
+  async insert(data: any) {
+    try {
+      const response = await fetch(`${API_URL}/api/table/${this.tableName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const result = await response.json();
+      return { data: result, error: null };
+    } catch (error: any) {
+      return { data: null, error: { message: error.message } };
+    }
+  }
+
+  async update(data: any) {
+    // For update, we need to know which record to update. 
+    // Our generic backend might need a more specific route or query params.
+    // For now, let's assume we use the filters to identify the record.
+    const queryParams = new URLSearchParams(this.filters);
+    try {
+      const response = await fetch(`${API_URL}/api/table/${this.tableName}?${queryParams.toString()}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const result = await response.json();
+      return { data: result, error: null };
+    } catch (error: any) {
+      return { data: null, error: { message: error.message } };
+    }
+  }
+
+  async delete() {
+    const queryParams = new URLSearchParams(this.filters);
+    try {
+      const response = await fetch(`${API_URL}/api/table/${this.tableName}?${queryParams.toString()}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const result = await response.json();
+      return { data: result, error: null };
+    } catch (error: any) {
+      return { data: null, error: { message: error.message } };
+    }
+  }
+
+  async upsert(data: any) {
+    // In our backend, POST to /api/table handles upsert (INSERT ... ON DUPLICATE KEY UPDATE)
+    return this.insert(data);
+  }
+
+  select(columns: string = '*') {
+    // If this is called as a chained method after insert/update/delete, 
+    // it just returns this for chaining.
+    // If it's called on the builder itself, it's already handled by the constructor.
+    return this;
+  }
+
+  // Add maybeSingle() support
+  async maybeSingle() {
+    const result = await this.then();
+    if (result.data && Array.isArray(result.data)) {
+      return { data: result.data[0] || null, error: result.error };
+    }
+    return result;
+  }
+
+  // Add single() support
+  async single() {
+    const result = await this.then();
+    if (result.data && Array.isArray(result.data)) {
+      if (result.data.length === 0) {
+        return { data: null, error: { message: 'JSON object requested, but no rows returned' } };
+      }
+      return { data: result.data[0], error: result.error };
+    }
+    return result;
+  }
+}
 
 export const supabase = {
-  from: (tableName: string) => {
-    const queryParams = new URLSearchParams();
-    const state = {
-      method: 'GET',
-      body: null as any
-    };
+  from: (tableName: string) => new SupabaseQueryBuilder(tableName),
+  auth: {
+    getUser: async () => ({ data: { user: null }, error: null }),
+    signInWithPassword: async () => ({ data: { user: null }, error: new Error('Use custom login') }),
+    signOut: async () => ({ error: null }),
+  }
+};
 
-    const execute = async () => {
-      try {
-        const url = `${API_BASE}/table/${tableName}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-        const options: any = { method: state.method };
-        
-        if (state.body) {
-          options.headers = { 'Content-Type': 'application/json' };
-          options.body = JSON.stringify(state.body);
-        }
+export const isConfigured = true; // Always true because we use our own backend
 
-        const res = await fetch(url, options);
-        const text = await res.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (e) {
-          console.error('Failed to parse JSON response:', text);
-          let errorDetail = text.substring(0, 200);
-          const titleMatch = text.match(/<title>(.*?)<\/title>/i);
-          const h1Match = text.match(/<h1>(.*?)<\/h1>/i);
-          if (titleMatch) errorDetail = `Title: ${titleMatch[1]}`;
-          else if (h1Match) errorDetail = `Header: ${h1Match[1]}`;
-          
-          return { 
-            data: null, 
-            error: { 
-              message: `Server returned non-JSON response (Status: ${res.status} ${res.statusText}). ${errorDetail}` 
-            } 
-          };
-        }
-        
-        if (data && data.error) {
-          return { data: null, error: data.error };
-        }
-        return { data, error: null };
-      } catch (error: any) {
-        return { data: null, error: { message: error.message || String(error) } };
-      }
-    };
-
-    const queryBuilder: any = {
-      select: (columns: string = '*') => {
-        queryParams.set('select', columns);
-        return queryBuilder;
-      },
-      insert: (data: any) => {
-        state.method = 'POST';
-        state.body = data;
-        return queryBuilder;
-      },
-      upsert: (data: any) => {
-        state.method = 'POST';
-        state.body = data;
-        return queryBuilder;
-      },
-      update: (data: any) => {
-        state.method = 'PATCH';
-        state.body = data;
-        return queryBuilder;
-      },
-      delete: () => {
-        state.method = 'DELETE';
-        return queryBuilder;
-      },
-      eq: (column: string, value: any) => {
-        queryParams.append(column, value);
-        return queryBuilder;
-      },
-      neq: (column: string, value: any) => {
-        // Note: Our current server.js only supports '='. 
-        // For now, we'll keep it simple to fix login.
-        queryParams.append(column, value); 
-        return queryBuilder;
-      },
-      gt: (column: string, value: any) => {
-        queryParams.append(column, `gt.${value}`);
-        return queryBuilder;
-      },
-      lt: (column: string, value: any) => {
-        queryParams.append(column, `lt.${value}`);
-        return queryBuilder;
-      },
-      in: (column: string, values: any[]) => {
-        queryParams.append(column, `in.(${values.join(',')})`);
-        return queryBuilder;
-      },
-      order: (column: string, { ascending = true } = {}) => {
-        queryParams.set('order', `${column}.${ascending ? 'asc' : 'desc'}`);
-        return queryBuilder;
-      },
-      limit: (count: number) => {
-        queryParams.set('limit', count.toString());
-        return queryBuilder;
-      },
-      single: async () => {
-        const res = await execute();
-        return {
-          data: (res.data && Array.isArray(res.data) && res.data.length > 0) ? res.data[0] : (Array.isArray(res.data) ? null : res.data),
-          error: res.error
-        };
-      },
-      maybeSingle: async () => {
-        const res = await execute();
-        return {
-          data: (res.data && Array.isArray(res.data) && res.data.length > 0) ? res.data[0] : (Array.isArray(res.data) ? null : res.data),
-          error: res.error
-        };
-      },
-      then: (onfulfilled: any) => {
-        return execute().then(onfulfilled);
-      }
-    };
-
-    return queryBuilder;
-  },
-  channel: () => ({
-    on: () => ({
-      subscribe: () => ({ unsubscribe: () => {} })
-    }),
-    subscribe: () => ({ unsubscribe: () => {} })
-  }),
-  removeChannel: () => {}
-} as any;
-
+// SQL Schema for reference (MySQL compatible)
 export const DATABASE_SQL = `
 -- 1. ตารางโรงเรียน
 CREATE TABLE IF NOT EXISTS schools (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  district TEXT,
-  province TEXT,
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  district VARCHAR(255),
+  province VARCHAR(255),
   lat FLOAT,
   lng FLOAT,
   radius INT DEFAULT 500,
-  late_time_threshold TEXT DEFAULT '08:30',
-  logo_base_64 TEXT,
+  late_time_threshold VARCHAR(255) DEFAULT '08:30',
+  logo_base_64 LONGTEXT,
   is_suspended BOOLEAN DEFAULT FALSE
 );
 
 -- 2. ตารางโปรไฟล์ผู้ใช้งาน
 CREATE TABLE IF NOT EXISTS profiles (
-  id TEXT PRIMARY KEY,
-  school_id TEXT REFERENCES schools(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  password TEXT DEFAULT '123456',
-  position TEXT,
-  roles TEXT[],
-  signature_base_64 TEXT,
-  telegram_chat_id TEXT,
+  id VARCHAR(255) PRIMARY KEY,
+  school_id VARCHAR(255),
+  name VARCHAR(255) NOT NULL,
+  password VARCHAR(255) DEFAULT '123456',
+  position VARCHAR(255),
+  roles JSON,
+  signature_base_64 LONGTEXT,
+  telegram_chat_id VARCHAR(255),
   is_suspended BOOLEAN DEFAULT FALSE,
   is_approved BOOLEAN DEFAULT FALSE,
-  assigned_classes TEXT[] DEFAULT '{}'
+  assigned_classes JSON
 );
+`;
 
 -- 3. ตารางการตั้งค่าโรงเรียน (API Keys / Config)
 CREATE TABLE IF NOT EXISTS school_configs (
@@ -316,25 +327,4 @@ CREATE TABLE IF NOT EXISTS director_events (
   notified_on_day BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
-
--- เพิ่มคอลัมน์สำหรับการลงเวลากลับอัตโนมัติ
-DO $$ 
-BEGIN 
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='schools' AND column_name='auto_check_out_enabled') THEN
-        ALTER TABLE schools ADD COLUMN auto_check_out_enabled BOOLEAN DEFAULT FALSE;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='schools' AND column_name='auto_check_out_time') THEN
-        ALTER TABLE schools ADD COLUMN auto_check_out_time TEXT DEFAULT '16:30';
-    END IF;
-    
-    -- สำหรับตาราง attendance (ถ้ามี)
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='attendance') THEN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance' AND column_name='leave_type') THEN
-            ALTER TABLE attendance ADD COLUMN leave_type TEXT;
-        END IF;
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance' AND column_name='is_auto_checkout') THEN
-            ALTER TABLE attendance ADD COLUMN is_auto_checkout BOOLEAN DEFAULT FALSE;
-        END IF;
-    END IF;
-END $$;
 `;
