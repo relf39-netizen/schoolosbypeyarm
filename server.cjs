@@ -659,7 +659,7 @@ async function startServer() {
   app.post('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
     const data = req.body;
-    const uuidTables = ['students', 'class_rooms', 'student_savings', 'academic_years', 'director_events', 'profiles', 'schools'];
+    const uuidTables = ['students', 'class_rooms', 'student_savings', 'student_attendance', 'student_health_records', 'academic_years', 'director_events', 'profiles', 'schools', 'documents'];
 
     if (!data || (typeof data !== 'object' && !Array.isArray(data))) {
       return res.status(400).json({ error: 'Invalid data format. Expected object or array of objects.' });
