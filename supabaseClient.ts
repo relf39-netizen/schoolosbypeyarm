@@ -176,57 +176,56 @@ CREATE TABLE IF NOT EXISTS profiles (
   is_approved BOOLEAN DEFAULT FALSE,
   assigned_classes JSON
 );
-`;
 
 -- 3. ตารางการตั้งค่าโรงเรียน (API Keys / Config)
 CREATE TABLE IF NOT EXISTS school_configs (
-  school_id TEXT PRIMARY KEY REFERENCES schools(id) ON DELETE CASCADE,
-  drive_folder_id TEXT,
+  school_id VARCHAR(255) PRIMARY KEY,
+  drive_folder_id VARCHAR(255),
   script_url TEXT,
-  telegram_bot_token TEXT,
-  telegram_bot_username TEXT,
+  telegram_bot_token VARCHAR(255),
+  telegram_bot_username VARCHAR(255),
   app_base_url TEXT,
-  official_garuda_base_64 TEXT,
-  officer_department TEXT,
-  internal_departments TEXT[],
-  external_agencies TEXT[],
-  director_signature_base_64 TEXT,
+  official_garuda_base_64 LONGTEXT,
+  officer_department VARCHAR(255),
+  internal_departments JSON,
+  external_agencies JSON,
+  director_signature_base_64 LONGTEXT,
   director_signature_scale FLOAT DEFAULT 1.0,
   director_signature_y_offset FLOAT DEFAULT 0
 );
 
 -- 3.1 ตารางห้องเรียน
 CREATE TABLE IF NOT EXISTS class_rooms (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  school_id TEXT REFERENCES schools(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  academic_year TEXT NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  id VARCHAR(255) PRIMARY KEY,
+  school_id VARCHAR(255),
+  name VARCHAR(255) NOT NULL,
+  academic_year VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 4. ตารางงานวิชาการ: จำนวนนักเรียน
 CREATE TABLE IF NOT EXISTS academic_enrollments (
-  id TEXT PRIMARY KEY, -- enroll_{schoolId}_{year}
-  school_id TEXT REFERENCES schools(id) ON DELETE CASCADE,
-  year TEXT NOT NULL,
-  levels JSONB NOT NULL -- เก็บ { "Anuban1": { "m": 0, "f": 0 }, ... }
+  id VARCHAR(255) PRIMARY KEY,
+  school_id VARCHAR(255),
+  year VARCHAR(255) NOT NULL,
+  levels JSON NOT NULL
 );
 
 -- 5. ตารางงานวิชาการ: คะแนนสอบเฉลี่ย (RT, NT, O-NET)
 CREATE TABLE IF NOT EXISTS academic_test_scores (
-  id TEXT PRIMARY KEY, -- score_{schoolId}_{type}_{year}
-  school_id TEXT REFERENCES schools(id) ON DELETE CASCADE,
-  year TEXT NOT NULL,
-  test_type TEXT NOT NULL, -- RT, NT, ONET_P6, ONET_M3
-  results JSONB NOT NULL -- เก็บ { "Math": 50.5, ... }
+  id VARCHAR(255) PRIMARY KEY,
+  school_id VARCHAR(255),
+  year VARCHAR(255) NOT NULL,
+  test_type VARCHAR(255) NOT NULL,
+  results JSON NOT NULL
 );
 
 -- 6. ตารางงานวิชาการ: ปฏิทินวิชาการ
 CREATE TABLE IF NOT EXISTS academic_calendar (
-  id BIGSERIAL PRIMARY KEY,
-  school_id TEXT REFERENCES schools(id) ON DELETE CASCADE,
-  year TEXT NOT NULL,
-  title TEXT NOT NULL,
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  school_id VARCHAR(255),
+  year VARCHAR(255) NOT NULL,
+  title VARCHAR(255) NOT NULL,
   start_date DATE NOT NULL,
   end_date DATE,
   description TEXT
@@ -234,19 +233,19 @@ CREATE TABLE IF NOT EXISTS academic_calendar (
 
 -- 7. ตารางงานวิชาการ: รายงาน SAR
 CREATE TABLE IF NOT EXISTS academic_sar (
-  id BIGSERIAL PRIMARY KEY,
-  school_id TEXT REFERENCES schools(id) ON DELETE CASCADE,
-  year TEXT NOT NULL,
-  type TEXT NOT NULL, -- BASIC, EARLY_CHILDHOOD
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  school_id VARCHAR(255),
+  year VARCHAR(255) NOT NULL,
+  type VARCHAR(255) NOT NULL,
   file_url TEXT NOT NULL,
-  file_name TEXT NOT NULL
+  file_name VARCHAR(255) NOT NULL
 );
 
 -- 8. ตารางงบประมาณรายปี (Action Plan)
 CREATE TABLE IF NOT EXISTS budget_settings (
-  id TEXT PRIMARY KEY,
-  school_id TEXT REFERENCES schools(id) ON DELETE CASCADE,
-  fiscal_year TEXT,
+  id VARCHAR(255) PRIMARY KEY,
+  school_id VARCHAR(255),
+  fiscal_year VARCHAR(255),
   subsidy FLOAT DEFAULT 0,
   learner FLOAT DEFAULT 0,
   allow_teacher_proposal BOOLEAN DEFAULT FALSE
@@ -254,77 +253,77 @@ CREATE TABLE IF NOT EXISTS budget_settings (
 
 -- 9. ตารางโครงการในแผนปฏิบัติการ
 CREATE TABLE IF NOT EXISTS plan_projects (
-  id TEXT PRIMARY KEY,
-  school_id TEXT REFERENCES schools(id) ON DELETE CASCADE,
-  department_name TEXT NOT NULL,
-  name TEXT NOT NULL,
+  id VARCHAR(255) PRIMARY KEY,
+  school_id VARCHAR(255),
+  department_name VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
   subsidy_budget FLOAT DEFAULT 0,
   learner_dev_budget FLOAT DEFAULT 0,
   actual_expense FLOAT DEFAULT 0,
-  status TEXT DEFAULT 'Draft',
-  fiscal_year TEXT
+  status VARCHAR(255) DEFAULT 'Draft',
+  fiscal_year VARCHAR(255)
 );
 
 -- 10. ตารางนักเรียน
 CREATE TABLE IF NOT EXISTS students (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  school_id TEXT REFERENCES schools(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  current_class TEXT NOT NULL,
-  academic_year TEXT NOT NULL,
+  id VARCHAR(255) PRIMARY KEY,
+  school_id VARCHAR(255),
+  name VARCHAR(255) NOT NULL,
+  current_class VARCHAR(255) NOT NULL,
+  academic_year VARCHAR(255) NOT NULL,
   is_active BOOLEAN DEFAULT TRUE,
   is_alumni BOOLEAN DEFAULT FALSE,
-  graduation_year TEXT,
-  batch_number TEXT,
-  phone_number TEXT,
-  father_name TEXT,
-  mother_name TEXT,
-  guardian_name TEXT,
+  graduation_year VARCHAR(255),
+  batch_number VARCHAR(255),
+  phone_number VARCHAR(255),
+  father_name VARCHAR(255),
+  mother_name VARCHAR(255),
+  guardian_name VARCHAR(255),
   medical_conditions TEXT,
   photo_url TEXT,
   address TEXT,
   lat FLOAT,
   lng FLOAT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 11. ตารางการออมทรัพย์นักเรียน
 CREATE TABLE IF NOT EXISTS student_savings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-  school_id TEXT REFERENCES schools(id) ON DELETE CASCADE,
+  id VARCHAR(255) PRIMARY KEY,
+  student_id VARCHAR(255),
+  school_id VARCHAR(255),
   amount FLOAT NOT NULL,
-  type TEXT NOT NULL, -- DEPOSIT, WITHDRAWAL
-  academic_year TEXT NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  created_by TEXT REFERENCES profiles(id) ON DELETE SET NULL,
-  edited_at TIMESTAMP WITH TIME ZONE,
-  edited_by TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+  type VARCHAR(255) NOT NULL,
+  academic_year VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_by VARCHAR(255),
+  edited_at TIMESTAMP NULL,
+  edited_by VARCHAR(255),
   edit_reason TEXT
 );
 
 -- 12. ตารางปีการศึกษา
 CREATE TABLE IF NOT EXISTS academic_years (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  school_id TEXT REFERENCES schools(id) ON DELETE CASCADE,
-  year TEXT NOT NULL,
+  id VARCHAR(255) PRIMARY KEY,
+  school_id VARCHAR(255),
+  year VARCHAR(255) NOT NULL,
   is_current BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 13. ตารางปฏิทินปฏิบัติงาน ผอ.
 CREATE TABLE IF NOT EXISTS director_events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  school_id TEXT REFERENCES schools(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
+  id VARCHAR(255) PRIMARY KEY,
+  school_id VARCHAR(255),
+  title VARCHAR(255) NOT NULL,
   description TEXT,
   date DATE NOT NULL,
-  start_time TEXT NOT NULL,
-  end_time TEXT,
-  location TEXT,
-  created_by TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+  start_time VARCHAR(255) NOT NULL,
+  end_time VARCHAR(255),
+  location VARCHAR(255),
+  created_by VARCHAR(255),
   notified_one_day_before BOOLEAN DEFAULT FALSE,
   notified_on_day BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 `;
