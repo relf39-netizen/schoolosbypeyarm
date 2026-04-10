@@ -625,8 +625,17 @@ async function startServer() {
 
     try {
       // Get actual columns from the database to filter out extra fields
-      const [columnsInfo] = await query(`DESCRIBE ??`, [tableName]);
-      const validColumns = columnsInfo.map(c => c.Field);
+      const result = await query(`DESCRIBE ??`, [tableName]);
+      // mysql2/promise returns [rows, fields], but our query helper might return rows directly or [rows, fields]
+      // Let's handle both cases safely
+      const columnsInfo = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : (Array.isArray(result) ? result : []);
+      
+      if (!Array.isArray(columnsInfo)) {
+        console.error(`Failed to get columns for ${tableName}: result is not an array`, result);
+        throw new Error(`Could not retrieve table structure for ${tableName}`);
+      }
+      
+      const validColumns = columnsInfo.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
 
       if (Array.isArray(data)) {
         // Bulk insert
