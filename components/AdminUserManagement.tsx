@@ -597,7 +597,24 @@ function setTelegramWebhook() {
                 // Update available classes from both class_rooms and students
                 const classesFromStudents = mappedStudents.map((s: any) => s.currentClass).filter(Boolean);
                 const classesFromRooms = (classesData || []).map((c: any) => c.name);
-                const allUniqueClasses = Array.from(new Set([...classesFromStudents, ...classesFromRooms])).sort();
+                
+                const sortThaiClasses = (classNames: string[]) => {
+                    const levelOrder: Record<string, number> = { 'อ.': 1, 'ป.': 2, 'ม.': 3 };
+                    return [...classNames].sort((a, b) => {
+                        const getLevel = (name: string) => {
+                            for (const level in levelOrder) {
+                                if (name.startsWith(level)) return { level: levelOrder[level], sub: parseInt(name.replace(level, '')) || 0 };
+                            }
+                            return { level: 99, sub: 0 };
+                        };
+                        const levelA = getLevel(a);
+                        const levelB = getLevel(b);
+                        if (levelA.level !== levelB.level) return levelA.level - levelB.level;
+                        return levelA.sub - levelB.sub;
+                    });
+                };
+
+                const allUniqueClasses = sortThaiClasses(Array.from(new Set([...classesFromStudents, ...classesFromRooms])));
                 setAvailableClasses(allUniqueClasses);
             }
         } catch (err: any) {

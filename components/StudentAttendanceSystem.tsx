@@ -108,7 +108,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
             // Fetch Director Name
             const { data: teachers } = await supabase
-                .from('teachers')
+                .from('profiles')
                 .select('name, roles, position')
                 .eq('school_id', currentUser.schoolId);
             
@@ -331,11 +331,29 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     const isAdmin = (currentUser.roles || []).includes('SYSTEM_ADMIN') || (currentUser.roles || []).includes('ADMIN') || (currentUser.roles || []).includes('DIRECTOR') || (currentUser.roles || []).includes('VICE_DIRECTOR');
     const isDirector = (currentUser.roles || []).includes('DIRECTOR') || (currentUser.roles || []).includes('VICE_DIRECTOR');
 
+    const sortClasses = (classes: ClassRoom[]) => {
+        const levelOrder: Record<string, number> = { 'อ.': 1, 'ป.': 2, 'ม.': 3 };
+        return [...classes].sort((a, b) => {
+            const getLevel = (name: string) => {
+                for (const level in levelOrder) {
+                    if (name.startsWith(level)) return { level: levelOrder[level], sub: parseInt(name.replace(level, '')) || 0 };
+                }
+                return { level: 99, sub: 0 };
+            };
+            const levelA = getLevel(a.name);
+            const levelB = getLevel(b.name);
+            if (levelA.level !== levelB.level) return levelA.level - levelB.level;
+            return levelA.sub - levelB.sub;
+        });
+    };
+
     const filteredClassRooms = useMemo(() => {
-        if (isAdmin) return classRooms;
-        // If teacher has no assigned classes, let them see all classes for now to avoid "empty screen"
-        if (!currentUser.assignedClasses || currentUser.assignedClasses.length === 0) return classRooms;
-        return classRooms.filter(c => currentUser.assignedClasses?.includes(c.name));
+        let filtered = isAdmin ? classRooms : (
+            (!currentUser.assignedClasses || currentUser.assignedClasses.length === 0) 
+                ? classRooms 
+                : classRooms.filter(c => currentUser.assignedClasses?.includes(c.name))
+        );
+        return sortClasses(filtered);
     }, [classRooms, isAdmin, currentUser.assignedClasses]);
 
     useEffect(() => {
@@ -391,8 +409,8 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                     name: s.name,
                     currentClass: s.current_class,
                     academicYear: s.academic_year,
-                    isActive: s.is_active,
-                    isAlumni: s.is_alumni,
+                    isActive: s.is_active === 1 || s.is_active === true,
+                    isAlumni: s.is_alumni === 1 || s.is_alumni === true,
                     graduationYear: s.graduation_year,
                     batchNumber: s.batch_number,
                     photoUrl: s.photo_url,

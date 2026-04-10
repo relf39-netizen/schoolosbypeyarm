@@ -287,7 +287,7 @@ async function startServer() {
     // Migration: Add missing columns to schools if they don't exist
     try {
       const schoolCols = await query("SHOW COLUMNS FROM schools");
-      const colNames = schoolCols.map(c => c.Field || c.column_name); // Field for MySQL, column_name for some others
+      const colNames = schoolCols.map(c => c.Field || c.column_name);
       
       if (!colNames.includes('wfh_mode_enabled')) {
         console.log('Adding wfh_mode_enabled to schools...');
@@ -296,6 +296,46 @@ async function startServer() {
       if (!colNames.includes('outgoing_book_prefix')) {
         console.log('Adding outgoing_book_prefix to schools...');
         await query("ALTER TABLE schools ADD COLUMN outgoing_book_prefix VARCHAR(255)");
+      }
+
+      // Migration for student_attendance
+      const attendanceCols = await query("SHOW COLUMNS FROM student_attendance");
+      const attendanceColNames = attendanceCols.map(c => c.Field || c.column_name);
+      if (!attendanceColNames.includes('student_id')) {
+        console.log('Adding student_id to student_attendance...');
+        await query("ALTER TABLE student_attendance ADD COLUMN student_id VARCHAR(36)");
+      }
+
+      // Migration for student_health_records
+      const healthCols = await query("SHOW COLUMNS FROM student_health_records");
+      const healthColNames = healthCols.map(c => c.Field || c.column_name);
+      if (!healthColNames.includes('student_id')) {
+        console.log('Adding student_id to student_health_records...');
+        await query("ALTER TABLE student_health_records ADD COLUMN student_id VARCHAR(36)");
+      }
+
+      // Migration for student_savings
+      const savingsCols = await query("SHOW COLUMNS FROM student_savings");
+      const savingsColNames = savingsCols.map(c => c.Field || c.column_name);
+      if (!savingsColNames.includes('student_id')) {
+        console.log('Adding student_id to student_savings...');
+        await query("ALTER TABLE student_savings ADD COLUMN student_id VARCHAR(36)");
+      }
+
+      // Migration for students
+      const studentCols = await query("SHOW COLUMNS FROM students");
+      const studentColNames = studentCols.map(c => c.Field || c.column_name);
+      if (!studentColNames.includes('is_alumni')) {
+        console.log('Adding is_alumni to students...');
+        await query("ALTER TABLE students ADD COLUMN is_alumni BOOLEAN DEFAULT FALSE");
+      }
+      if (!studentColNames.includes('graduation_year')) {
+        console.log('Adding graduation_year to students...');
+        await query("ALTER TABLE students ADD COLUMN graduation_year VARCHAR(255)");
+      }
+      if (!studentColNames.includes('batch_number')) {
+        console.log('Adding batch_number to students...');
+        await query("ALTER TABLE students ADD COLUMN batch_number VARCHAR(255)");
       }
     } catch (migErr) {
       console.error('Migration check failed (might be expected if table just created):', migErr.message);
