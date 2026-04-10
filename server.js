@@ -566,6 +566,10 @@ async function startServer() {
         const allKeys = new Set();
         data.forEach(item => {
           if (item && typeof item === 'object') {
+            // Generate UUID before collecting keys so 'id' is included in the keys list
+            if (!item.id && uuidTables.includes(tableName)) {
+              item.id = crypto.randomUUID();
+            }
             Object.keys(item).forEach(key => {
               if (item[key] !== undefined && validColumns.includes(key)) allKeys.add(key);
             });
@@ -579,9 +583,6 @@ async function startServer() {
         const placeholders = data.map(() => `(${keys.map(() => '?').join(', ')})`).join(', ');
         
         data.forEach(item => {
-          if (!item.id && uuidTables.includes(tableName)) {
-            item.id = crypto.randomUUID();
-          }
           keys.forEach(k => {
             let val = item[k];
             if (val === undefined) val = null;
