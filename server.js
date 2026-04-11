@@ -385,10 +385,10 @@ async function startServer() {
           if (idCol && (idCol.Type || idCol.type).toLowerCase().includes('varchar')) {
             const lengthMatch = (idCol.Type || idCol.type).match(/\d+/);
             const currentLength = lengthMatch ? parseInt(lengthMatch[0]) : 0;
-            if (currentLength > 0 && currentLength < 50) {
+            if (currentLength > 0 && currentLength < 100) {
               try {
-                console.log(`Attempting to expand id column in ${table} from ${currentLength} to 50...`);
-                await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(50)`);
+                console.log(`Attempting to expand id column in ${table} from ${currentLength} to 100...`);
+                await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(100)`);
               } catch (alterErr) {
                 if (alterErr.code === 'ER_FK_COLUMN_CANNOT_CHANGE_CHILD' || alterErr.errno === 1833) {
                   console.warn(`Skipping expansion for ${table}.id due to foreign key constraint.`);

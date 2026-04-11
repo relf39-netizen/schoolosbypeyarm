@@ -243,7 +243,7 @@ async function startServer() {
         password VARCHAR(255)
       )`,
       `CREATE TABLE IF NOT EXISTS documents (
-        id VARCHAR(36) PRIMARY KEY,
+        id VARCHAR(100) PRIMARY KEY,
         school_id VARCHAR(255),
         category VARCHAR(255),
         book_number VARCHAR(255),
@@ -362,10 +362,11 @@ async function startServer() {
             if (type.includes('varchar')) {
               const lengthMatch = type.match(/\d+/);
               const currentLength = lengthMatch ? parseInt(lengthMatch[0]) : 0;
-              if (currentLength > 0 && currentLength < 50) {
+              if (currentLength > 0 && currentLength < 100) {
                 try {
-                  console.log(`Attempting to expand id column in ${table} from ${currentLength} to 50...`);
-                  await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(50)`);
+                  console.log(`[Migration] Attempting to expand id column in ${table} from ${currentLength} to 100...`);
+                  await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(100)`);
+                  console.log(`[Migration] Successfully expanded id column in ${table}.`);
                 } catch (alterErr) {
                   if (alterErr.code === 'ER_FK_COLUMN_CANNOT_CHANGE_CHILD' || alterErr.errno === 1833) {
                     console.warn(`Skipping expansion for ${table}.id due to foreign key constraint.`);
@@ -748,6 +749,7 @@ async function startServer() {
           }
         });
         const keys = Array.from(allKeys);
+        console.log(`[Bulk Insert] Table: ${tableName}, Keys: ${keys.join(', ')}`);
         
         if (keys.length === 0) return res.json([]);
 
@@ -816,6 +818,7 @@ async function startServer() {
         if (!data.id && uuidTables.includes(tableName)) {
           data.id = crypto.randomUUID();
         }
+        console.log(`[Insert] Table: ${tableName}, ID: ${data.id}`);
 
         const keys = Object.keys(data).filter(k => data[k] !== undefined && validColumns.includes(k));
         const values = [];
@@ -869,8 +872,14 @@ async function startServer() {
       
       res.json(Array.isArray(data) ? data : [data]);
     } catch (err) {
-      console.error(`Error saving to ${tableName}:`, err);
-      res.status(500).json({ error: `Failed to save to ${tableName}`, details: err.message });
+      console.error(`[Database Error] Table: ${tableName}, Method: ${req.method}, Error:`, err);
+      res.status(500).json({ 
+        error: `Failed to save to ${tableName}`, 
+        details: err.message,
+        code: err.code,
+        errno: err.errno,
+        sql: err.sql
+      });
     }
   });
 

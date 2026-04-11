@@ -1,6 +1,6 @@
-import mysql from 'mysql2/promise';
-import dotenv from 'dotenv';
-dotenv.config();
+
+const mysql = require('mysql2/promise');
+require('dotenv').config();
 
 async function check() {
   const connection = await mysql.createConnection({
@@ -8,17 +8,13 @@ async function check() {
     user: process.env.MYSQL_USER,
     password: process.env.MYSQL_PASSWORD,
     database: process.env.MYSQL_DATABASE,
-    port: parseInt(process.env.MYSQL_PORT || '3306')
   });
 
-  const [rows] = await connection.execute("SHOW COLUMNS FROM student_attendance");
-  console.log("Columns in student_attendance:", rows.map(r => r.Field));
-  
-  const [profiles] = await connection.execute("SHOW TABLES LIKE 'profiles'");
-  console.log("Profiles table exists:", profiles.length > 0);
+  const [cols] = await connection.query('SHOW COLUMNS FROM documents');
+  console.log('Documents Columns:', JSON.stringify(cols, null, 2));
 
-  const [teachers] = await connection.execute("SHOW TABLES LIKE 'teachers'");
-  console.log("Teachers table exists:", teachers.length > 0);
+  const [studentsCols] = await connection.query('SHOW COLUMNS FROM students');
+  console.log('Students Columns:', JSON.stringify(studentsCols, null, 2));
 
   await connection.end();
 }

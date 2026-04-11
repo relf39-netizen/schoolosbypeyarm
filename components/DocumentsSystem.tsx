@@ -239,6 +239,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
     });
 
     const mapDocToDb = (d: any) => ({
+        id: d.id,
         school_id: d.schoolId,
         category: d.category,
         book_number: d.bookNumber,
