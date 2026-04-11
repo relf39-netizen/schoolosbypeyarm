@@ -283,7 +283,7 @@ async function startServer() {
         acknowledged_by JSON
       )`,
       `CREATE TABLE IF NOT EXISTS director_events (
-        id VARCHAR(36) PRIMARY KEY,
+        id VARCHAR(100) PRIMARY KEY,
         school_id VARCHAR(255),
         title VARCHAR(255) NOT NULL,
         description TEXT,
@@ -297,16 +297,16 @@ async function startServer() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`,
       `CREATE TABLE IF NOT EXISTS finance_accounts (
-        id VARCHAR(36) PRIMARY KEY,
+        id VARCHAR(100) PRIMARY KEY,
         school_id VARCHAR(255) NOT NULL,
         name VARCHAR(255) NOT NULL,
         type VARCHAR(255) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`,
       `CREATE TABLE IF NOT EXISTS finance_transactions (
-        id VARCHAR(36) PRIMARY KEY,
+        id VARCHAR(100) PRIMARY KEY,
         school_id VARCHAR(255) NOT NULL,
-        account_id VARCHAR(36) NOT NULL,
+        account_id VARCHAR(100) NOT NULL,
         date DATE NOT NULL,
         description TEXT,
         amount FLOAT NOT NULL,
@@ -424,6 +424,43 @@ async function startServer() {
       if (!studentColNames.includes('batch_number')) {
         console.log('Adding batch_number to students...');
         await query("ALTER TABLE students ADD COLUMN batch_number VARCHAR(255)");
+      }
+
+      // Migration for director_events, finance_accounts, finance_transactions
+      const tablesToExpand = ['director_events', 'finance_accounts', 'finance_transactions'];
+      for (const table of tablesToExpand) {
+        try {
+          const cols = await query(`SHOW COLUMNS FROM \`${table}\``);
+          const colNames = cols.map(c => (c.Field || c.column_name || c.COLUMN_NAME));
+          const idCol = cols.find(c => (c.Field || c.column_name || c.COLUMN_NAME) === 'id');
+          if (idCol) {
+            const type = (idCol.Type || idCol.type || '').toLowerCase();
+            if (!type.includes('100')) {
+              console.log(`[Migration] Expanding ${table}.id to VARCHAR(100)...`);
+              await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(100) NOT NULL`);
+            }
+          }
+          if (table === 'director_events') {
+            if (!colNames.includes('notified_one_day_before')) {
+              await query(`ALTER TABLE \`${table}\` ADD COLUMN notified_one_day_before BOOLEAN DEFAULT FALSE`);
+            }
+            if (!colNames.includes('notified_on_day')) {
+              await query(`ALTER TABLE \`${table}\` ADD COLUMN notified_on_day BOOLEAN DEFAULT FALSE`);
+            }
+          }
+          if (table === 'finance_transactions') {
+            const accIdCol = cols.find(c => (c.Field || c.column_name || c.COLUMN_NAME) === 'account_id');
+            if (accIdCol) {
+              const type = (accIdCol.Type || accIdCol.type || '').toLowerCase();
+              if (!type.includes('100')) {
+                console.log(`[Migration] Expanding ${table}.account_id to VARCHAR(100)...`);
+                await query(`ALTER TABLE \`${table}\` MODIFY COLUMN account_id VARCHAR(100) NOT NULL`);
+              }
+            }
+          }
+        } catch (e) {
+          console.error(`[Migration Error] ${table} check failed:`, e.message);
+        }
       }
     } catch (migErr) {
       console.error('Migration check failed (might be expected if table just created):', migErr.message);
