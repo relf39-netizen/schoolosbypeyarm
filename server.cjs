@@ -372,18 +372,20 @@ async function startServer() {
       // Ensure documents table has enough length for id (Custom ID format)
       try {
         const table = 'documents';
+        console.log(`[Migration] Checking ${table} table structure...`);
         const cols = await query(`SHOW COLUMNS FROM \`${table}\``);
+        console.log(`[Migration] ${table} columns:`, JSON.stringify(cols));
+        
         const idCol = cols.find(c => (c.Field || c.column_name || c.COLUMN_NAME) === 'id');
         if (idCol) {
           const type = (idCol.Type || idCol.type || '').toLowerCase();
-          if (type.includes('varchar')) {
-            const lengthMatch = type.match(/\d+/);
-            const currentLength = lengthMatch ? parseInt(lengthMatch[0]) : 0;
-            const targetLength = 100; 
-            if (currentLength > 0 && currentLength < targetLength) {
-              console.log(`[Migration] Expanding ${table}.id from ${currentLength} to ${targetLength}...`);
-              await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(${targetLength})`);
-            }
+          console.log(`[Migration] Current ${table}.id type: ${type}`);
+          
+          // Force expansion if not already 100
+          if (!type.includes('100')) {
+            console.log(`[Migration] Forcing expansion of ${table}.id to VARCHAR(100)...`);
+            await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(100) NOT NULL`);
+            console.log(`[Migration] Successfully expanded ${table}.id.`);
           }
         }
         
