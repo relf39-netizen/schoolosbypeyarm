@@ -5,6 +5,24 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
+// Global error handlers to catch crashes
+process.on('uncaughtException', (err) => {
+  console.error('[CRITICAL] Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Helper for safe UUID generation
+function getSafeUUID() {
+  try {
+    return crypto.randomUUID();
+  } catch (e) {
+    return Date.now().toString(36) + Math.random().toString(36).substring(2);
+  }
+}
+
 // Simple manual .env loader
 const envPath = path.join(process.cwd(), '.env');
 if (fs.existsSync(envPath)) {
@@ -370,18 +388,20 @@ async function startServer() {
                   await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(${targetLength})`);
                   console.log(`[Migration] Successfully expanded id column in ${table}.`);
                 } catch (alterErr) {
+                  console.error(`[Migration Error] Table: ${table}, Code: ${alterErr.code}, Errno: ${alterErr.errno}, Message: ${alterErr.message}`);
                   if (alterErr.code === 'ER_FK_COLUMN_CANNOT_CHANGE_CHILD' || alterErr.errno === 1833) {
-                    console.warn(`Skipping expansion for ${table}.id due to foreign key constraint.`);
-                  } else {
-                    console.error(`Failed to expand id for ${table}:`, alterErr.message);
+                    console.warn(`[Migration] Skipping expansion for ${table}.id due to foreign key constraint.`);
                   }
                 }
+              } else {
+                console.log(`[Migration] Table ${table}.id length is already ${currentLength}`);
               }
             }
           }
 
           // Specific check for documents table columns
           if (table === 'documents') {
+            console.log(`[Migration] Checking documents table columns...`);
             const colNames = cols.map(c => (c.Field || c.column_name || c.COLUMN_NAME));
             const requiredCols = [
               { name: 'signed_file_url', type: 'TEXT' },
@@ -395,9 +415,12 @@ async function startServer() {
               if (!colNames.includes(rc.name)) {
                 console.log(`[Migration] Adding missing column ${rc.name} to documents...`);
                 await query(`ALTER TABLE documents ADD COLUMN \`${rc.name}\` ${rc.type}`);
+              } else {
+                console.log(`[Migration] Column ${rc.name} already exists in documents.`);
               }
             }
           }
+          console.log(`[Migration] Finished processing table ${table}`);
         } catch (e) {
           console.error(`Error checking/migrating table ${table}:`, e.message);
         }
@@ -728,25 +751,27 @@ async function startServer() {
   app.post('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
     const data = req.body;
+    console.log(`[${new Date().toISOString()}] POST request for ${tableName}. Data type: ${Array.isArray(data) ? 'Array' : typeof data}`);
+    
     const uuidTables = ['students', 'class_rooms', 'student_savings', 'student_attendance', 'student_health_records', 'academic_years', 'director_events', 'profiles', 'schools', 'documents', 'finance_accounts', 'finance_transactions'];
 
     if (!data || (typeof data !== 'object' && !Array.isArray(data))) {
+      console.error(`[POST /api/table/${tableName}] Invalid data format:`, typeof data);
       return res.status(400).json({ error: 'Invalid data format. Expected object or array of objects.' });
     }
 
     try {
       // Get actual columns from the database to filter out extra fields
       const result = await query(`DESCRIBE ??`, [tableName]);
-      // mysql2/promise returns [rows, fields], but our query helper might return rows directly or [rows, fields]
-      // Let's handle both cases safely
       const columnsInfo = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : (Array.isArray(result) ? result : []);
       
-      if (!Array.isArray(columnsInfo)) {
-        console.error(`Failed to get columns for ${tableName}: result is not an array`, result);
+      if (!Array.isArray(columnsInfo) || columnsInfo.length === 0) {
+        console.error(`[POST /api/table/${tableName}] Failed to get columns. Result:`, result);
         throw new Error(`Could not retrieve table structure for ${tableName}`);
       }
       
       const validColumns = columnsInfo.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
+      console.log(`[POST /api/table/${tableName}] Valid columns: ${validColumns.length}`);
       const columnTypes = {};
       columnsInfo.forEach(c => {
         const field = c.Field || c.column_name || c.COLUMN_NAME;
@@ -756,13 +781,12 @@ async function startServer() {
 
       if (Array.isArray(data)) {
         // Bulk insert
-        console.log(`[${new Date().toISOString()}] Bulk insert into ${tableName} (${data.length} rows)`);
+        console.log(`[Bulk Insert] Table: ${tableName}, Rows: ${data.length}`);
         const allKeys = new Set();
         data.forEach(item => {
           if (item && typeof item === 'object') {
-            // Generate UUID before collecting keys so 'id' is included in the keys list
             if (!item.id && uuidTables.includes(tableName)) {
-              item.id = crypto.randomUUID();
+              item.id = getSafeUUID();
             }
             Object.keys(item).forEach(key => {
               if (item[key] !== undefined && validColumns.includes(key)) allKeys.add(key);
@@ -770,20 +794,22 @@ async function startServer() {
           }
         });
         const keys = Array.from(allKeys);
-        console.log(`[Bulk Insert] Table: ${tableName}, Keys: ${keys.join(', ')}`);
+        console.log(`[Bulk Insert] Keys: ${keys.join(', ')}`);
         
-        if (keys.length === 0) return res.json([]);
+        if (keys.length === 0) {
+          console.log('[Bulk Insert] No valid keys found, skipping.');
+          return res.json([]);
+        }
 
         const values = [];
         const placeholders = data.map(() => `(${keys.map(() => '?').join(', ')})`).join(', ');
         
-        data.forEach(item => {
+        data.forEach((item, idx) => {
           keys.forEach(k => {
             let val = item[k];
             if (val === undefined) val = null;
             if (typeof val === 'string') val = val.trim();
             
-            // Convert empty strings to null for specific columns to avoid unique constraint issues or type errors
             const nullIfEmpty = [
               'student_id', 'national_id', 'age', 'weight', 'height', 
               'lat', 'lng', 'radius', 'family_annual_income', 'birthday'
@@ -792,7 +818,6 @@ async function startServer() {
               val = null;
             }
             
-            // Auto-format ISO date strings for MySQL date/time columns
             if (typeof val === 'string' && val.includes('T') && (val.endsWith('Z') || val.length > 10)) {
               const type = columnTypes[k];
               if (type && (type.includes('datetime') || type.includes('timestamp') || type.includes('date'))) {
@@ -802,13 +827,10 @@ async function startServer() {
                     if (type.includes('date') && !type.includes('time')) {
                       val = d.toISOString().split('T')[0];
                     } else {
-                      // Format as YYYY-MM-DD HH:mm:ss
                       val = d.toISOString().slice(0, 19).replace('T', ' ');
                     }
                   }
-                } catch (e) {
-                  // Keep original value if parsing fails
-                }
+                } catch (e) {}
               }
             }
             
@@ -816,7 +838,7 @@ async function startServer() {
               try {
                 val = JSON.stringify(val);
               } catch (e) {
-                console.error(`Failed to stringify field ${k}:`, e);
+                console.error(`[Bulk Insert] Failed to stringify field ${k} at row ${idx}:`, e.message);
                 val = null;
               }
             }
@@ -824,29 +846,27 @@ async function startServer() {
           });
         });
 
-        // Use ON DUPLICATE KEY UPDATE for bulk inserts
         const updates = keys.filter(k => k !== 'id').map(k => `\`${k}\` = VALUES(\`${k}\`)`).join(', ');
-
         let sql = `INSERT INTO ?? (??) VALUES ${placeholders}`;
         if (updates.length > 0) {
           sql += ` ON DUPLICATE KEY UPDATE ${updates}`;
         }
         
-        console.log(`[Bulk Insert] Executing SQL for ${tableName}`);
+        console.log(`[Bulk Insert] Executing SQL for ${tableName}. SQL length: ${sql.length}`);
         await query(sql, [tableName, keys, ...values]);
       } else {
         // Single insert
-        console.log(`[${new Date().toISOString()}] Single insert into ${tableName}`);
-        if (!data.id && uuidTables.includes(tableName)) {
-          data.id = crypto.randomUUID();
-        }
         console.log(`[Insert] Table: ${tableName}, ID: ${data.id}`);
+        if (!data.id && uuidTables.includes(tableName)) {
+          data.id = getSafeUUID();
+        }
 
         const keys = Object.keys(data).filter(k => data[k] !== undefined && validColumns.includes(k));
         const values = [];
-        
         keys.forEach(k => {
           let val = data[k];
+          if (typeof val === 'string') val = val.trim();
+          
           const nullIfEmpty = [
             'student_id', 'national_id', 'age', 'weight', 'height', 
             'lat', 'lng', 'radius', 'family_annual_income', 'birthday'
@@ -855,7 +875,6 @@ async function startServer() {
             val = null;
           }
 
-          // Auto-format ISO date strings for MySQL date/time columns
           if (typeof val === 'string' && val.includes('T') && (val.endsWith('Z') || val.length > 10)) {
             const type = columnTypes[k];
             if (type && (type.includes('datetime') || type.includes('timestamp') || type.includes('date'))) {
@@ -865,13 +884,10 @@ async function startServer() {
                   if (type.includes('date') && !type.includes('time')) {
                     val = d.toISOString().split('T')[0];
                   } else {
-                    // Format as YYYY-MM-DD HH:mm:ss
                     val = d.toISOString().slice(0, 19).replace('T', ' ');
                   }
                 }
-              } catch (e) {
-                // Keep original value if parsing fails
-              }
+              } catch (e) {}
             }
           }
 
@@ -899,13 +915,14 @@ async function startServer() {
       
       res.json(Array.isArray(data) ? data : [data]);
     } catch (err) {
-      console.error(`[Database Error] Table: ${tableName}, Method: ${req.method}, Error:`, err);
+      console.error(`[CRITICAL DATABASE ERROR] Table: ${tableName}, Method: ${req.method}`);
+      console.error('Error Details:', err);
       res.status(500).json({ 
         error: `Failed to save to ${tableName}`, 
         details: err.message,
         code: err.code,
         errno: err.errno,
-        sql: err.sql
+        sql: err.sql ? (err.sql.length > 500 ? err.sql.substring(0, 500) + '...' : err.sql) : undefined
       });
     }
   });
