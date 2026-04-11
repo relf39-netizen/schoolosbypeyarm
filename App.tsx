@@ -99,7 +99,7 @@ const App: React.FC = () => {
                     isSuspended: !!p.is_suspended, 
                     isApproved: p.is_approved !== false && p.is_approved !== 0,
                     isActingDirector: ((p.roles as string[]) || [])?.includes('ACTING_DIRECTOR') || false,
-                    assignedClasses: p.assigned_classes || [],
+                    assignedClasses: Array.isArray(p.assigned_classes) ? p.assigned_classes : [],
                     isFirstLogin: false
                 }));
                 setAllTeachers(mappedTeachers);
@@ -144,7 +144,7 @@ const App: React.FC = () => {
                             signatureBase64: p.signature_base_64, telegramChatId: p.telegram_chat_id,
                             isSuspended: p.is_suspended, isApproved: p.is_approved !== false,
                             isActingDirector: ((p.roles as string[]) || [])?.includes('ACTING_DIRECTOR') || false,
-                            assignedClasses: p.assigned_classes || []
+                            assignedClasses: Array.isArray(p.assigned_classes) ? p.assigned_classes : []
                         } as any));
                         setAllTeachers(updatedList);
 

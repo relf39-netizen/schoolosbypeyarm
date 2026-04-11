@@ -338,8 +338,9 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         setViewMode('STUDENT_INFO');
     };
 
-    const isAdmin = (currentUser.roles || []).includes('SYSTEM_ADMIN') || (currentUser.roles || []).includes('ADMIN') || (currentUser.roles || []).includes('DIRECTOR') || (currentUser.roles || []).includes('VICE_DIRECTOR');
-    const isDirector = (currentUser.roles || []).includes('DIRECTOR') || (currentUser.roles || []).includes('VICE_DIRECTOR');
+    const roles = Array.isArray(currentUser.roles) ? currentUser.roles : [];
+    const isAdmin = roles.includes('SYSTEM_ADMIN') || roles.includes('ADMIN') || roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR');
+    const isDirector = roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR');
 
     const sortClasses = (classes: ClassRoom[]) => {
         const levelOrder: Record<string, number> = { 'อ.': 1, 'ป.': 2, 'ม.': 3 };
@@ -358,7 +359,8 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     };
 
     const filteredClassRooms = useMemo(() => {
-        let filtered = isAdmin ? classRooms : classRooms.filter(c => (currentUser.assignedClasses || []).includes(c.name));
+        const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
+        let filtered = isAdmin ? classRooms : classRooms.filter(c => assigned.some(a => a.trim() === c.name.trim()));
         return sortClasses(filtered);
     }, [classRooms, isAdmin, currentUser.assignedClasses]);
 
@@ -460,14 +462,15 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             setClassRooms(mappedClasses);
             
             // Auto-select class
-            const filtered = (isAdmin || !currentUser.assignedClasses || currentUser.assignedClasses.length === 0)
+            const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
+            const filtered = isAdmin 
                 ? mappedClasses 
-                : mappedClasses.filter(c => currentUser.assignedClasses?.includes(c.name));
+                : mappedClasses.filter(c => assigned.some(a => a.trim() === c.name.trim()));
 
             if (filtered.length > 0) {
                 setSelectedClass(filtered[0].name);
-            } else if (mappedClasses.length > 0) {
-                setSelectedClass(mappedClasses[0].name);
+            } else {
+                setSelectedClass('');
             }
 
             // 4. Fetch Today's Attendance
@@ -884,6 +887,11 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                             <option key={c.id} value={c.name}>{c.name}</option>
                                         ))}
                                     </select>
+                                    {filteredClassRooms.length === 0 && !isAdmin && (
+                                        <span className="text-[10px] text-rose-500 font-black animate-pulse bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
+                                            * ยังไม่ได้รับมอบหมายชั้นเรียน
+                                        </span>
+                                    )}
                                     <button 
                                         onClick={initRecordMode}
                                         className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-black transition-all shadow-lg shadow-indigo-100 flex items-center gap-2"

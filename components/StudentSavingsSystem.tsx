@@ -72,8 +72,9 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
 
     const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
-    const isAdmin = (currentUser.roles || []).includes('SYSTEM_ADMIN') || (currentUser.roles || []).includes('DIRECTOR') || (currentUser.roles || []).includes('VICE_DIRECTOR') || (currentUser.roles || []).includes('ACTING_DIRECTOR');
-    const isDirector = (currentUser.roles || []).includes('DIRECTOR') || (currentUser.roles || []).includes('VICE_DIRECTOR') || (currentUser.roles || []).includes('ACTING_DIRECTOR');
+    const roles = Array.isArray(currentUser.roles) ? currentUser.roles : [];
+    const isAdmin = roles.includes('SYSTEM_ADMIN') || roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR') || roles.includes('ACTING_DIRECTOR');
+    const isDirector = roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR') || roles.includes('ACTING_DIRECTOR');
 
     useEffect(() => {
         fetchData();
@@ -728,7 +729,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
         if (isDirector) return uniqueClasses.sort();
         
         // For teachers, only show classes they are assigned to
-        const assigned = currentUser.assignedClasses || [];
+        const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
         return assigned.length > 0 ? assigned.sort() : ['None'];
     }, [students, isDirector, currentUser.assignedClasses]);
 
@@ -747,9 +748,9 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 return matchesSearch && matchesClass;
             } else {
                 // Teacher visibility
-                const assigned = currentUser.assignedClasses || [];
-                const isAssignedClass = assigned.includes(s.currentClass);
-                const matchesClass = selectedClass === 'All' || s.currentClass === selectedClass;
+                const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
+                const isAssignedClass = assigned.some(a => a.trim() === (s.currentClass || '').trim());
+                const matchesClass = selectedClass === 'All' || (s.currentClass || '').trim() === selectedClass.trim();
                 return matchesSearch && isAssignedClass && matchesClass;
             }
         });
@@ -844,6 +845,11 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                                 <option key={c} value={c}>{c}</option>
                             ))}
                         </select>
+                        {classes.length === 1 && classes[0] === 'None' && !isDirector && (
+                            <span className="absolute -bottom-6 left-0 text-[9px] text-rose-500 font-black whitespace-nowrap">
+                                * ยังไม่ได้รับมอบหมายชั้นเรียน
+                            </span>
+                        )}
                     </div>
                 </div>
                 
