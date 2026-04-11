@@ -369,61 +369,55 @@ async function startServer() {
         await query("ALTER TABLE students ADD COLUMN graduation_year VARCHAR(255)");
       }
 
-      // Ensure all UUID tables have enough length for id
-      const uuidTables = ['students', 'class_rooms', 'student_savings', 'student_attendance', 'student_health_records', 'academic_years', 'director_events', 'profiles', 'schools', 'documents', 'finance_accounts', 'finance_transactions'];
-      for (const table of uuidTables) {
-        try {
-          const cols = await query(`SHOW COLUMNS FROM \`${table}\``);
-          const idCol = cols.find(c => (c.Field || c.column_name || c.COLUMN_NAME) === 'id');
-          if (idCol) {
-            const type = (idCol.Type || idCol.type || '').toLowerCase();
-            if (type.includes('varchar')) {
-              const lengthMatch = type.match(/\d+/);
-              const currentLength = lengthMatch ? parseInt(lengthMatch[0]) : 0;
-              // Expand documents.id aggressively
-              const targetLength = (table === 'documents') ? 100 : 100; 
-              if (currentLength > 0 && currentLength < targetLength) {
-                try {
-                  console.log(`[Migration] Attempting to expand id column in ${table} from ${currentLength} to ${targetLength}...`);
-                  await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(${targetLength})`);
-                  console.log(`[Migration] Successfully expanded id column in ${table}.`);
-                } catch (alterErr) {
-                  console.error(`[Migration Error] Table: ${table}, Code: ${alterErr.code}, Errno: ${alterErr.errno}, Message: ${alterErr.message}`);
-                  if (alterErr.code === 'ER_FK_COLUMN_CANNOT_CHANGE_CHILD' || alterErr.errno === 1833) {
-                    console.warn(`[Migration] Skipping expansion for ${table}.id due to foreign key constraint.`);
-                  }
-                }
-              } else {
-                console.log(`[Migration] Table ${table}.id length is already ${currentLength}`);
-              }
+      // Ensure documents table has enough length for id (Custom ID format)
+      try {
+        const table = 'documents';
+        const cols = await query(`SHOW COLUMNS FROM \`${table}\``);
+        const idCol = cols.find(c => (c.Field || c.column_name || c.COLUMN_NAME) === 'id');
+        if (idCol) {
+          const type = (idCol.Type || idCol.type || '').toLowerCase();
+          if (type.includes('varchar')) {
+            const lengthMatch = type.match(/\d+/);
+            const currentLength = lengthMatch ? parseInt(lengthMatch[0]) : 0;
+            const targetLength = 100; 
+            if (currentLength > 0 && currentLength < targetLength) {
+              console.log(`[Migration] Expanding ${table}.id from ${currentLength} to ${targetLength}...`);
+              await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(${targetLength})`);
             }
           }
-
-          // Specific check for documents table columns
-          if (table === 'documents') {
-            console.log(`[Migration] Checking documents table columns...`);
-            const colNames = cols.map(c => (c.Field || c.column_name || c.COLUMN_NAME));
-            const requiredCols = [
-              { name: 'signed_file_url', type: 'TEXT' },
-              { name: 'assigned_vice_director_id', type: 'VARCHAR(255)' },
-              { name: 'vice_director_command', type: 'TEXT' },
-              { name: 'vice_director_signature_date', type: 'VARCHAR(255)' },
-              { name: 'target_teachers', type: 'JSON' },
-              { name: 'acknowledged_by', type: 'JSON' }
-            ];
-            for (const rc of requiredCols) {
-              if (!colNames.includes(rc.name)) {
-                console.log(`[Migration] Adding missing column ${rc.name} to documents...`);
-                await query(`ALTER TABLE documents ADD COLUMN \`${rc.name}\` ${rc.type}`);
-              } else {
-                console.log(`[Migration] Column ${rc.name} already exists in documents.`);
-              }
-            }
-          }
-          console.log(`[Migration] Finished processing table ${table}`);
-        } catch (e) {
-          console.error(`Error checking/migrating table ${table}:`, e.message);
         }
+        
+        // Ensure created_at exists in documents
+        const colNames = cols.map(c => (c.Field || c.column_name || c.COLUMN_NAME));
+        if (!colNames.includes('created_at')) {
+          console.log(`[Migration] Adding created_at to documents...`);
+          await query(`ALTER TABLE documents ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
+        }
+      } catch (e) {
+        console.error(`[Migration Error] Documents table check failed:`, e.message);
+      }
+
+      // Specific check for documents table columns
+      try {
+        const table = 'documents';
+        const cols = await query(`SHOW COLUMNS FROM \`${table}\``);
+        const colNames = cols.map(c => (c.Field || c.column_name || c.COLUMN_NAME));
+        const requiredCols = [
+          { name: 'signed_file_url', type: 'TEXT' },
+          { name: 'assigned_vice_director_id', type: 'VARCHAR(255)' },
+          { name: 'vice_director_command', type: 'TEXT' },
+          { name: 'vice_director_signature_date', type: 'VARCHAR(255)' },
+          { name: 'target_teachers', type: 'JSON' },
+          { name: 'acknowledged_by', type: 'JSON' }
+        ];
+        for (const rc of requiredCols) {
+          if (!colNames.includes(rc.name)) {
+            console.log(`[Migration] Adding missing column ${rc.name} to documents...`);
+            await query(`ALTER TABLE documents ADD COLUMN \`${rc.name}\` ${rc.type}`);
+          }
+        }
+      } catch (e) {
+        console.error(`[Migration Error] Documents extra columns check failed:`, e.message);
       }
       if (!studentColNames.includes('batch_number')) {
         console.log('Adding batch_number to students...');
@@ -771,7 +765,7 @@ async function startServer() {
       }
       
       const validColumns = columnsInfo.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
-      console.log(`[POST /api/table/${tableName}] Valid columns: ${validColumns.length}`);
+      console.log(`[POST /api/table/${tableName}] Columns in DB: ${validColumns.join(', ')}`);
       const columnTypes = {};
       columnsInfo.forEach(c => {
         const field = c.Field || c.column_name || c.COLUMN_NAME;
@@ -852,7 +846,8 @@ async function startServer() {
           sql += ` ON DUPLICATE KEY UPDATE ${updates}`;
         }
         
-        console.log(`[Bulk Insert] Executing SQL for ${tableName}. SQL length: ${sql.length}`);
+        const formattedSql = mysql.format(sql, [tableName, keys, ...values]);
+        console.log(`[Bulk Insert] Executing SQL: ${formattedSql.substring(0, 1000)}${formattedSql.length > 1000 ? '...' : ''}`);
         await query(sql, [tableName, keys, ...values]);
       } else {
         // Single insert
@@ -909,7 +904,8 @@ async function startServer() {
           sql += ` ON DUPLICATE KEY UPDATE ${updates}`;
         }
         
-        console.log(`[Insert] Executing SQL for ${tableName}, ID: ${data.id}`);
+        const formattedSql = mysql.format(sql, [tableName, keys, ...values]);
+        console.log(`[Insert] Executing SQL: ${formattedSql.substring(0, 1000)}${formattedSql.length > 1000 ? '...' : ''}`);
         await query(sql, [tableName, keys, ...values]);
       }
       
