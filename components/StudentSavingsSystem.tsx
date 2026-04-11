@@ -725,12 +725,18 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
 
     const classes = useMemo(() => {
         const uniqueClasses = Array.from(new Set(students.map(s => s.currentClass)));
-        if (isDirector) return ['All', ...uniqueClasses.sort()];
+        if (isDirector) return uniqueClasses.sort();
         
         // For teachers, only show classes they are assigned to
         const assigned = currentUser.assignedClasses || [];
         return assigned.length > 0 ? assigned.sort() : ['None'];
     }, [students, isDirector, currentUser.assignedClasses]);
+
+    useEffect(() => {
+        if (!isDirector && selectedClass === 'All' && classes.length > 0 && classes[0] !== 'None') {
+            setSelectedClass(classes[0]);
+        }
+    }, [isDirector, classes, selectedClass]);
 
     const filteredStudents = useMemo(() => {
         return students.filter(s => {

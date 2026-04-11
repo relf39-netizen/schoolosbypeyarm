@@ -358,11 +358,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     };
 
     const filteredClassRooms = useMemo(() => {
-        let filtered = isAdmin ? classRooms : (
-            (!currentUser.assignedClasses || currentUser.assignedClasses.length === 0) 
-                ? classRooms 
-                : classRooms.filter(c => currentUser.assignedClasses?.includes(c.name))
-        );
+        let filtered = isAdmin ? classRooms : classRooms.filter(c => (currentUser.assignedClasses || []).includes(c.name));
         return sortClasses(filtered);
     }, [classRooms, isAdmin, currentUser.assignedClasses]);
 
@@ -701,16 +697,23 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     }, [students, attendance, selectedClass]);
 
     const schoolStats = useMemo(() => {
+        const allowedClassNames = filteredClassRooms.map(c => c.name);
+        const relevantStudents = isAdmin ? students : students.filter(s => allowedClassNames.includes(s.currentClass));
+        const relevantAttendance = isAdmin ? attendance : attendance.filter(a => {
+            const student = students.find(s => s.id === a.studentId);
+            return student && allowedClassNames.includes(student.currentClass);
+        });
+
         const stats = {
-            present: attendance.filter(a => a.status === 'Present').length,
-            late: attendance.filter(a => a.status === 'Late').length,
-            sick: attendance.filter(a => a.status === 'Sick').length,
-            absent: attendance.filter(a => a.status === 'Absent').length,
-            total: students.length,
-            recorded: attendance.length
+            present: relevantAttendance.filter(a => a.status === 'Present').length,
+            late: relevantAttendance.filter(a => a.status === 'Late').length,
+            sick: relevantAttendance.filter(a => a.status === 'Sick').length,
+            absent: relevantAttendance.filter(a => a.status === 'Absent').length,
+            total: relevantStudents.length,
+            recorded: relevantAttendance.length
         };
         return stats;
-    }, [students, attendance]);
+    }, [students, attendance, filteredClassRooms, isAdmin]);
 
     const studentHistory = useMemo(() => {
         if (!individualStudent) return [];
@@ -828,18 +831,20 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
                     {/* Quick Navigation */}
                     <div className="flex flex-wrap gap-4">
-                        <button 
-                            onClick={() => setViewMode('OVERALL_REPORT')}
-                            className="bg-white border border-slate-200 p-4 rounded-2xl flex items-center gap-3 hover:bg-slate-50 transition-all shadow-sm group"
-                        >
-                            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                                <LayoutDashboard size={20} />
-                            </div>
-                            <div className="text-left">
-                                <p className="font-black text-slate-700 text-sm">รายงานภาพรวมโรงเรียน</p>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase">Overall School Report</p>
-                            </div>
-                        </button>
+                        {isAdmin && (
+                            <button 
+                                onClick={() => setViewMode('OVERALL_REPORT')}
+                                className="bg-white border border-slate-200 p-4 rounded-2xl flex items-center gap-3 hover:bg-slate-50 transition-all shadow-sm group"
+                            >
+                                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                                    <LayoutDashboard size={20} />
+                                </div>
+                                <div className="text-left">
+                                    <p className="font-black text-slate-700 text-sm">รายงานภาพรวมโรงเรียน</p>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Overall School Report</p>
+                                </div>
+                            </button>
+                        )}
                         <button 
                             onClick={() => setViewMode('HISTORY')}
                             className="bg-white border border-slate-200 p-4 rounded-2xl flex items-center gap-3 hover:bg-slate-50 transition-all shadow-sm group"
