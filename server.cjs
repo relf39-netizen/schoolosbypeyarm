@@ -363,15 +363,21 @@ async function startServer() {
               const lengthMatch = type.match(/\d+/);
               const currentLength = lengthMatch ? parseInt(lengthMatch[0]) : 0;
               if (currentLength > 0 && currentLength < 50) {
-                console.log(`Expanding id column in ${table} from ${currentLength} to 50...`);
-                // For MySQL, we need to be careful with PRIMARY KEY if we include it in MODIFY
-                // Just MODIFY the column type is enough
-                await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(50)`);
+                try {
+                  console.log(`Attempting to expand id column in ${table} from ${currentLength} to 50...`);
+                  await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(50)`);
+                } catch (alterErr) {
+                  if (alterErr.code === 'ER_FK_COLUMN_CANNOT_CHANGE_CHILD' || alterErr.errno === 1833) {
+                    console.warn(`Skipping expansion for ${table}.id due to foreign key constraint.`);
+                  } else {
+                    throw alterErr;
+                  }
+                }
               }
             }
           }
         } catch (e) {
-          // Table might not exist yet or other error, skip
+          console.error(`Error checking/migrating table ${table}:`, e.message);
         }
       }
       if (!studentColNames.includes('batch_number')) {
