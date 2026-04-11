@@ -397,7 +397,8 @@ const MigrationTool: React.FC = () => {
         'student_savings', 'academic_years', 'attendance', 'leave_requests', 
         'plan_projects', 'budget_settings', 'academic_enrollments', 
         'academic_test_scores', 'academic_calendar', 'academic_sar', 'director_events',
-        'documents', 'student_attendance', 'student_health_records'
+        'documents', 'student_attendance', 'student_health_records',
+        'finance_accounts', 'finance_transactions'
     ];
 
     const handleMigrate = async () => {
