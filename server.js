@@ -375,6 +375,24 @@ async function startServer() {
           }
         }
       }
+
+      // Migration for UUID id length in server.js
+      const uuidTables = ['students', 'class_rooms', 'student_savings', 'student_attendance', 'student_health_records', 'academic_years', 'director_events', 'profiles', 'schools', 'documents', 'finance_accounts', 'finance_transactions'];
+      for (const table of uuidTables) {
+        try {
+          const cols = await query(`SHOW COLUMNS FROM \`${table}\``);
+          const idCol = cols.find(c => (c.Field || c.column_name) === 'id');
+          if (idCol && (idCol.Type || idCol.type).toLowerCase().includes('varchar')) {
+            const lengthMatch = (idCol.Type || idCol.type).match(/\d+/);
+            if (lengthMatch && parseInt(lengthMatch[0]) < 36) {
+              console.log(`Expanding id column in ${table}...`);
+              await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(50)`);
+            }
+          }
+        } catch (e) {
+          // Table might not exist yet or other error, skip
+        }
+      }
       console.log('Database initialized and migrated successfully');
     } catch (err) {
       console.error('Database initialization error:', err);

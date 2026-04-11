@@ -350,6 +350,30 @@ async function startServer() {
         console.log('Adding graduation_year to students...');
         await query("ALTER TABLE students ADD COLUMN graduation_year VARCHAR(255)");
       }
+
+      // Ensure all UUID tables have enough length for id
+      const uuidTables = ['students', 'class_rooms', 'student_savings', 'student_attendance', 'student_health_records', 'academic_years', 'director_events', 'profiles', 'schools', 'documents', 'finance_accounts', 'finance_transactions'];
+      for (const table of uuidTables) {
+        try {
+          const cols = await query(`SHOW COLUMNS FROM \`${table}\``);
+          const idCol = cols.find(c => (c.Field || c.column_name) === 'id');
+          if (idCol) {
+            const type = (idCol.Type || idCol.type || '').toLowerCase();
+            if (type.includes('varchar')) {
+              const lengthMatch = type.match(/\d+/);
+              const currentLength = lengthMatch ? parseInt(lengthMatch[0]) : 0;
+              if (currentLength > 0 && currentLength < 50) {
+                console.log(`Expanding id column in ${table} from ${currentLength} to 50...`);
+                // For MySQL, we need to be careful with PRIMARY KEY if we include it in MODIFY
+                // Just MODIFY the column type is enough
+                await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(50)`);
+              }
+            }
+          }
+        } catch (e) {
+          // Table might not exist yet or other error, skip
+        }
+      }
       if (!studentColNames.includes('batch_number')) {
         console.log('Adding batch_number to students...');
         await query("ALTER TABLE students ADD COLUMN batch_number VARCHAR(255)");
