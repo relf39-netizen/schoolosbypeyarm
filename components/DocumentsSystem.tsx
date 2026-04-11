@@ -1391,6 +1391,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                                 alert("แก้ไขข้อมูลเรียบร้อยแล้ว");
                             } else {
                                 const created: any = { 
+                                    id: `${currentUser.schoolId}-${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${newDoc.bookNumber.replace(/[^a-zA-Z0-9]/g, '')}-${now.getTime().toString().slice(-4)}`,
                                     schoolId: currentUser.schoolId, 
                                     category: docCategory, 
                                     bookNumber: newDoc.bookNumber, 
