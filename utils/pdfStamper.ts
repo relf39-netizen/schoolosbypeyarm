@@ -125,13 +125,40 @@ const splitTextIntoLines = (text: string, maxWidth: number, fontSize: number, fo
     return lines;
 };
 
-const formatDateThai = (dateValue: Date, useThaiDigits = false) => {
+export const formatDateThai = (dateValue: Date, useThaiDigits = false) => {
     const months = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
     const result = `${dateValue.getDate()} ${months[dateValue.getMonth()]} พ.ศ. ${dateValue.getFullYear() + 543}`;
     return useThaiDigits ? toThaiDigits(result) : result;
 };
 
-const formatDateThaiStr = (dateStr: string, useThaiDigits = false) => {
+export const formatDateThaiShort = (dateStr: string | Date) => {
+    if (!dateStr) return "";
+    const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
+    if (isNaN(date.getTime())) return dateStr.toString();
+    
+    return date.toLocaleDateString('th-TH', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+    });
+};
+
+export const formatDateTimeThai = (dateStr: string | Date) => {
+    if (!dateStr) return "";
+    const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
+    if (isNaN(date.getTime())) return dateStr.toString();
+    
+    return date.toLocaleDateString('th-TH', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+    }) + ' ' + date.toLocaleTimeString('th-TH', {
+        hour: '2-digit',
+        minute: '2-digit'
+    }) + ' น.';
+};
+
+export const formatDateThaiStr = (dateStr: string, useThaiDigits = false) => {
     if (!dateStr) return "....................";
     return formatDateThai(new Date(dateStr), useThaiDigits);
 };

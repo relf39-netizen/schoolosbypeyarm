@@ -47,7 +47,7 @@ import {
 import React, { useEffect, useState, useMemo } from 'react';
 import { supabase, isConfigured as isSupabaseConfigured } from '../supabaseClient';
 import { Attachment, DocumentItem, School, SystemConfig, Teacher } from '../types';
-import { stampPdfDocument, stampReceiveNumber, generateDirectorCommandMemoPdf, stampAcknowledgePdf, generateAcknowledgeMemoPdf } from '../utils/pdfStamper';
+import { stampPdfDocument, stampReceiveNumber, generateDirectorCommandMemoPdf, stampAcknowledgePdf, generateAcknowledgeMemoPdf, formatDateThaiShort, formatDateTimeThai } from '../utils/pdfStamper';
 import { sendTelegramMessage } from '../utils/telegram';
 
 /**
@@ -734,7 +734,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                 if (upRes.status === 'success') signedUrl = upRes.viewUrl || upRes.url;
             }
 
-            const nowStr = new Date().toLocaleString('th-TH');
+            const nowStr = formatDateTimeThai(new Date());
             const updateData: any = { status: nextStatus };
             if (signedUrl) updateData.signed_file_url = signedUrl;
             
@@ -791,7 +791,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
         setViewMode('LIST');
 
         try {
-            const nowStr = new Date().toLocaleString('th-TH');
+            const nowStr = formatDateTimeThai(new Date());
             const { error } = await client.from('documents').update({ status: 'PendingViceDirector', assigned_vice_director_id: assignedViceDirId, director_command: finalCommand, director_signature_date: nowStr }).eq('id', taskId);
             if (error) throw error;
             
@@ -1242,7 +1242,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                                                 {docItem.category === 'OUTGOING' ? 'ส่งถึง: ' : 'จาก: '} 
                                                 {docItem.from}
                                             </span>
-                                            <span className="flex items-center gap-1.5"><Clock size={10}/> {docItem.date}</span>
+                                            <span className="flex items-center gap-1.5"><Clock size={10}/> {formatDateThaiShort(docItem.date)}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1407,7 +1407,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                                     targetTeachers: docCategory === 'ORDER' ? selectedTeachers : [], 
                                     acknowledgedBy: [], 
                                     directorCommand: (docCategory === 'ORDER' || docCategory === 'OUTGOING') ? 'สั่งการตามเอกสารแนบ' : '', 
-                                    directorSignatureDate: (docCategory === 'ORDER' || docCategory === 'OUTGOING') ? now.toLocaleString('th-TH') : '' 
+                                    directorSignatureDate: (docCategory === 'ORDER' || docCategory === 'OUTGOING') ? formatDateTimeThai(now) : '' 
                                 };
                                 const { data, error } = await client.from('documents').insert([mapDocToDb(created)]).select();
                                 if (error) throw error;
@@ -1587,7 +1587,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                                             {selectedDoc.category === 'OUTGOING' ? 'ส่งถึง (ปลายทาง): ' : 'ต้นเรื่อง (จาก): '} 
                                             {selectedDoc.from}
                                         </span>
-                                        <span className="flex items-center gap-2"><Clock size={14} className="text-slate-300"/> {selectedDoc.date}</span>
+                                        <span className="flex items-center gap-2"><Clock size={14} className="text-slate-300"/> {formatDateThaiShort(selectedDoc.date)}</span>
                                     </div>
                             </div>
                             <div className="flex md:flex-col items-center justify-center p-4 md:p-6 bg-white rounded-xl md:rounded-[2.5rem] border shadow-inner min-w-full md:min-w-[180px] gap-4 md:gap-0">
