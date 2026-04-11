@@ -381,25 +381,46 @@ async function startServer() {
       for (const table of uuidTables) {
         try {
           const cols = await query(`SHOW COLUMNS FROM \`${table}\``);
-          const idCol = cols.find(c => (c.Field || c.column_name) === 'id');
-          if (idCol && (idCol.Type || idCol.type).toLowerCase().includes('varchar')) {
-            const lengthMatch = (idCol.Type || idCol.type).match(/\d+/);
+          const idCol = cols.find(c => (c.Field || c.column_name || c.COLUMN_NAME) === 'id');
+          if (idCol && (idCol.Type || idCol.type || '').toLowerCase().includes('varchar')) {
+            const lengthMatch = (idCol.Type || idCol.type || '').match(/\d+/);
             const currentLength = lengthMatch ? parseInt(lengthMatch[0]) : 0;
             if (currentLength > 0 && currentLength < 100) {
               try {
-                console.log(`Attempting to expand id column in ${table} from ${currentLength} to 100...`);
+                console.log(`[Migration] Attempting to expand id column in ${table} from ${currentLength} to 100...`);
                 await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(100)`);
+                console.log(`[Migration] Successfully expanded id column in ${table}.`);
               } catch (alterErr) {
                 if (alterErr.code === 'ER_FK_COLUMN_CANNOT_CHANGE_CHILD' || alterErr.errno === 1833) {
                   console.warn(`Skipping expansion for ${table}.id due to foreign key constraint.`);
                 } else {
-                  throw alterErr;
+                  console.error(`Failed to expand id for ${table}:`, alterErr.message);
                 }
+              }
+            }
+          }
+
+          // Specific check for documents table columns
+          if (table === 'documents') {
+            const colNames = cols.map(c => (c.Field || c.column_name || c.COLUMN_NAME));
+            const requiredCols = [
+              { name: 'signed_file_url', type: 'TEXT' },
+              { name: 'assigned_vice_director_id', type: 'VARCHAR(255)' },
+              { name: 'vice_director_command', type: 'TEXT' },
+              { name: 'vice_director_signature_date', type: 'VARCHAR(255)' },
+              { name: 'target_teachers', type: 'JSON' },
+              { name: 'acknowledged_by', type: 'JSON' }
+            ];
+            for (const rc of requiredCols) {
+              if (!colNames.includes(rc.name)) {
+                console.log(`[Migration] Adding missing column ${rc.name} to documents...`);
+                await query(`ALTER TABLE documents ADD COLUMN \`${rc.name}\` ${rc.type}`);
               }
             }
           }
         } catch (e) {
           // Table might not exist yet or other error, skip
+          console.error(`Error checking/migrating table ${table}:`, e.message);
         }
       }
       console.log('Database initialized and migrated successfully');

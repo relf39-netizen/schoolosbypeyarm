@@ -253,10 +253,10 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
         status: d.status,
         director_command: d.directorCommand,
         director_signature_date: d.directorSignatureDate,
-        signed_file_url: d.signed_file_url,
-        assigned_vice_director_id: d.assigned_vice_director_id,
-        vice_director_command: d.vice_director_command,
-        vice_director_signature_date: d.vice_director_signature_date,
+        signed_file_url: d.signedFileUrl,
+        assigned_vice_director_id: d.assignedViceDirectorId,
+        vice_director_command: d.viceDirectorCommand,
+        vice_director_signature_date: d.viceDirectorSignatureDate,
         target_teachers: d.targetTeachers,
         acknowledged_by: d.acknowledgedBy
     });

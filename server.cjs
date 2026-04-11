@@ -356,24 +356,45 @@ async function startServer() {
       for (const table of uuidTables) {
         try {
           const cols = await query(`SHOW COLUMNS FROM \`${table}\``);
-          const idCol = cols.find(c => (c.Field || c.column_name) === 'id');
+          const idCol = cols.find(c => (c.Field || c.column_name || c.COLUMN_NAME) === 'id');
           if (idCol) {
             const type = (idCol.Type || idCol.type || '').toLowerCase();
             if (type.includes('varchar')) {
               const lengthMatch = type.match(/\d+/);
               const currentLength = lengthMatch ? parseInt(lengthMatch[0]) : 0;
-              if (currentLength > 0 && currentLength < 100) {
+              // Expand documents.id aggressively
+              const targetLength = (table === 'documents') ? 100 : 100; 
+              if (currentLength > 0 && currentLength < targetLength) {
                 try {
-                  console.log(`[Migration] Attempting to expand id column in ${table} from ${currentLength} to 100...`);
-                  await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(100)`);
+                  console.log(`[Migration] Attempting to expand id column in ${table} from ${currentLength} to ${targetLength}...`);
+                  await query(`ALTER TABLE \`${table}\` MODIFY COLUMN id VARCHAR(${targetLength})`);
                   console.log(`[Migration] Successfully expanded id column in ${table}.`);
                 } catch (alterErr) {
                   if (alterErr.code === 'ER_FK_COLUMN_CANNOT_CHANGE_CHILD' || alterErr.errno === 1833) {
                     console.warn(`Skipping expansion for ${table}.id due to foreign key constraint.`);
                   } else {
-                    throw alterErr;
+                    console.error(`Failed to expand id for ${table}:`, alterErr.message);
                   }
                 }
+              }
+            }
+          }
+
+          // Specific check for documents table columns
+          if (table === 'documents') {
+            const colNames = cols.map(c => (c.Field || c.column_name || c.COLUMN_NAME));
+            const requiredCols = [
+              { name: 'signed_file_url', type: 'TEXT' },
+              { name: 'assigned_vice_director_id', type: 'VARCHAR(255)' },
+              { name: 'vice_director_command', type: 'TEXT' },
+              { name: 'vice_director_signature_date', type: 'VARCHAR(255)' },
+              { name: 'target_teachers', type: 'JSON' },
+              { name: 'acknowledged_by', type: 'JSON' }
+            ];
+            for (const rc of requiredCols) {
+              if (!colNames.includes(rc.name)) {
+                console.log(`[Migration] Adding missing column ${rc.name} to documents...`);
+                await query(`ALTER TABLE documents ADD COLUMN \`${rc.name}\` ${rc.type}`);
               }
             }
           }
@@ -807,10 +828,11 @@ async function startServer() {
         const updates = keys.filter(k => k !== 'id').map(k => `\`${k}\` = VALUES(\`${k}\`)`).join(', ');
 
         let sql = `INSERT INTO ?? (??) VALUES ${placeholders}`;
-        if (updates) {
+        if (updates.length > 0) {
           sql += ` ON DUPLICATE KEY UPDATE ${updates}`;
         }
         
+        console.log(`[Bulk Insert] Executing SQL for ${tableName}`);
         await query(sql, [tableName, keys, ...values]);
       } else {
         // Single insert
@@ -866,7 +888,12 @@ async function startServer() {
         const placeholders = keys.map(() => '?').join(', ');
         const updates = keys.filter(k => k !== 'id').map(k => `\`${k}\` = VALUES(\`${k}\`)`).join(', ');
 
-        const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
+        let sql = `INSERT INTO ?? (??) VALUES (${placeholders})`;
+        if (updates.length > 0) {
+          sql += ` ON DUPLICATE KEY UPDATE ${updates}`;
+        }
+        
+        console.log(`[Insert] Executing SQL for ${tableName}, ID: ${data.id}`);
         await query(sql, [tableName, keys, ...values]);
       }
       
