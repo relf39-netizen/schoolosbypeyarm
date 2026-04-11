@@ -1281,12 +1281,16 @@ function setTelegramWebhook() {
             else await onEditTeacher(teacherData);
             
             // Update assigned_classes in Supabase profiles table
+            // This is now handled within onAddTeacher/onEditTeacher in App.tsx
+            // But we keep it here as a fallback if needed, or we can remove it to avoid double updates
+            /*
             if (supabase) {
                 await supabase
                     .from('profiles')
                     .update({ assigned_classes: teacherData.assignedClasses })
                     .eq('id', teacherData.id);
             }
+            */
 
             setIsAdding(false); setEditingId(null); setEditForm({});
         } catch(err: any) {
@@ -2672,12 +2676,9 @@ function setTelegramWebhook() {
                                                     <div 
                                                         key={className}
                                                         onClick={() => {
-                                                            const current = editForm.assignedClasses || [];
                                                             setEditForm({
                                                                 ...editForm,
-                                                                assignedClasses: isAssigned 
-                                                                    ? current.filter(c => c !== className)
-                                                                    : [...current, className]
+                                                                assignedClasses: isAssigned ? [] : [className]
                                                             });
                                                         }}
                                                         className={`flex items-center gap-2 cursor-pointer p-2 rounded-lg transition-all border ${isAssigned ? 'border-blue-500 bg-white shadow-sm' : 'border-transparent opacity-60 hover:opacity-100'}`}

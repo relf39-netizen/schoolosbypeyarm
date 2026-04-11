@@ -308,7 +308,8 @@ const App: React.FC = () => {
             telegram_chat_id: t.telegramChatId,
             is_suspended: t.isSuspended || false, 
             is_approved: t.isApproved !== false,
-            signature_base_64: t.signatureBase64
+            signature_base_64: t.signatureBase64,
+            assigned_classes: Array.isArray(t.assignedClasses) ? t.assignedClasses : []
         }).eq('id', t.id);
         
         if (error) {
@@ -614,7 +615,8 @@ const App: React.FC = () => {
                                                 signature_base_64: t.signatureBase64,
                                                 telegram_chat_id: t.telegramChatId,
                                                 is_suspended: t.isSuspended || false,
-                                                is_approved: t.isApproved !== false
+                                                is_approved: t.isApproved !== false,
+                                                assigned_classes: Array.isArray(t.assignedClasses) ? t.assignedClasses : []
                                             }]); 
                                             if (error) {
                                                 console.error("Add Teacher Error:", error.message);
