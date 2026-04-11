@@ -67,11 +67,6 @@ const FinanceSystem: React.FC<FinanceSystemProps> = ({ currentUser, allTeachers 
     });
 
     const [showAccountForm, setShowAccountForm] = useState(false);
-    const [showMigrationModal, setShowMigrationModal] = useState(false);
-    const [migrationUrl, setMigrationUrl] = useState('');
-    const [migrationKey, setMigrationKey] = useState('');
-    const [isMigrating, setIsMigrating] = useState(false);
-    const [migrationResults, setMigrationResults] = useState<any>(null);
     const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showEditAccountModal, setShowEditAccountModal] = useState(false);
@@ -100,38 +95,6 @@ const FinanceSystem: React.FC<FinanceSystemProps> = ({ currentUser, allTeachers 
         amount: parseFloat(t.amount),
         type: t.type as 'Income' | 'Expense'
     });
-
-    const handleMigrateFinance = async () => {
-        if (!migrationUrl || !migrationKey) return alert("กรุณากรอก Supabase URL และ Key");
-        if (!confirm("ยืนยันการนำเข้าข้อมูลการเงินจาก Supabase? ข้อมูลเดิมใน MySQL อาจถูกเขียนทับหากมี ID ซ้ำกัน")) return;
-
-        setIsMigrating(true);
-        setMigrationResults(null);
-
-        try {
-            const res = await fetch('/api/migrate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    supabaseUrl: migrationUrl, 
-                    supabaseKey: migrationKey, 
-                    tables: ['finance_accounts', 'finance_transactions'] 
-                })
-            });
-            const data = await res.json();
-            if (data.success) {
-                setMigrationResults(data.results);
-                alert("นำเข้าข้อมูลสำเร็จ!");
-                await fetchData();
-            } else {
-                alert("เกิดข้อผิดพลาด: " + data.error);
-            }
-        } catch (e) {
-            alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้");
-        } finally {
-            setIsMigrating(false);
-        }
-    };
 
     // --- DATA LOADING ---
     const fetchData = async () => {
@@ -348,15 +311,6 @@ const FinanceSystem: React.FC<FinanceSystemProps> = ({ currentUser, allTeachers 
                     </div>
                 </div>
                 <div className="flex bg-slate-100 p-1 rounded-lg shadow-inner overflow-x-auto max-w-full">
-                    {isSystemAdmin && (
-                        <button 
-                            onClick={() => setShowMigrationModal(true)}
-                            className="mr-2 px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-bold shadow-sm hover:bg-indigo-700 transition-all flex items-center gap-2"
-                        >
-                            <RefreshCw size={14} className={isMigrating ? 'animate-spin' : ''}/>
-                            นำเข้าข้อมูลเก่า
-                        </button>
-                    )}
                     {canSeeBudget && <button onClick={() => { setActiveTab('Budget'); setViewMode('DASHBOARD'); }} className={`px-4 py-2 rounded-md text-sm font-bold transition-all shrink-0 ${activeTab === 'Budget' ? 'bg-white text-orange-600 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}>เงินงบประมาณ</button>}
                     {canSeeNonBudget && <button onClick={() => { setActiveTab('NonBudget'); setViewMode('DASHBOARD'); }} className={`px-4 py-2 rounded-md text-sm font-bold transition-all shrink-0 ${activeTab === 'NonBudget' ? 'bg-white text-blue-600 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}>เงินนอกงบฯ</button>}
                     {canSeeCoop && <button onClick={() => { setActiveTab('Coop'); setViewMode('DASHBOARD'); }} className={`px-4 py-2 rounded-md text-sm font-bold transition-all shrink-0 ${activeTab === 'Coop' ? 'bg-white text-purple-600 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}>สหกรณ์โรงเรียน</button>}
