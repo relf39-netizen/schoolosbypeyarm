@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Transaction, FinanceAccount, Teacher, SystemConfig } from '../types';
-import { TrendingUp, TrendingDown, DollarSign, Plus, Wallet, FileText, ArrowRight, PlusCircle, LayoutGrid, List, ArrowLeft, Loader, Database, ServerOff, Edit2, Trash2, X, Save, ShieldAlert, Eye, Printer, Upload, Calendar, Search, ChevronLeft, ChevronRight, HardDrive, Cloud, RefreshCw, AlertTriangle, HelpCircle, FileSpreadsheet, ChevronsLeft, ChevronsRight, ShoppingBag, Store } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Plus, Wallet, FileText, ArrowRight, PlusCircle, LayoutGrid, List, ArrowLeft, Loader, ServerOff, Edit2, Trash2, X, Save, ShieldAlert, Eye, Printer, Upload, Calendar, Search, ChevronLeft, ChevronRight, HardDrive, Cloud, AlertTriangle, HelpCircle, FileSpreadsheet, ChevronsLeft, ChevronsRight, ShoppingBag, Store } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase, isConfigured as isSupabaseConfigured } from '../supabaseClient';
 import { sendTelegramMessage } from '../utils/telegram';
@@ -653,59 +653,6 @@ const FinanceSystem: React.FC<FinanceSystemProps> = ({ currentUser, allTeachers 
                             <div><label className="block text-[10px] font-black text-slate-400 mb-2 uppercase tracking-[0.2em] ml-2">รายละเอียดรายการ</label><textarea required rows={4} value={newTrans.desc} onChange={e => setNewTrans({...newTrans, desc: e.target.value})} className={`w-full px-6 py-4 border-2 border-slate-50 rounded-[1.5rem] font-bold outline-none bg-slate-50 leading-relaxed transition-all ${activeTab === 'Coop' ? 'focus:border-purple-500' : activeTab === 'NonBudget' ? 'focus:border-blue-500' : 'focus:border-orange-500'}`} placeholder="ระบุชื่อรายการ/ใบเสร็จ/ความจำเป็น..."/></div>
                             <button type="submit" className="w-full py-6 bg-slate-900 text-white rounded-[2rem] font-black text-2xl shadow-2xl hover:bg-black transition-all flex items-center justify-center gap-4 active:scale-95 group uppercase tracking-widest"><Save size={28}/> ยืนยันบันทึกข้อมูล SQL</button>
                         </form>
-                    </div>
-                </div>
-            )}
-
-            {/* Migration Modal */}
-            {showMigrationModal && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
-                    <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100 animate-scale-up">
-                        <div className="bg-indigo-600 p-8 text-white relative">
-                            <button onClick={() => setShowMigrationModal(false)} className="absolute top-6 right-6 p-2 hover:bg-white/20 rounded-full transition-colors"><X size={24}/></button>
-                            <div className="w-16 h-16 bg-white/20 rounded-3xl flex items-center justify-center mb-4 shadow-xl"><Database size={32}/></div>
-                            <h3 className="text-2xl font-black">นำเข้าข้อมูลการเงินเก่า</h3>
-                            <p className="text-indigo-100 text-xs font-bold mt-1 uppercase tracking-widest">Supabase Data Migration Utility</p>
-                        </div>
-                        <div className="p-8 space-y-6">
-                            <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
-                                <p className="text-[10px] text-indigo-700 font-bold leading-relaxed">
-                                    * ระบบจะดึงข้อมูลจากตาราง <b>finance_accounts</b> และ <b>finance_transactions</b> จาก Supabase เดิมมายัง MySQL ใหม่
-                                </p>
-                            </div>
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Supabase Project URL</label>
-                                    <input type="text" value={migrationUrl} onChange={e => setMigrationUrl(e.target.value)} placeholder="https://xyz.supabase.co" className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-500 font-bold text-sm transition-all shadow-inner"/>
-                                </div>
-                                <div>
-                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Supabase Service Role Key (Secret)</label>
-                                    <input type="password" value={migrationKey} onChange={e => setMigrationKey(e.target.value)} placeholder="eyJhbG..." className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-500 font-bold text-sm transition-all shadow-inner"/>
-                                </div>
-                            </div>
-
-                            {migrationResults && (
-                                <div className="space-y-2 max-h-40 overflow-y-auto p-2 bg-slate-50 rounded-xl border shadow-inner">
-                                    {migrationResults.map((res: any, i: number) => (
-                                        <div key={i} className={`p-2 rounded-lg text-[10px] flex justify-between items-center ${res.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                            <span className="font-black">{res.table}</span>
-                                            <span className="font-bold">{res.status === 'success' ? `สำเร็จ: ${res.successCount}` : res.message}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-
-                            <div className="flex gap-3">
-                                <button onClick={() => setShowMigrationModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black text-sm hover:bg-slate-200 transition-all">ยกเลิก</button>
-                                <button 
-                                    onClick={handleMigrateFinance} 
-                                    disabled={isMigrating}
-                                    className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50 active:scale-95"
-                                >
-                                    {isMigrating ? <Loader className="animate-spin" size={20}/> : <RefreshCw size={20}/>} เริ่มการนำเข้าข้อมูล
-                                </button>
-                            </div>
-                        </div>
                     </div>
                 </div>
             )}
