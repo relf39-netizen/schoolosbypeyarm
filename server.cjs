@@ -665,83 +665,103 @@ async function startServer() {
           continue;
         }
 
-        // 2. Fetch data from Supabase
-        const { data, error } = await supabaseSource.from(table).select('*');
-        
-        if (error) {
-          results.push({ table, status: 'error', message: `Supabase Error: ${error.message}` });
-          continue;
-        }
-
-        if (!data || data.length === 0) {
-          results.push({ table, status: 'skipped', message: 'ไม่พบข้อมูลใน Supabase' });
-          continue;
-        }
-
+        // 2. Fetch data from Supabase using pagination (Loop to handle > 1000 records)
         let successCount = 0;
         let failCount = 0;
         let lastError = null;
+        let totalFetched = 0;
+        let hasMoreData = true;
+        let batchSize = 1000;
         let columnMismatch = false;
 
-        for (const row of data) {
-          try {
-            // 3. Map Supabase row to MySQL columns (Case-insensitive matching)
-            const filteredRow = {};
-            const rowKeys = Object.keys(row);
-            
-            targetColumns.forEach(targetCol => {
-              const sourceKey = rowKeys.find(k => k.toLowerCase() === targetCol.toLowerCase());
-              if (sourceKey !== undefined) {
-                let val = row[sourceKey];
-                
-                // Format Date/Time for MySQL
-                const type = columnTypes[targetCol];
-                if (val && (type.includes('datetime') || type.includes('timestamp') || type.includes('date'))) {
-                  try {
-                    const d = new Date(val);
-                    if (!isNaN(d.getTime())) {
-                      if (type.includes('date') && !type.includes('time')) {
-                        val = d.toISOString().split('T')[0];
-                      } else {
-                        val = d.toISOString().slice(0, 19).replace('T', ' ');
-                      }
-                    }
-                  } catch (e) {
-                    console.error(`Date conversion error for ${targetCol}:`, e);
-                  }
-                }
+        while (hasMoreData) {
+          const { data, error } = await supabaseSource
+            .from(table)
+            .select('*')
+            .range(totalFetched, totalFetched + batchSize - 1);
+          
+          if (error) {
+            results.push({ table, status: 'error', message: `Supabase Error at rows ${totalFetched}-${totalFetched + batchSize}: ${error.message}` });
+            hasMoreData = false;
+            continue;
+          }
 
-                filteredRow[targetCol] = val;
-              }
-            });
-
-            const keys = Object.keys(filteredRow);
-            if (keys.length === 0) {
-              columnMismatch = true;
-              continue;
+          if (!data || data.length === 0) {
+            if (totalFetched === 0) {
+              results.push({ table, status: 'skipped', message: 'ไม่พบข้อมูลใน Supabase' });
             }
+            hasMoreData = false;
+            continue;
+          }
 
-            const values = keys.map(k => {
-              const val = filteredRow[k];
-              if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
-                return JSON.stringify(val);
+          for (const row of data) {
+            try {
+              // 3. Map Supabase row to MySQL columns (Case-insensitive matching)
+              const filteredRow = {};
+              const rowKeys = Object.keys(row);
+              
+              targetColumns.forEach(targetCol => {
+                const sourceKey = rowKeys.find(k => k.toLowerCase() === targetCol.toLowerCase());
+                if (sourceKey !== undefined) {
+                  let val = row[sourceKey];
+                  
+                  // Format Date/Time for MySQL
+                  const type = columnTypes[targetCol];
+                  if (val && (type.includes('datetime') || type.includes('timestamp') || type.includes('date'))) {
+                    try {
+                      const d = new Date(val);
+                      if (!isNaN(d.getTime())) {
+                        if (type.includes('date') && !type.includes('time')) {
+                          val = d.toISOString().split('T')[0];
+                        } else {
+                          val = d.toISOString().slice(0, 19).replace('T', ' ');
+                        }
+                      }
+                    } catch (e) {
+                      console.error(`Date conversion error for ${targetCol}:`, e);
+                    }
+                  }
+
+                  filteredRow[targetCol] = val;
+                }
+              });
+
+              const keys = Object.keys(filteredRow);
+              if (keys.length === 0) {
+                columnMismatch = true;
+                continue;
               }
-              return val;
-            });
-            
-            const placeholders = keys.map(() => '?').join(', ');
-            const updates = keys.map(k => `?? = ?`).join(', ');
-            const updateParams = keys.flatMap(k => {
-              const val = filteredRow[k];
-              return [k, Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val];
-            });
 
-            const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
-            await query(sql, [table, keys, ...values, ...updateParams]);
-            successCount++;
-          } catch (rowErr) {
-            failCount++;
-            lastError = rowErr.message;
+              const values = keys.map(k => {
+                const val = filteredRow[k];
+                if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
+                  return JSON.stringify(val);
+                }
+                return val;
+              });
+              
+              const placeholders = keys.map(() => '?').join(', ');
+              const updates = keys.map(k => `?? = ?`).join(', ');
+              const updateParams = keys.flatMap(k => {
+                const val = filteredRow[k];
+                return [k, Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val];
+              });
+
+              const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
+              await query(sql, [table, keys, ...values, ...updateParams]);
+              successCount++;
+            } catch (rowErr) {
+              failCount++;
+              lastError = rowErr.message;
+            }
+          }
+
+          totalFetched += data.length;
+          if (data.length < batchSize) {
+            hasMoreData = false;
+          } else {
+            // Optional: small delay to avoid hitting rate limits
+            await new Promise(resolve => setTimeout(resolve, 100));
           }
         }
         

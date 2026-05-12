@@ -1,7 +1,8 @@
 {
-  "name": "Remix: supabase - schoolosระบบบริหารจัดการโรงเรียนSUPABASE",
+  "name": "mysql schoolosระบบบริหารจัดการโรงเรียนhostinglotus",
   "description": "ระบบบริหารจัดการโรงเรียนครบวงจร: ธุรการ, การลา, การเงิน, แผนงาน, บันทึกเวลาทำงาน และระบบดูแลช่วยเหลือนักเรียน",
   "requestFramePermissions": [
     "geolocation"
-  ]
+  ],
+  "majorCapabilities": []
 }
