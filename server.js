@@ -279,6 +279,28 @@ async function startServer() {
           amount FLOAT NOT NULL,
           type VARCHAR(255) NOT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS documents (
+          id VARCHAR(100) PRIMARY KEY,
+          school_id VARCHAR(255),
+          category VARCHAR(255),
+          book_number VARCHAR(255),
+          title VARCHAR(255),
+          description TEXT,
+          \`from\` VARCHAR(255),
+          date DATE,
+          timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          priority VARCHAR(255),
+          attachments JSON,
+          status VARCHAR(255),
+          director_command TEXT,
+          director_signature_date VARCHAR(255),
+          signed_file_url TEXT,
+          assigned_vice_director_id VARCHAR(255),
+          vice_director_command TEXT,
+          vice_director_signature_date VARCHAR(255),
+          target_teachers JSON,
+          acknowledged_by JSON
         )`
       ];
 
@@ -433,6 +455,12 @@ async function startServer() {
   try {
     await initializeDatabase();
     console.log('Database initialization completed');
+    
+    // Auto-setup webhooks on startup
+    const configs = await query('SELECT telegram_bot_token, app_base_url FROM school_configs WHERE telegram_bot_token IS NOT NULL AND app_base_url IS NOT NULL');
+    for (const config of configs) {
+      setTelegramWebhook(config.telegram_bot_token, config.app_base_url);
+    }
   } catch (err) {
     console.warn('Database initialization failed. The server will continue to run, but some features may be unavailable:', err.message);
   }
@@ -536,6 +564,106 @@ async function startServer() {
   });
 
   // 3. Generic Table Access (for other tables)
+  // --- Telegram Bot Logic ---
+  const sendTelegramMessage = async (token, chatId, text) => {
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: text,
+          parse_mode: 'HTML'
+        })
+      });
+      return await response.json();
+    } catch (error) {
+      console.error('Error sending Telegram message:', error);
+      return { ok: false, error: error.message };
+    }
+  };
+
+  const setTelegramWebhook = async (token, baseUrl) => {
+    if (!token || !baseUrl) return { ok: false, description: 'Missing token or baseUrl' };
+    const webhookUrl = `${baseUrl.replace(/\/$/, '')}/api/telegram/webhook/${token}`;
+    try {
+      console.log(`[Telegram] Setting webhook for bot to: ${webhookUrl}`);
+      const response = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: webhookUrl })
+      });
+      const result = await response.json();
+      console.log(`[Telegram] SetWebhook result:`, result);
+      return result;
+    } catch (error) {
+      console.error('Error setting Telegram webhook:', error);
+      return { ok: false, error: error.message };
+    }
+  };
+
+  // Telegram Webhook Endpoint
+  app.post('/api/telegram/webhook/:token', async (req, res) => {
+    const { token } = req.params;
+    const update = req.body;
+
+    console.log(`[Telegram] Received update for token ...${token.substring(token.length - 5)}`);
+
+    if (update.message && update.message.text) {
+      const { text, chat } = update.message;
+      const chatId = chat.id.toString();
+
+      // Handle /start [userId]
+      if (text.startsWith('/start')) {
+        const parts = text.split(' ');
+        if (parts.length > 1) {
+          const userId = parts[1];
+          console.log(`[Telegram] User ${userId} is linking with Chat ID ${chatId}`);
+
+          try {
+            // Update the profile with the chat ID
+            const result = await query(
+              'UPDATE profiles SET telegram_chat_id = ? WHERE id = ?',
+              [chatId, userId]
+            );
+
+            if (result.affectedRows > 0) {
+              await sendTelegramMessage(token, chatId, `✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nบัญชีของท่านได้รับการผูกกับสถาบันเรียบร้อยแล้ว ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาผ่านช่องทางนี้ครับ`);
+            } else {
+              await sendTelegramMessage(token, chatId, `❌ <b>ไม่พบข้อมูลผู้ใช้งาน</b>\n\nไม่พบรหัสผู้ใช้งาน "${userId}" ในระบบ กรุณาตรวจสอบลิงก์ที่ท่านกดมาอีกครั้งครับ`);
+            }
+          } catch (err) {
+            console.error('[Telegram] Error updating profile:', err);
+            await sendTelegramMessage(token, chatId, `⚠️ <b>เกิดข้อผิดพลาด</b>\n\nไม่สามารถบันทึกข้อมูลการเชื่อมต่อได้ในขณะนี้ กรุณาลองใหม่อีกครั้งภายหลังครับ`);
+          }
+        } else {
+          await sendTelegramMessage(token, chatId, `👋 <b>ยินดีต้อนรับสู่ระบบแจ้งเตือน!</b>\n\nกรุณาเริ่มการเชื่อมต่อจากเมนู "ข้อมูลส่วนตัว" ภายในแอปพลิเคชัน เพื่อผูกบัญชีของท่านครับ`);
+        }
+      }
+    }
+
+    res.sendStatus(200);
+  });
+
+  // Endpoint to manually trigger webhook setup
+  app.post('/api/telegram/setup-webhooks', async (req, res) => {
+    try {
+      const configs = await query('SELECT telegram_bot_token, app_base_url FROM school_configs WHERE telegram_bot_token IS NOT NULL');
+      const results = [];
+      
+      for (const config of configs) {
+        if (config.telegram_bot_token && config.app_base_url) {
+          const result = await setTelegramWebhook(config.telegram_bot_token, config.app_base_url);
+          results.push({ token_suffix: config.telegram_bot_token.slice(-5), result });
+        }
+      }
+      
+      res.json({ success: true, results });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
     const filters = { ...req.query };
@@ -767,6 +895,61 @@ async function startServer() {
       }
       
       console.log(`[${new Date().toISOString()}] Successfully saved to ${tableName}`);
+      
+      // Trigger Telegram Webhook Setup if school_configs was updated
+      if (tableName === 'school_configs') {
+        const config = Array.isArray(data) ? data[0] : data;
+        if (config.telegram_bot_token && config.app_base_url) {
+          setTelegramWebhook(config.telegram_bot_token, config.app_base_url);
+        }
+      }
+
+      // --- Telegram Notifications ---
+      try {
+        if (tableName === 'documents' || tableName === 'leave_requests') {
+          const item = Array.isArray(data) ? data[0] : data;
+          const schoolId = item.school_id || item.schoolId;
+          
+          if (schoolId) {
+            // Fetch school config for bot token
+            const [config] = await query('SELECT telegram_bot_token FROM school_configs WHERE school_id = ?', [schoolId]);
+            
+            if (config && config.telegram_bot_token) {
+              let message = '';
+              let recipients = [];
+              
+              if (tableName === 'documents' && item.status !== 'Distributed') {
+                message = `📄 <b>มีหนังสือราชการใหม่</b>\n\n📌 <b>เรื่อง:</b> ${item.title || 'ไม่มีหัวข้อ'}\n🏢 <b>จาก:</b> ${item.from || '-'}\n📅 <b>วันที่:</b> ${item.date || '-'}\n\nกรุณาเข้าสู่ระบบเพื่อตรวจสอบครับ`;
+                // Documents go to Director and Document Officers
+                recipients = await query(
+                  'SELECT telegram_chat_id FROM profiles WHERE school_id = ? AND telegram_chat_id IS NOT NULL AND (roles LIKE ? OR roles LIKE ?)',
+                  [schoolId, '%DIRECTOR%', '%DOCUMENT_OFFICER%']
+                );
+              } else if (tableName === 'leave_requests') {
+                const results = await query('SELECT name FROM profiles WHERE id = ?', [item.teacher_id || item.teacherId]);
+                const teacher = results[0];
+                message = `📝 <b>มีการแจ้งขอลาใหม่</b>\n\n👤 <b>จาก:</b> ${teacher ? teacher.name : (item.teacher_id || 'ไม่ระบุ')}\n📅 <b>วันที่:</b> ${item.start_date || '-'} ถึง ${item.end_date || '-'}\n❓ <b>เหตุผล:</b> ${item.reason || '-'}\n\nกรุณาเข้าสู่ระบบเพื่อพิจารณาครับ`;
+                // Leave requests go to Director and Vice Directors
+                recipients = await query(
+                  'SELECT telegram_chat_id FROM profiles WHERE school_id = ? AND telegram_chat_id IS NOT NULL AND (roles LIKE ? OR roles LIKE ?)',
+                  [schoolId, '%DIRECTOR%', '%VICE_DIRECTOR%']
+                );
+              }
+              
+              if (message && recipients.length > 0) {
+                for (const r of recipients) {
+                  if (r.telegram_chat_id) {
+                    sendTelegramMessage(config.telegram_bot_token, r.telegram_chat_id, message);
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (notifyErr) {
+        console.error('Error sending Telegram notification:', notifyErr);
+      }
+      
       res.json(Array.isArray(data) ? data : [data]);
     } catch (err) {
       console.error(`[${new Date().toISOString()}] API Error for ${tableName}:`, err);
@@ -814,6 +997,12 @@ async function startServer() {
       }
       
       await query(sql, params);
+
+      // Trigger Telegram Webhook Setup if school_configs was updated
+      if (tableName === 'school_configs' && data.telegram_bot_token && data.app_base_url) {
+        setTelegramWebhook(data.telegram_bot_token, data.app_base_url);
+      }
+
       res.json(Array.isArray(data) ? data : [data]);
     } catch (err) {
       console.error(err);

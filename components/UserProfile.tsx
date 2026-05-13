@@ -23,6 +23,20 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
     const [isSaving, setIsSaving] = useState(false);
     const [botUsername, setBotUsername] = useState<string>('');
     const [isLoadingConfig, setIsLoadingConfig] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+
+    // Sync formData when currentUser prop changes (e.g. from realtime update)
+    useEffect(() => {
+        setFormData(prev => ({
+            ...prev,
+            name: currentUser.name,
+            position: currentUser.position,
+            telegramChatId: currentUser.telegramChatId || ''
+        }));
+        if (currentUser.signatureBase64) {
+            setSignaturePreview(currentUser.signatureBase64);
+        }
+    }, [currentUser]);
 
     useEffect(() => {
         const loadBotConfig = async () => {
@@ -186,7 +200,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                         {!currentUser.telegramChatId ? (
                             <div className="p-4 bg-white/80 rounded-xl border border-dashed border-indigo-200 text-center space-y-3 relative z-10">
                                 <MessageCircle size={24} className="mx-auto text-indigo-300"/>
-                                <p className="text-xs font-bold text-slate-600">กดปุ่มด้านล่างเพื่อเชื่อมต่อบอทโรงเรียนอัตโนมัติ <br/>ระบบจะส่งเลข Chat ID ให้ท่านโดยไม่ต้องพิมพ์เอง</p>
+                                <p className="text-xs font-bold text-slate-600">กดปุ่มด้านล่างเพื่อเชื่อมต่อบอทโรงเรียนอัตโนมัติ <br/>ระบบจะส่งเลข Chat ID ให้ท่านโดยไม่ต้องพิมพ์เอง <br/><span className="text-indigo-600">เมื่อกดปุ่มแล้ว โปรดกดปุ่ม Start (เริ่ม) ในบอท Telegram ด้วยครับ</span></p>
                             </div>
                         ) : (
                             <div className="space-y-1 relative z-10">
