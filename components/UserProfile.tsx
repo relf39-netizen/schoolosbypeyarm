@@ -38,6 +38,51 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         }
     }, [currentUser]);
 
+    // Interval check for Telegram link (since Realtime is mocked)
+    useEffect(() => {
+        let interval: any;
+        if (!currentUser.telegramChatId && botUsername) {
+            // Check status every 5 seconds if not linked
+            interval = setInterval(async () => {
+                if (isSupabaseConfigured && supabase) {
+                    const { data } = await supabase.from('profiles').select('telegram_chat_id').eq('id', currentUser.id).maybeSingle();
+                    if (data && data.telegram_chat_id) {
+                        onUpdateUser({ ...currentUser, telegramChatId: data.telegram_chat_id });
+                        clearInterval(interval);
+                    }
+                }
+            }, 5000);
+        }
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [currentUser.telegramChatId, botUsername, currentUser.id]);
+
+    const handleRefreshTelegram = async () => {
+        setIsRefreshing(true);
+        if (isSupabaseConfigured && supabase) {
+            try {
+                const { data, error } = await supabase.from('profiles').select('telegram_chat_id').eq('id', currentUser.id).maybeSingle();
+                if (error) throw error;
+                if (data) {
+                    onUpdateUser({ ...currentUser, telegramChatId: data.telegram_chat_id || '' });
+                    if (data.telegram_chat_id) {
+                        alert("อัปเดตข้อมูลการเชื่อมต่อเรียบร้อยแล้ว");
+                    } else {
+                        alert("ยังไม่พบข้อมูลการเชื่อมต่อ กรุณากดปุ่มเชื่อมต่อและกดเริ่ม (Start) ในบอท Telegram ครับ");
+                    }
+                }
+            } catch (err) {
+                console.error("Refresh telegram error:", err);
+                alert("ไม่สามารถอัปเดตข้อมูลได้ในขณะนี้");
+            } finally {
+                setIsRefreshing(false);
+            }
+        } else {
+            setIsRefreshing(false);
+        }
+    };
+
     useEffect(() => {
         const loadBotConfig = async () => {
             if (isSupabaseConfigured && supabase) {
@@ -195,12 +240,33 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                             ) : (
                                 <div className="bg-slate-200 text-slate-500 px-3 py-1 rounded-full text-[10px] font-bold">ยังไม่ผูกบัญชี</div>
                             )}
+                            {currentUser.telegramChatId && (
+                                <button 
+                                    type="button"
+                                    onClick={handleRefreshTelegram}
+                                    disabled={isRefreshing}
+                                    className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 text-[10px] font-bold"
+                                >
+                                    <Zap size={12} className={isRefreshing ? 'animate-spin' : ''}/>
+                                    {isRefreshing ? 'กำลังอัปเดต...' : 'รีเฟรชสถานะ'}
+                                </button>
+                            )}
                         </div>
 
                         {!currentUser.telegramChatId ? (
                             <div className="p-4 bg-white/80 rounded-xl border border-dashed border-indigo-200 text-center space-y-3 relative z-10">
                                 <MessageCircle size={24} className="mx-auto text-indigo-300"/>
                                 <p className="text-xs font-bold text-slate-600">กดปุ่มด้านล่างเพื่อเชื่อมต่อบอทโรงเรียนอัตโนมัติ <br/>ระบบจะส่งเลข Chat ID ให้ท่านโดยไม่ต้องพิมพ์เอง <br/><span className="text-indigo-600">เมื่อกดปุ่มแล้ว โปรดกดปุ่ม Start (เริ่ม) ในบอท Telegram ด้วยครับ</span></p>
+                                
+                                <button 
+                                    type="button"
+                                    onClick={handleRefreshTelegram}
+                                    disabled={isRefreshing}
+                                    className="mx-auto text-[10px] text-indigo-400 hover:text-indigo-600 font-bold flex items-center gap-1 border border-indigo-100 px-3 py-1 rounded-full bg-white/50"
+                                >
+                                    {isRefreshing ? <Loader size={10} className="animate-spin"/> : <Zap size={10}/>}
+                                    กดตรวจสอบสถานะหากท่านกดใน Telegram แล้ว
+                                </button>
                             </div>
                         ) : (
                             <div className="space-y-1 relative z-10">

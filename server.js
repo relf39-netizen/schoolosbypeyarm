@@ -617,23 +617,27 @@ async function startServer() {
       if (text.startsWith('/start')) {
         const parts = text.split(' ');
         if (parts.length > 1) {
-          const userId = parts[1];
-          console.log(`[Telegram] User ${userId} is linking with Chat ID ${chatId}`);
+          const userId = parts[1].trim();
+          console.log(`[Telegram] User ID [${userId}] linking with Chat ID [${chatId}]`);
 
           try {
-            // Update the profile with the chat ID
-            const result = await query(
-              'UPDATE profiles SET telegram_chat_id = ? WHERE id = ?',
-              [chatId, userId]
-            );
-
-            if (result.affectedRows > 0) {
-              await sendTelegramMessage(token, chatId, `✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nบัญชีของท่านได้รับการผูกกับสถาบันเรียบร้อยแล้ว ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาผ่านช่องทางนี้ครับ`);
+            // First check if user exists
+            const [user] = await query('SELECT id, name FROM profiles WHERE id = ?', [userId]);
+            
+            if (user) {
+              // Update the profile with the chat ID
+              await query(
+                'UPDATE profiles SET telegram_chat_id = ? WHERE id = ?',
+                [chatId, userId]
+              );
+              console.log(`[Telegram] Successfully linked Chat ID ${chatId} to user ${user.name} (${userId})`);
+              await sendTelegramMessage(token, chatId, `✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nบัญชีของท่าน (คุณ${user.name}) ได้รับการผูกกับระบบโรงเรียนเรียบร้อยแล้ว ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาผ่านช่องทางนี้ครับ`);
             } else {
-              await sendTelegramMessage(token, chatId, `❌ <b>ไม่พบข้อมูลผู้ใช้งาน</b>\n\nไม่พบรหัสผู้ใช้งาน "${userId}" ในระบบ กรุณาตรวจสอบลิงก์ที่ท่านกดมาอีกครั้งครับ`);
+              console.warn(`[Telegram] User ID ${userId} not found in database`);
+              await sendTelegramMessage(token, chatId, `❌ <b>ไม่พบข้อมูลผู้ใช้งาน</b>\n\nไม่พบรหัสผู้ใช้งาน "${userId}" ในระบบ\n\n<b>วิธีแก้ไข:</b>\n1. ตรวจสอบว่าท่านเข้าสู่ระบบในแอปแล้ว\n2. ลองกดปุ่มเชื่อมต่อจากเมนู "ข้อมูลส่วนตัว" อีกครั้งครับ`);
             }
           } catch (err) {
-            console.error('[Telegram] Error updating profile:', err);
+            console.error('[Telegram] Error during linking process:', err);
             await sendTelegramMessage(token, chatId, `⚠️ <b>เกิดข้อผิดพลาด</b>\n\nไม่สามารถบันทึกข้อมูลการเชื่อมต่อได้ในขณะนี้ กรุณาลองใหม่อีกครั้งภายหลังครับ`);
           }
         } else {
