@@ -73,8 +73,8 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
     const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
     const roles = Array.isArray(currentUser.roles) ? currentUser.roles : [];
-    const isAdmin = roles.includes('SYSTEM_ADMIN') || roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR') || roles.includes('ACTING_DIRECTOR');
-    const isDirector = roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR') || roles.includes('ACTING_DIRECTOR');
+    const isAdmin = roles.includes('SYSTEM_ADMIN') || roles.includes('ADMIN') || roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR') || currentUser.isActingDirector;
+    const isDirector = roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR') || currentUser.isActingDirector;
 
     useEffect(() => {
         fetchData();
@@ -119,11 +119,18 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             }
 
             // Fetch Students
-            const { data: studentsData, error: studentError } = await supabase
+            let studentQuery = supabase
                 .from('students')
                 .select('*')
                 .eq('school_id', currentUser.schoolId)
                 .eq('is_active', true);
+            
+            // Filter by assigned classes for non-special roles
+            if (!isDirector && currentUser.assignedClasses && currentUser.assignedClasses.length > 0) {
+                studentQuery = studentQuery.in('current_class', currentUser.assignedClasses);
+            }
+
+            const { data: studentsData, error: studentError } = await studentQuery;
 
             if (studentError) throw studentError;
 
@@ -726,33 +733,46 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
 
     const classes = useMemo(() => {
         const uniqueClasses = Array.from(new Set(students.map(s => s.currentClass)));
-        if (isDirector) return uniqueClasses.sort();
-        
-        // For teachers, only show classes they are assigned to
         const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
-        return assigned.length > 0 ? assigned.sort() : ['None'];
+        if (isDirector && assigned.length === 0) return uniqueClasses.sort();
+        
+        // Filter classes by assigned rooms/levels
+        const filtered = uniqueClasses.filter(c => 
+            assigned.some(a => {
+                const cleanA = a.trim();
+                const cleanC = c.trim();
+                return cleanC === cleanA || cleanC.startsWith(cleanA + '/');
+            })
+        );
+        return filtered.length > 0 ? filtered.sort() : ['None'];
     }, [students, isDirector, currentUser.assignedClasses]);
 
     useEffect(() => {
-        if (!isDirector && selectedClass === 'All' && classes.length > 0 && classes[0] !== 'None') {
-            setSelectedClass(classes[0]);
+        if (selectedClass === 'All' && classes.length > 0 && classes[0] !== 'None') {
+            if (!isDirector || (isDirector && currentUser.assignedClasses && currentUser.assignedClasses.length > 0)) {
+                setSelectedClass(classes[0]);
+            }
         }
-    }, [isDirector, classes, selectedClass]);
+    }, [isDirector, classes, selectedClass, currentUser.assignedClasses]);
 
     const filteredStudents = useMemo(() => {
         return students.filter(s => {
             const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase());
-            
-            if (isDirector) {
-                const matchesClass = selectedClass === 'All' || s.currentClass === selectedClass;
+            const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
+            const matchesClass = selectedClass === 'All' || (s.currentClass || '').trim() === selectedClass.trim();
+
+            if (isDirector && assigned.length === 0) {
                 return matchesSearch && matchesClass;
-            } else {
-                // Teacher visibility
-                const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
-                const isAssignedClass = assigned.some(a => a.trim() === (s.currentClass || '').trim());
-                const matchesClass = selectedClass === 'All' || (s.currentClass || '').trim() === selectedClass.trim();
-                return matchesSearch && isAssignedClass && matchesClass;
             }
+
+            // Teacher visibility or Director with specific assignment
+            const isAssigned = assigned.some(a => {
+                const cleanA = a.trim();
+                const cleanS = (s.currentClass || '').trim();
+                return cleanS === cleanA || cleanS.startsWith(cleanA + '/');
+            });
+
+            return matchesSearch && matchesClass && isAssigned;
         });
     }, [students, searchTerm, selectedClass, isDirector, currentUser.assignedClasses]);
 

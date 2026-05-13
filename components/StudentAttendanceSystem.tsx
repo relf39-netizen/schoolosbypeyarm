@@ -339,8 +339,8 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     };
 
     const roles = Array.isArray(currentUser.roles) ? currentUser.roles : [];
-    const isAdmin = roles.includes('SYSTEM_ADMIN') || roles.includes('ADMIN') || roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR');
-    const isDirector = roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR');
+    const isAdmin = roles.includes('SYSTEM_ADMIN') || roles.includes('ADMIN') || roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR') || currentUser.isActingDirector;
+    const isDirector = roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR') || currentUser.isActingDirector;
 
     const sortClasses = (classes: ClassRoom[]) => {
         const levelOrder: Record<string, number> = { 'อ.': 1, 'ป.': 2, 'ม.': 3 };
@@ -360,9 +360,17 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
     const filteredClassRooms = useMemo(() => {
         const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
-        let filtered = isAdmin ? classRooms : classRooms.filter(c => assigned.some(a => a.trim() === c.name.trim()));
-        return sortClasses(filtered);
-    }, [classRooms, isAdmin, currentUser.assignedClasses]);
+        if (assigned.length > 0) {
+            return sortClasses(classRooms.filter(c => 
+                assigned.some(a => {
+                    const cleanA = a.trim();
+                    const cleanC = c.name.trim();
+                    return cleanC === cleanA || cleanC.startsWith(cleanA + '/');
+                })
+            ));
+        }
+        return (isAdmin || isDirector) ? sortClasses(classRooms) : [];
+    }, [classRooms, isAdmin, isDirector, currentUser.assignedClasses]);
 
     useEffect(() => {
         fetchInitialData();
@@ -402,12 +410,19 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             }
 
             // 2. Fetch Students first to derive classes if needed
-            const { data: studentsData } = await supabase
+            let studentQuery = supabase
                 .from('students')
                 .select('*')
                 .eq('school_id', currentUser.schoolId)
                 .eq('is_active', true)
                 .eq('is_alumni', false);
+            
+            // Filter by assigned classes for non-special roles
+            if (!isAdmin && currentUser.assignedClasses && currentUser.assignedClasses.length > 0) {
+                studentQuery = studentQuery.in('current_class', currentUser.assignedClasses);
+            }
+
+            const { data: studentsData } = await studentQuery;
             
             let mappedStudents: Student[] = [];
             if (studentsData) {

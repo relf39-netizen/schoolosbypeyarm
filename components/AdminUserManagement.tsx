@@ -2676,9 +2676,12 @@ function setTelegramWebhook() {
                                                     <div 
                                                         key={className}
                                                         onClick={() => {
+                                                            const currentAssigned = editForm.assignedClasses || [];
                                                             setEditForm({
                                                                 ...editForm,
-                                                                assignedClasses: isAssigned ? [] : [className]
+                                                                assignedClasses: isAssigned 
+                                                                    ? currentAssigned.filter(a => a !== className) 
+                                                                    : [...currentAssigned, className]
                                                             });
                                                         }}
                                                         className={`flex items-center gap-2 cursor-pointer p-2 rounded-lg transition-all border ${isAssigned ? 'border-blue-500 bg-white shadow-sm' : 'border-transparent opacity-60 hover:opacity-100'}`}
