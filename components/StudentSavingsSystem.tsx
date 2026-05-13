@@ -125,9 +125,13 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 .eq('school_id', currentUser.schoolId)
                 .eq('is_active', true);
             
-            // Filter by assigned classes for non-special roles
-            if (!isDirector && currentUser.assignedClasses && currentUser.assignedClasses.length > 0) {
-                studentQuery = studentQuery.in('current_class', currentUser.assignedClasses);
+            const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
+            if (assigned.length > 0) {
+                // If admin assigned specific classes, only see those
+                studentQuery = studentQuery.in('current_class', assigned);
+            } else if (!isAdmin && !isDirector) {
+                // Regular teacher with no assigned classes sees no one
+                studentQuery = studentQuery.eq('id', '99999999-9999-9999-9999-999999999999'); 
             }
 
             const { data: studentsData, error: studentError } = await studentQuery;
@@ -738,11 +742,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
         
         // Filter classes by assigned rooms/levels
         const filtered = uniqueClasses.filter(c => 
-            assigned.some(a => {
-                const cleanA = a.trim();
-                const cleanC = c.trim();
-                return cleanC === cleanA || cleanC.startsWith(cleanA + '/');
-            })
+            assigned.some(a => a.trim() === c.trim())
         );
         return filtered.length > 0 ? filtered.sort() : ['None'];
     }, [students, isDirector, currentUser.assignedClasses]);
@@ -766,11 +766,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             }
 
             // Teacher visibility or Director with specific assignment
-            const isAssigned = assigned.some(a => {
-                const cleanA = a.trim();
-                const cleanS = (s.currentClass || '').trim();
-                return cleanS === cleanA || cleanS.startsWith(cleanA + '/');
-            });
+            const isAssigned = assigned.some(a => a.trim() === (s.currentClass || '').trim());
 
             return matchesSearch && matchesClass && isAssigned;
         });

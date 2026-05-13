@@ -362,13 +362,10 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
         if (assigned.length > 0) {
             return sortClasses(classRooms.filter(c => 
-                assigned.some(a => {
-                    const cleanA = a.trim();
-                    const cleanC = c.name.trim();
-                    return cleanC === cleanA || cleanC.startsWith(cleanA + '/');
-                })
+                assigned.some(a => a.trim() === c.name.trim())
             ));
         }
+        // If no classes assigned, only Admins/Directors see the whole school classes
         return (isAdmin || isDirector) ? sortClasses(classRooms) : [];
     }, [classRooms, isAdmin, isDirector, currentUser.assignedClasses]);
 
@@ -417,9 +414,13 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                 .eq('is_active', true)
                 .eq('is_alumni', false);
             
-            // Filter by assigned classes for non-special roles
-            if (!isAdmin && currentUser.assignedClasses && currentUser.assignedClasses.length > 0) {
-                studentQuery = studentQuery.in('current_class', currentUser.assignedClasses);
+            const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
+            if (assigned.length > 0) {
+                // If admin assigned specific classes, only see those
+                studentQuery = studentQuery.in('current_class', assigned);
+            } else if (!isAdmin && !isDirector) {
+                // Regular teacher with no assigned classes sees no one
+                studentQuery = studentQuery.eq('id', '99999999-9999-9999-9999-999999999999'); 
             }
 
             const { data: studentsData } = await studentQuery;
@@ -477,13 +478,12 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             setClassRooms(mappedClasses);
             
             // Auto-select class
-            const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
-            const filtered = isAdmin 
+            const filteredClasses = isAdmin 
                 ? mappedClasses 
                 : mappedClasses.filter(c => assigned.some(a => a.trim() === c.name.trim()));
 
-            if (filtered.length > 0) {
-                setSelectedClass(filtered[0].name);
+            if (filteredClasses.length > 0) {
+                setSelectedClass(filteredClasses[0].name);
             } else {
                 setSelectedClass('');
             }
