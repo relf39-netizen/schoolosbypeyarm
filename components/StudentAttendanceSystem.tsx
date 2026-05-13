@@ -502,12 +502,22 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         if (!supabase || !selectedClass) return;
         setIsLoadingHistory(true);
         try {
-            const { data, error } = await supabase
+            const classStudents = students.filter(s => s.currentClass === selectedClass);
+            const studentIds = classStudents.map(s => s.id);
+            
+            let query = supabase
                 .from('student_attendance')
                 .select('*')
                 .eq('school_id', currentUser.schoolId)
                 .gte('date', historyStartDate)
                 .lte('date', historyEndDate);
+
+            // If we have specific students, filter by them to be more precise and faster
+            if (studentIds.length > 0) {
+                query = query.in('student_id', studentIds);
+            }
+            
+            const { data, error } = await query.order('date', { ascending: false });
             
             if (error) throw error;
             if (data) {
@@ -536,7 +546,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     }, [viewMode, historyStartDate, historyEndDate, selectedClass]);
 
     const historyStats = useMemo(() => {
-        const classStudents = students.filter(s => s.currentClass === selectedClass);
+        const classStudents = students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim());
         const dates = [...new Set(historyAttendance.map(a => a.date))].sort((a, b) => b.localeCompare(a));
         
         return dates.map(date => {
@@ -560,7 +570,8 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                 .from('student_attendance')
                 .select('*')
                 .eq('school_id', currentUser.schoolId)
-                .eq('date', date);
+                .eq('date', date)
+                .order('created_at', { ascending: false });
             
             if (error) throw error;
             if (data) {
