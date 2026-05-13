@@ -502,7 +502,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         if (!supabase || !selectedClass) return;
         setIsLoadingHistory(true);
         try {
-            const classStudents = students.filter(s => s.currentClass === selectedClass);
+            const classStudents = students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim());
             const studentIds = classStudents.map(s => s.id);
             
             let query = supabase
@@ -599,7 +599,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     const initRecordMode = () => {
         // Initialize temp attendance with existing data or default 'Present'
         const initial: Record<string, StudentAttendanceStatus> = {};
-        const classStudents = students.filter(s => s.currentClass === selectedClass);
+        const classStudents = students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim());
         
         classStudents.forEach(s => {
             const existing = attendance.find(a => a.studentId === s.id && a.date === selectedDate);
@@ -667,7 +667,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         }> = {};
 
         classRooms.forEach(cls => {
-            const classStudents = students.filter(s => s.currentClass === cls.name);
+            const classStudents = students.filter(s => (s.currentClass || '').trim() === (cls.name || '').trim());
             const classAttendance = attendance.filter(a => classStudents.some(s => s.id === a.studentId));
             
             statsByClass[cls.name] = {
@@ -710,7 +710,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     };
 
     const dailyStats = useMemo(() => {
-        const classStudents = students.filter(s => s.currentClass === selectedClass);
+        const classStudents = students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim());
         const classAttendance = attendance.filter(a => classStudents.some(s => s.id === a.studentId));
         
         const stats = {
@@ -928,10 +928,10 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                             </div>
 
                             <div className="space-y-3">
-                                {students.filter(s => s.currentClass === selectedClass).length === 0 ? (
+                                {students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim()).length === 0 ? (
                                     <div className="text-center py-12 text-slate-400 italic">ไม่พบรายชื่อนักเรียนในชั้นนี้</div>
                                 ) : (
-                                    students.filter(s => s.currentClass === selectedClass).map((student, idx) => {
+                                    students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim()).map((student, idx) => {
                                         const record = attendance.find(a => a.studentId === student.id && a.date === selectedDate);
                                         const absenceData = studentAbsenceCounts[student.id];
                                         return (
@@ -1095,7 +1095,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                         </div>
 
                         <div className="space-y-4">
-                            {students.filter(s => s.currentClass === selectedClass).map((student, idx) => (
+                            {students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim()).map((student, idx) => (
                                 <div key={student.id} className="flex flex-col md:flex-row md:items-center justify-between p-6 bg-slate-50 rounded-3xl border border-slate-100 gap-4">
                                     <div className="flex items-center gap-4">
                                         <span className="text-sm font-black text-slate-300 w-8">{idx + 1}</span>
@@ -1429,9 +1429,44 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                 <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">กำลังโหลดข้อมูลประวัติ...</p>
                             </div>
                         ) : historyStats.length === 0 ? (
-                            <div className="py-20 text-center">
-                                <History className="text-slate-200 mx-auto mb-4" size={48} />
-                                <p className="text-slate-400 font-bold italic">ไม่พบข้อมูลการมาเรียนในช่วงเวลาที่เลือก</p>
+                            <div className="space-y-6">
+                                <div className="py-12 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 text-center">
+                                    <History className="text-slate-200 mx-auto mb-4" size={48} />
+                                    <p className="text-slate-400 font-bold italic mb-1">ไม่พบข้อมูลการมาเรียนในช่วงเวลาที่เลือก</p>
+                                    <p className="text-[10px] text-slate-300 font-black uppercase tracking-widest">{formatToThaiDate(historyStartDate)} - {formatToThaiDate(historyEndDate)}</p>
+                                </div>
+                                
+                                <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm">
+                                    <h4 className="font-black text-slate-700 mb-4 flex items-center gap-2">
+                                        <Users size={18} className="text-indigo-500" /> รายชื่อนักเรียนชั้น {selectedClass}
+                                    </h4>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full">
+                                            <thead>
+                                                <tr className="bg-slate-50 border-b border-slate-100">
+                                                    <th className="p-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">ชื่อ-นามสกุล</th>
+                                                    <th className="p-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">สถานะในช่วงเวลาที่เลือก</th>
+                                                    <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">หมายเหตุ</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-50">
+                                                {students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim()).map((student) => (
+                                                    <tr key={student.id} className="hover:bg-slate-50 transition-all">
+                                                        <td className="p-4 font-black text-slate-700">{student.name}</td>
+                                                        <td className="p-4 text-center">
+                                                            <span className="px-3 py-1 bg-rose-50 text-rose-500 rounded-full text-[10px] font-black uppercase border border-rose-100">
+                                                                ไม่พบข้อมูลการมาเรียน
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-4 text-right text-slate-300 text-xs italic">
+                                                            ยังไม่ได้รับการบันทึกข้อมูล
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         ) : (
                             <div className="overflow-x-auto">
