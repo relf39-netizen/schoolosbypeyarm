@@ -70,6 +70,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
     const [selectedTeacherDetails, setSelectedTeacherDetails] = useState<any | null>(null);
     const [editingAttendance, setEditingAttendance] = useState<{ record: AttendanceRecord | null, teacher: Teacher } | null>(null);
     const [isUpdatingRecord, setIsUpdatingRecord] = useState(false);
+    const [visibleMonths, setVisibleMonths] = useState(2);
     const [editForm, setEditForm] = useState({
         status: 'OnTime' as any,
         checkInTime: '',
@@ -558,12 +559,20 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
             }));
             setHistory(mappedData);
 
-            const { data: leaves } = await supabase!.from('leave_requests')
+            // Fetch Approved Leaves
+            let leaveQuery = supabase!.from('leave_requests')
                 .select('*')
                 .eq('school_id', currentUser.schoolId)
-                .eq('status', 'Approved')
-                .lte('start_date', selectedDate)
-                .gte('end_date', selectedDate);
+                .eq('status', 'Approved');
+
+            if (isAdminView) {
+                leaveQuery = leaveQuery.lte('start_date', selectedDate).gte('end_date', selectedDate);
+            } else {
+                // For personal view, fetch all approved leaves to show in history
+                leaveQuery = leaveQuery.eq('teacher_id', currentUser.id);
+            }
+
+            const { data: leaves } = await leaveQuery;
             
             const mappedLeaves: LeaveRequest[] = (leaves || []).map((l: any) => ({
                 id: l.id.toString(),
@@ -790,14 +799,47 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
 
     const groupedHistory = useMemo(() => {
         if (isAdminView && viewMode === 'MAIN') return {};
+        
+        // 1. Start with actual attendance records
+        const allRecords = [...history];
+
+        // 2. If it's a personal view, inject "pseudo-records" for leave days that don't have attendance records yet
+        if (!isAdminView) {
+            approvedLeaves.forEach(leave => {
+                const start = new Date(leave.startDate);
+                const end = new Date(leave.endDate);
+                const cur = new Date(start);
+                while (cur <= end) {
+                    const dateStr = cur.toISOString().split('T')[0];
+                    // Only add if no actual record exists for this date
+                    if (!allRecords.some(r => r.date === dateStr)) {
+                        allRecords.push({
+                            id: `leave-${leave.id}-${dateStr}`,
+                            date: dateStr,
+                            status: 'Leave',
+                            leaveType: leave.type,
+                            checkInTime: 'Leave',
+                            checkOutTime: 'Leave',
+                        } as any);
+                    }
+                    cur.setDate(cur.getDate() + 1);
+                }
+            });
+        }
+
         const groups: { [key: string]: AttendanceRecord[] } = {};
-        history.forEach(rec => {
+        allRecords.sort((a, b) => b.date.localeCompare(a.date)).forEach(rec => {
             const monthYear = getThaiMonthYear(rec.date);
             if (!groups[monthYear]) groups[monthYear] = [];
             groups[monthYear].push(rec);
         });
         return groups;
-    }, [history, isAdminView, viewMode]);
+    }, [history, approvedLeaves, isAdminView, viewMode]);
+
+    const isTodayOnLeave = useMemo(() => {
+        const today = getTodayDateStr();
+        return approvedLeaves.some(l => l.teacherId === currentUser.id && l.startDate <= today && l.endDate >= today);
+    }, [approvedLeaves, currentUser.id]);
 
     const sortedTeachersForReport = useMemo(() => {
         return allTeachers
@@ -1163,11 +1205,25 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className={`relative overflow-hidden p-8 rounded-[2.5rem] border-2 transition-all group ${todayRecord ? 'bg-slate-50 border-slate-200 opacity-80' : 'bg-gradient-to-br from-emerald-50 to-green-100 border-green-200 hover:shadow-2xl hover:shadow-green-200/50 hover:-translate-y-1'}`}>
+                <div className={`relative overflow-hidden p-8 rounded-[2.5rem] border-2 transition-all group ${todayRecord || isTodayOnLeave ? 'bg-slate-50 border-slate-200 opacity-80' : 'bg-gradient-to-br from-emerald-50 to-green-100 border-green-200 hover:shadow-2xl hover:shadow-green-200/50 hover:-translate-y-1'}`}>
                     <div className="relative z-10 space-y-6">
-                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all ${todayRecord ? 'bg-slate-200 text-slate-400' : 'bg-green-600 text-white shadow-lg'}`}><CheckCircle size={32}/></div>
-                        <div><h3 className={`text-2xl font-black ${todayRecord ? 'text-slate-400' : 'text-green-800'}`}>ลงเวลามาปฏิบัติงาน</h3><p className="text-green-700/60 text-xs font-bold uppercase tracking-widest">School Entry Check-In</p></div>
-                        {todayRecord ? (
+                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all ${todayRecord || isTodayOnLeave ? 'bg-slate-200 text-slate-400' : 'bg-green-600 text-white shadow-lg'}`}><CheckCircle size={32}/></div>
+                        <div><h3 className={`text-2xl font-black ${todayRecord || isTodayOnLeave ? 'text-slate-400' : 'text-green-800'}`}>ลงเวลามาปฏิบัติงาน</h3><p className="text-green-700/60 text-xs font-bold uppercase tracking-widest">School Entry Check-In</p></div>
+                        {isTodayOnLeave ? (
+                            <div className="bg-blue-50 p-4 rounded-2xl border border-blue-200 shadow-inner">
+                                <p className="text-[10px] font-black text-blue-400 uppercase mb-1">วันนี้ท่านได้รับอนุมัติให้ลา</p>
+                                <p className="text-2xl font-black text-blue-600">ไม่ต้องลงชื่อมาปฏิบัติงาน</p>
+                                {approvedLeaves.find(l => {
+                                    const today = getTodayDateStr();
+                                    return l.teacherId === currentUser.id && l.startDate <= today && l.endDate >= today;
+                                })?.type && (
+                                    <p className="text-[10px] font-bold text-blue-400 mt-1 uppercase tracking-widest italic">ประเภท: {getLeaveTypeName(approvedLeaves.find(l => {
+                                        const today = getTodayDateStr();
+                                        return l.teacherId === currentUser.id && l.startDate <= today && l.endDate >= today;
+                                    })!.type)}</p>
+                                )}
+                            </div>
+                        ) : todayRecord ? (
                             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-inner"><p className="text-[10px] font-black text-slate-400 uppercase mb-1">บันทึกเวลามาแล้ว</p><p className="text-2xl font-black text-green-600">{todayRecord.checkInTime} น.</p><p className="text-[10px] font-bold text-slate-400 mt-1">สถานะ: {todayRecord.status === 'OnTime' ? 'ปกติ' : 'มาสาย'}</p></div>
                         ) : (
                             <button onClick={() => handleAttendanceAction('IN')} disabled={isProcessing} className="w-full py-5 bg-green-600 text-white rounded-3xl font-black text-lg shadow-xl shadow-green-200 hover:bg-green-700 active:scale-95 transition-all flex items-center justify-center gap-3">{isProcessing ? <RefreshCw className="animate-spin" size={24}/> : <Navigation size={24}/>} ยืนยันพิกัดลงเวลาเข้า</button>
@@ -1227,39 +1283,81 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                     </div>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto overflow-y-hidden">
                     {!isAdminView ? (
-                        <div className="p-8 space-y-10">
+                        <div className="p-4 sm:p-8 space-y-12">
                             {Object.keys(groupedHistory).length === 0 ? (
                                 <div className="text-center py-20 text-slate-300 italic font-bold">ไม่พบประวัติในระบบ</div>
-                            ) : Object.keys(groupedHistory).map(monthYear => (
-                                <div key={monthYear} className="space-y-4 animate-fade-in">
-                                    <h4 className="font-black text-lg text-blue-600 flex items-center gap-2 border-b-2 border-blue-50 pb-2">
-                                        <CalendarDays size={20}/> ประจำเดือน {monthYear}
-                                    </h4>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                        {groupedHistory[monthYear].map(rec => (
-                                            <div key={rec.id} className="bg-white border-2 border-slate-100 p-5 rounded-[2rem] hover:shadow-lg transition-all group">
-                                                <div className="flex justify-between items-start mb-3">
-                                                    <div>
-                                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{getThaiDate(rec.date)}</p>
-                                                        <p className={`text-xs font-black uppercase mt-1 ${rec.status === 'OnTime' ? 'text-green-600' : 'text-red-600'}`}>
-                                                            {rec.status === 'OnTime' ? 'มาปกติ' : 'มาสาย'}
-                                                        </p>
-                                                    </div>
-                                                    <div className="p-2 bg-slate-50 rounded-xl text-slate-300 group-hover:text-blue-600 transition-colors"><Clock size={16}/></div>
-                                                </div>
-                                                <div className="flex justify-between items-end border-t pt-3 mt-3 border-slate-50">
-                                                    <div><p className="text-[9px] font-bold text-slate-400 uppercase">มา / กลับ</p><p className="font-black text-slate-700">{rec.checkInTime} / {rec.checkOutTime || '--:--'}</p></div>
-                                                    {rec.coordinate && (
-                                                        <a href={`https://www.google.com/maps?q=${rec.coordinate.lat},${rec.coordinate.lng}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline text-[10px] font-bold flex items-center gap-1">พิกัด <Navigation size={10}/></a>
-                                                    )}
-                                                </div>
+                            ) : (
+                                <>
+                                    {Object.keys(groupedHistory).slice(0, visibleMonths).map(monthYear => (
+                                        <div key={monthYear} className="space-y-4 animate-fade-in">
+                                            <h4 className="font-black text-lg text-blue-600 flex items-center gap-2 border-b-2 border-blue-50 pb-2 px-2">
+                                                <CalendarDays size={20}/> ประจำเดือน {monthYear}
+                                            </h4>
+                                            <div className="overflow-hidden border border-slate-100 rounded-[1.5rem] shadow-sm">
+                                                <table className="w-full text-sm text-left">
+                                                    <thead className="bg-slate-50 text-slate-400 font-black text-[10px] uppercase tracking-widest border-b">
+                                                        <tr>
+                                                            <th className="p-4 pl-6 w-32 md:w-48 text-center sm:text-left">วันที่</th>
+                                                            <th className="p-4 text-center">มา / กลับ</th>
+                                                            <th className="p-4 text-center">สถานะ</th>
+                                                            <th className="p-4 text-center hidden sm:table-cell">พิกัด</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-50">
+                                                        {groupedHistory[monthYear].map(rec => {
+                                                            const isWeekend = new Date(rec.date).getDay() === 0 || new Date(rec.date).getDay() === 6;
+                                                            return (
+                                                                <tr key={rec.id} className={`hover:bg-blue-50/30 transition-colors group ${isWeekend ? 'bg-slate-50/50' : ''}`}>
+                                                                    <td className="p-4 pl-6 text-center sm:text-left">
+                                                                        <div className="font-black text-slate-700">{getThaiDate(rec.date).split(' ')[0]}</div>
+                                                                        <div className="text-[10px] font-bold text-slate-400 uppercase">{getThaiDate(rec.date).split(' ').slice(1).join(' ')}</div>
+                                                                    </td>
+                                                                    <td className={`p-4 text-center font-black ${rec.status === 'Leave' ? 'text-blue-400 italic text-xs' : 'text-slate-600'}`}>
+                                                                        {rec.status === 'Leave' ? 'ได้รับอนุมัติการลา' : `${rec.checkInTime} - ${rec.checkOutTime || '--:--'}`}
+                                                                    </td>
+                                                                    <td className="p-4 text-center">
+                                                                        <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                                                                            rec.status === 'OnTime' ? 'bg-emerald-100 text-emerald-700' : 
+                                                                            rec.status === 'Late' ? 'bg-orange-100 text-orange-700' :
+                                                                            rec.status === 'Leave' ? 'bg-blue-100 text-blue-700' :
+                                                                            rec.status === 'OfficialBusiness' ? 'bg-blue-800 text-white italic' :
+                                                                            'bg-rose-100 text-rose-700'
+                                                                        }`}>
+                                                                            {rec.status === 'OnTime' ? 'มาปกติ' : 
+                                                                             rec.status === 'Late' ? 'มาสาย' :
+                                                                             rec.status === 'Leave' ? `ลา (${getLeaveTypeName(rec.leaveType || '')})` :
+                                                                             rec.status === 'OfficialBusiness' ? 'ไปราชการ' :
+                                                                             'ขาดงาน'}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="p-4 text-center hidden sm:table-cell">
+                                                                        {rec.coordinate && (
+                                                                            <a href={`https://www.google.com/maps?q=${rec.coordinate.lat},${rec.coordinate.lng}`} target="_blank" rel="noopener noreferrer" className="p-2 text-slate-300 hover:text-blue-600 inline-block transition-colors"><Navigation size={16}/></a>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
                                             </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            ))}
+                                        </div>
+                                    ))}
+                                    
+                                    {Object.keys(groupedHistory).length > visibleMonths && (
+                                        <div className="flex justify-center pt-4">
+                                            <button 
+                                                onClick={() => setVisibleMonths(prev => prev + 2)}
+                                                className="px-8 py-3 bg-white border-2 border-slate-200 text-slate-500 rounded-2xl font-black text-xs hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm flex items-center gap-2 group active:scale-95"
+                                            >
+                                                แสดงเดือนที่ผ่านมา <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform"/>
+                                            </button>
+                                        </div>
+                                    )}
+                                </>
+                            )}
                         </div>
                     ) : (
                         <table className="w-full text-sm text-left">
