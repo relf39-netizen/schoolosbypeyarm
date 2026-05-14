@@ -367,7 +367,10 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
             // (excluding entries that are just "Leave" records auto-generated for past dates)
             const actualWorkdaysByAttendance = new Set(
                 (attendance || [])
-                    .filter((a: any) => a.check_in_time && a.check_in_time !== 'Leave')
+                    .filter((a: any) => {
+                        const checkIn = a.check_in_time || a.check_in;
+                        return checkIn && checkIn !== 'Leave';
+                    })
                     .map((a: any) => a.date)
             );
 
@@ -463,8 +466,8 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
 
                 // Earliest check-in
                 const checkInTimes = teacherAtt
-                    .filter((a: any) => a.check_in_time && a.check_in_time !== 'Leave')
-                    .map((a: any) => a.check_in_time);
+                    .map((a: any) => a.check_in_time || a.check_in)
+                    .filter((val: any) => val && val !== 'Leave');
                 const earliestCheckIn = checkInTimes.length > 0 ? checkInTimes.sort()[0] : null;
 
                 return {
@@ -545,8 +548,8 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                 teacherId: r.teacher_id,
                 teacherName: r.teacher_name,
                 date: r.date,
-                checkInTime: r.check_in_time,
-                checkOutTime: r.check_out_time,
+                checkInTime: r.check_in_time || r.check_in,
+                checkOutTime: r.check_out_time || r.check_out,
                 status: r.status,
                 leaveType: r.leave_type,
                 remark: r.remark,
@@ -637,8 +640,8 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                 teacherId: todayData.teacher_id,
                 teacherName: todayData.teacher_name,
                 date: todayData.date,
-                checkInTime: todayData.check_in_time,
-                checkOutTime: todayData.check_out_time,
+                checkInTime: todayData.check_in_time || todayData.check_in,
+                checkOutTime: todayData.check_out_time || todayData.check_out,
                 status: todayData.status
             } as any);
             else setTodayRecord(null);
