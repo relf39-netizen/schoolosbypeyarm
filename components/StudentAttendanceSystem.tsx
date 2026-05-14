@@ -969,7 +969,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                                             {getStatusLabel(record.status)}
                                                         </div>
                                                     ) : (
-                                                        <span className="text-[10px] font-bold text-slate-300 italic">ยังไม่ได้บันทึก</span>
+                                                        <span className="text-[10px] font-bold text-slate-300 italic">ไม่พบข้อมูลการมาเรียน</span>
                                                     )}
                                                     <button 
                                                         onClick={() => openStudentInfo(student)}

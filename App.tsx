@@ -176,7 +176,8 @@ const App: React.FC = () => {
                             autoCheckOutTime: s.auto_check_out_time,
                             wfhModeEnabled: s.wfh_mode_enabled,
                             logoBase64: s.logo_base_64, 
-                            isSuspended: s.is_suspended
+                            isSuspended: s.is_suspended,
+                            attendanceStartDate: s.attendance_start_date
                         })));
                     }
                 }).subscribe();
@@ -284,7 +285,8 @@ const App: React.FC = () => {
             auto_check_out_time: s.autoCheckOutTime,
             wfh_mode_enabled: s.wfhModeEnabled,
             outgoing_book_prefix: s.outgoingBookPrefix,
-            is_suspended: s.isSuspended || false
+            is_suspended: s.isSuspended || false,
+            attendance_start_date: s.attendanceStartDate
         }]);
         if (error) {
             console.error("Update School Error:", error.message);

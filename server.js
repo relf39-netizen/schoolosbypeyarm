@@ -71,7 +71,8 @@ async function startServer() {
           logo_base_64 LONGTEXT,
           is_suspended BOOLEAN DEFAULT FALSE,
           auto_check_out_enabled BOOLEAN DEFAULT FALSE,
-          auto_check_out_time VARCHAR(255) DEFAULT '16:30'
+          auto_check_out_time VARCHAR(255) DEFAULT '16:30',
+          attendance_start_date DATE
         )`,
         `CREATE TABLE IF NOT EXISTS profiles (
           id VARCHAR(255) PRIMARY KEY,
@@ -164,16 +165,30 @@ async function startServer() {
           is_current BOOLEAN DEFAULT FALSE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
+        `CREATE TABLE IF NOT EXISTS student_attendance (
+          id VARCHAR(36) PRIMARY KEY,
+          school_id VARCHAR(255) NOT NULL,
+          student_id VARCHAR(36),
+          date DATE NOT NULL,
+          status VARCHAR(255) NOT NULL,
+          academic_year VARCHAR(255) NOT NULL,
+          created_by VARCHAR(255),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY unique_attendance (student_id, date)
+        )`,
         `CREATE TABLE IF NOT EXISTS attendance (
           id BIGINT AUTO_INCREMENT PRIMARY KEY,
           school_id VARCHAR(255),
           teacher_id VARCHAR(255),
+          teacher_name VARCHAR(255),
           date DATE,
-          check_in TEXT,
-          check_out TEXT,
+          check_in_time VARCHAR(255),
+          check_out_time VARCHAR(255),
           status VARCHAR(255),
           leave_type VARCHAR(255),
+          remark TEXT,
           is_auto_checkout BOOLEAN DEFAULT FALSE,
+          coordinate TEXT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
         `CREATE TABLE IF NOT EXISTS leave_requests (
@@ -510,6 +525,36 @@ async function startServer() {
   });
 
   // 2. Profiles (Teachers)
+  app.post('/api/gas/bridge', async (req, res) => {
+    const { secret, action, table, data, id } = req.body;
+    
+    // Verify secret
+    if (secret !== 'MySecretKey0930935255') {
+      return res.status(403).json({ status: 'error', message: 'Forbidden: Invalid Secret' });
+    }
+
+    try {
+      if (action === 'update') {
+        const keys = Object.keys(data);
+        const values = Object.values(data);
+        const sql = `UPDATE ?? SET ` + keys.map(k => `?? = ?`).join(', ') + ` WHERE id = ?`;
+        const params = [table];
+        keys.forEach((k, i) => {
+          params.push(k, values[i]);
+        });
+        params.push(id);
+        
+        await query(sql, params);
+        return res.json({ status: 'success' });
+      }
+      
+      res.status(400).json({ status: 'error', message: 'Unsupported action' });
+    } catch (err) {
+      console.error('GAS Bridge Error:', err);
+      res.status(500).json({ status: 'error', message: err.message });
+    }
+  });
+
   app.get('/api/profiles', async (req, res) => {
     try {
       const profiles = await query('SELECT * FROM profiles');
@@ -678,17 +723,32 @@ async function startServer() {
       const filterKeys = Object.keys(filters).filter(k => k !== 'order' && k !== 'limit' && k !== 'select' && k !== 'head');
       if (filterKeys.length > 0) {
         sql += ` WHERE ` + filterKeys.map(k => {
-          if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
-            return `?? IN (?)`;
-          }
+          const val = String(filters[k]);
+          if (val.startsWith('in.(')) return `?? IN (?)`;
+          if (val.startsWith('gte.')) return `?? >= ?`;
+          if (val.startsWith('lte.')) return `?? <= ?`;
+          if (val.startsWith('gt.')) return `?? > ?`;
+          if (val.startsWith('lt.')) return `?? < ?`;
+          if (val.startsWith('neq.')) return `?? != ?`;
           return `?? = ?`;
         }).join(' AND ');
         
         filterKeys.forEach(k => {
           params.push(k);
-          if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
-            const values = filters[k].substring(4, filters[k].length - 1).split(',');
+          const val = String(filters[k]);
+          if (val.startsWith('in.(')) {
+            const values = val.substring(4, val.length - 1).split(',');
             params.push(values);
+          } else if (val.startsWith('gte.')) {
+            params.push(val.substring(4));
+          } else if (val.startsWith('lte.')) {
+            params.push(val.substring(4));
+          } else if (val.startsWith('gt.')) {
+            params.push(val.substring(3));
+          } else if (val.startsWith('lt.')) {
+            params.push(val.substring(3));
+          } else if (val.startsWith('neq.')) {
+            params.push(val.substring(4));
           } else {
             params.push(filters[k]);
           }

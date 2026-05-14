@@ -68,8 +68,151 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
     const [approvedLeaves, setApprovedLeaves] = useState<LeaveRequest[]>([]);
     const [schoolConfig, setSchoolConfig] = useState<any>(null);
     const [selectedTeacherDetails, setSelectedTeacherDetails] = useState<any | null>(null);
+    const [editingAttendance, setEditingAttendance] = useState<{ record: AttendanceRecord | null, teacher: Teacher } | null>(null);
+    const [isUpdatingRecord, setIsUpdatingRecord] = useState(false);
+    const [editForm, setEditForm] = useState({
+        status: 'OnTime' as any,
+        checkInTime: '',
+        checkOutTime: '',
+        remark: ''
+    });
+
+    useEffect(() => {
+        if (editingAttendance) {
+            setEditForm({
+                status: editingAttendance.record?.status || 'OnTime',
+                checkInTime: editingAttendance.record?.checkInTime || '08:00',
+                checkOutTime: editingAttendance.record?.checkOutTime || '16:30',
+                remark: editingAttendance.record?.remark || ''
+            });
+        }
+    }, [editingAttendance]);
+
+    const handleSaveManualAttendance = async () => {
+        if (!supabase || !editingAttendance) return;
+        setIsUpdatingRecord(true);
+        try {
+            const dataToSave = {
+                school_id: currentUser.schoolId,
+                teacher_id: editingAttendance.teacher.id,
+                teacher_name: editingAttendance.teacher.name,
+                date: selectedDate,
+                status: editForm.status,
+                check_in_time: editForm.status === 'Leave' ? 'Leave' : editForm.checkInTime,
+                check_out_time: editForm.status === 'Leave' ? 'Leave' : editForm.checkOutTime,
+                remark: editForm.remark,
+                is_auto_checkout: false
+            };
+
+            if (editingAttendance.record?.id) {
+                // Update existing
+                const { error } = await supabase.from('attendance')
+                    .update(dataToSave)
+                    .eq('id', editingAttendance.record.id);
+                if (error) throw error;
+            } else {
+                // Insert new
+                const { error } = await supabase.from('attendance').insert([dataToSave]);
+                if (error) throw error;
+            }
+
+            alert("บันทึกข้อมูลเรียบร้อยแล้ว");
+            setEditingAttendance(null);
+            fetchData();
+        } catch (err: any) {
+            console.error("Save Manual Attendance Error:", err.message);
+            alert("ไม่สามารถบันทึกข้อมูลได้");
+        } finally {
+            setIsUpdatingRecord(false);
+        }
+    };
 
     // --- Helper Components ---
+    const EditAttendanceModal = () => {
+        if (!editingAttendance) return null;
+        return (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden">
+                <div className="bg-white w-full max-w-lg rounded-[2rem] shadow-2xl overflow-hidden animate-fade-in border border-slate-200">
+                    <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
+                        <div>
+                            <h3 className="text-xl font-black">แก้ไขการลงเวลา</h3>
+                            <p className="text-blue-400 font-bold text-[10px] uppercase tracking-widest mt-1">{editingAttendance.teacher.name}</p>
+                        </div>
+                        <button onClick={() => setEditingAttendance(null)} className="p-2 hover:bg-white/10 rounded-xl transition-all">
+                            <ArrowLeft size={20}/>
+                        </button>
+                    </div>
+
+                    <div className="p-8 space-y-6">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">สถานะการมาปฏิบัติราชการ</label>
+                            <select 
+                                value={editForm.status}
+                                onChange={(e: any) => setEditForm({ ...editForm, status: e.target.value })}
+                                className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none focus:border-blue-500 transition-all"
+                            >
+                                <option value="OnTime">มาปกติ (On Time)</option>
+                                <option value="Late">มาสาย (Late)</option>
+                                <option value="OfficialBusiness">ไปราชการ (Official Business)</option>
+                                <option value="Leave">ลา (Leave)</option>
+                                <option value="Absent">ขาด (Absent)</option>
+                            </select>
+                        </div>
+
+                        {editForm.status !== 'Leave' && editForm.status !== 'Absent' && (
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">เวลามา</label>
+                                    <input 
+                                        type="time"
+                                        value={editForm.checkInTime}
+                                        onChange={e => setEditForm({ ...editForm, checkInTime: e.target.value })}
+                                        className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none focus:border-blue-500 transition-all"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">เวลากลับ</label>
+                                    <input 
+                                        type="time"
+                                        value={editForm.checkOutTime}
+                                        onChange={e => setEditForm({ ...editForm, checkOutTime: e.target.value })}
+                                        className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none focus:border-blue-500 transition-all"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">หมายเหตุ / เหตุผล (ถ้ามี)</label>
+                            <textarea 
+                                value={editForm.remark}
+                                onChange={e => setEditForm({ ...editForm, remark: e.target.value })}
+                                placeholder="เช่น ไปอบรมที่ สพป., ลาป่วยกระทันหัน, ฯลฯ"
+                                className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-blue-500 transition-all min-h-[100px]"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="p-6 bg-slate-50 border-t flex justify-end gap-3">
+                        <button 
+                            onClick={() => setEditingAttendance(null)}
+                            className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl font-black text-xs hover:bg-slate-50 transition-all"
+                        >
+                            ยกเลิก
+                        </button>
+                        <button 
+                            onClick={handleSaveManualAttendance}
+                            disabled={isUpdatingRecord}
+                            className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-black text-xs shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                            {isUpdatingRecord ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     const TeacherDetailsModal = () => {
         if (!selectedTeacherDetails) return null;
         return (
@@ -200,7 +343,14 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
     const fetchSummaryData = async (customStart?: string, customEnd?: string) => {
         if (!supabase) return [];
         setIsFetchingSummary(true);
-        const startToUse = customStart || startDate;
+        
+        // Use school's attendance start date if set
+        let startToUse = customStart || startDate;
+        const schoolStart = currentSchool.attendanceStartDate;
+        if (schoolStart && startToUse < schoolStart) {
+            startToUse = schoolStart;
+        }
+        
         const endToUse = customEnd || endDate;
         try {
             // Fetch all attendance records in range
@@ -212,6 +362,14 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                 .lte('date', endToUse);
             
             if (attError) throw attError;
+
+            // Identify "Actual Workdays": dates where at least ONE teacher recorded attendance 
+            // (excluding entries that are just "Leave" records auto-generated for past dates)
+            const actualWorkdaysByAttendance = new Set(
+                (attendance || [])
+                    .filter((a: any) => a.check_in_time && a.check_in_time !== 'Leave')
+                    .map((a: any) => a.date)
+            );
 
             // Fetch all leave requests in range
             const { data: leaves, error: leaveError } = await supabase
@@ -232,10 +390,23 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
             const endRange = new Date(endToUse);
             const curRange = new Date(startRange);
             while (curRange <= endRange) {
-                const day = curRange.getDay();
-                if (day !== 0 && day !== 6) {
-                    allWorkDays.push(curRange.toISOString().split('T')[0]);
+                const dayStr = curRange.toISOString().split('T')[0];
+                const dayOfWeek = curRange.getDay();
+                
+                // Smart Absence: Only count as a "Workday" if:
+                // 1. It's a weekday (Monday-Friday) AND
+                // 2. Someone actually recorded attendance (meaning it's not a holiday/break)
+                // OR if it's a weekend but someone recorded attendance (rare but possible)
+                
+                const isWeekday = dayOfWeek !== 0 && dayOfWeek !== 6;
+                const hasAttendanceOnDay = actualWorkdaysByAttendance.has(dayStr);
+                
+                // We consider it a workday ONLY if at least one person came to school.
+                // This automatically excludes holidays, weekends, and breaks where no one records attendance.
+                if (hasAttendanceOnDay) {
+                    allWorkDays.push(dayStr);
                 }
+                
                 curRange.setDate(curRange.getDate() + 1);
             }
 
@@ -246,10 +417,19 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                 // Count unique present days
                 const presentDates = new Set(
                     teacherAtt
-                        .filter((a: any) => a.status === 'OnTime' || a.status === 'Late')
+                        .filter((a: any) => a.status === 'OnTime' || a.status === 'Late' || a.status === 'OfficialBusiness')
                         .map((a: any) => a.date)
                 );
                 const presentDays = presentDates.size;
+                
+                // Count Official Business days
+                const officialBusinessDates = new Set(
+                    teacherAtt
+                        .filter((a: any) => a.status === 'OfficialBusiness')
+                        .map((a: any) => a.date)
+                );
+                const officialBusinessDays = officialBusinessDates.size;
+
                 const presentDatesList = Array.from(presentDates).sort();
 
                 // Count unique late days
@@ -299,6 +479,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                     leaveDatesList,
                     absentDays: absentDatesList.length,
                     absentDatesList,
+                    officialBusinessDays,
                     earliestCheckIn,
                 };
             });
@@ -368,6 +549,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                 checkOutTime: r.check_out_time,
                 status: r.status,
                 leaveType: r.leave_type,
+                remark: r.remark,
                 isAutoCheckout: r.is_auto_checkout,
                 coordinate: r.coordinate
             }));
@@ -592,7 +774,14 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
     };
 
     const getLeaveTypeName = (type: string) => {
-        const map: any = { 'Sick': 'ลาป่วย', 'Personal': 'ลากิจ', 'OffCampus': 'ออกนอกฯ', 'Late': 'เข้าสาย', 'Maternity': 'ลาคลอด' };
+        const map: any = { 
+            'Sick': 'ลาป่วย', 
+            'Personal': 'ลากิจ', 
+            'OffCampus': 'ออกนอกฯ', 
+            'Late': 'เข้าสาย', 
+            'Maternity': 'ลาคลอด',
+            'OfficialBusiness': 'ไปราชการ'
+        };
         return map[type] || 'ลา';
     };
 
@@ -692,6 +881,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                                 <th className="border border-slate-900 p-3 w-10">ที่</th>
                                 <th className="border border-slate-900 p-3 text-left">ชื่อ-นามสกุล</th>
                                 <th className="border border-slate-900 p-3 w-14">มา</th>
+                                <th className="border border-slate-900 p-3 w-14">ไปราชการ</th>
                                 <th className="border border-slate-900 p-3 w-14">สาย</th>
                                 <th className="border border-slate-900 p-3 w-14">ลา</th>
                                 <th className="border border-slate-900 p-3 w-14">ขาด</th>
@@ -713,7 +903,8 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                                             </div>
                                             <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{item.position}</div>
                                         </td>
-                                        <td className="border border-slate-900 p-3 text-center font-black text-green-700">{item.presentDays}</td>
+                                        <td className="border border-slate-900 p-3 text-center font-black text-green-700">{item.presentDays - item.officialBusinessDays}</td>
+                                        <td className="border border-slate-900 p-3 text-center font-black text-blue-800">{item.officialBusinessDays}</td>
                                         <td className="border border-slate-900 p-3 text-center font-black text-orange-600">{item.lateDays}</td>
                                         <td className="border border-slate-900 p-3 text-center font-black text-blue-600">{item.leaveDays}</td>
                                         <td className="border border-slate-900 p-3 text-center font-black text-red-600">{item.absentDays}</td>
@@ -772,9 +963,10 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
     // --- FORMAL DAILY PRINT VIEW (A4 CLEAN LOOK) ---
     if (viewMode === 'PRINT_DAILY') {
         const teachersToDisplay = sortedTeachersForReport;
-        const presentCount = history.filter(h => teachersToDisplay.some(t => t.id === h.teacherId)).length;
-        const leaveCount = approvedLeaves.filter(l => teachersToDisplay.some(t => t.id === l.teacherId)).length;
-        const absentCount = Math.max(0, teachersToDisplay.length - (presentCount + leaveCount));
+        const presentCount = history.filter(h => teachersToDisplay.some(t => t.id === h.teacherId) && (h.status === 'OnTime' || h.status === 'Late')).length;
+        const officialBusinessCount = history.filter(h => teachersToDisplay.some(t => t.id === h.teacherId) && h.status === 'OfficialBusiness').length;
+        const leaveCount = approvedLeaves.filter(l => teachersToDisplay.some(t => t.id === l.teacherId)).length + history.filter(h => teachersToDisplay.some(t => t.id === h.teacherId) && h.status === 'Leave').length;
+        const absentCount = Math.max(0, teachersToDisplay.length - (presentCount + officialBusinessCount + leaveCount));
 
         return (
             <div className="absolute inset-0 z-50 bg-[#f1f5f9] min-h-screen font-sarabun text-slate-900 print:bg-white overflow-y-auto no-scrollbar-container">
@@ -821,8 +1013,13 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                                     let statusText = 'ขาด / ยังไม่ลงชื่อ';
                                     let statusClass = 'text-red-600 font-bold';
                                     if (record) {
-                                        statusText = record.status === 'OnTime' ? 'มาปกติ' : 'มาสาย';
-                                        statusClass = record.status === 'OnTime' ? 'text-green-700' : 'text-orange-600';
+                                        if (record.status === 'OfficialBusiness') {
+                                            statusText = 'ไปราชการ';
+                                            statusClass = 'text-blue-800 font-black italic';
+                                        } else {
+                                            statusText = record.status === 'OnTime' ? 'มาปกติ' : 'มาสาย';
+                                            statusClass = record.status === 'OnTime' ? 'text-green-700' : 'text-orange-600';
+                                        }
                                     } else if (leave) {
                                         statusText = `ลา (${getLeaveTypeName(leave.type)})`;
                                         statusClass = 'text-blue-700';
@@ -851,6 +1048,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                                 </h4>
                                 <div className="space-y-1 text-xs font-bold">
                                     <div className="flex justify-between"><span>มาปฏิบัติราชการ:</span><span className="text-green-700">{presentCount} ท่าน</span></div>
+                                    <div className="flex justify-between text-blue-800"><span>ไปราชการ:</span><span>{officialBusinessCount} ท่าน</span></div>
                                     <div className="flex justify-between"><span>ลาป่วย / กิจ / อื่นๆ:</span><span className="text-blue-600">{leaveCount} ท่าน</span></div>
                                     <div className="flex justify-between text-red-600"><span>ขาด / ยังไม่ลงเวลา:</span><span>{absentCount} ท่าน</span></div>
                                     <div className="flex justify-between border-t border-slate-300 pt-1 font-black text-sm"><span>รวมบุคลากร:</span><span>{teachersToDisplay.length} ท่าน</span></div>
@@ -1078,8 +1276,13 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                                     let statusText = 'ยังไม่ลงชื่อ / ขาด';
                                     let statusClass = 'bg-slate-100 text-slate-400';
                                     if (record) {
-                                        statusText = record.status === 'OnTime' ? 'มาปกติ' : 'มาสาย';
-                                        statusClass = record.status === 'OnTime' ? 'bg-emerald-600 text-white shadow-emerald-100' : 'bg-rose-600 text-white shadow-rose-100';
+                                        if (record.status === 'OfficialBusiness') {
+                                            statusText = 'ไปราชการ';
+                                            statusClass = 'bg-blue-800 text-white shadow-blue-100 italic';
+                                        } else {
+                                            statusText = record.status === 'OnTime' ? 'มาปกติ' : 'มาสาย';
+                                            statusClass = record.status === 'OnTime' ? 'bg-emerald-600 text-white shadow-emerald-100' : 'bg-rose-600 text-white shadow-rose-100';
+                                        }
                                     } else if (leave) {
                                         statusText = `ลา (${getLeaveTypeName(leave.type)})`;
                                         statusClass = 'bg-blue-600 text-white shadow-blue-100';
@@ -1101,7 +1304,26 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                                             </td>
                                             <td className="p-6 text-center font-black text-slate-600">{record?.checkInTime || '-'}</td>
                                             <td className="p-6 text-center font-black text-slate-600">{record?.checkOutTime || '-'}</td>
-                                            <td className="p-6 text-center"><span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg border-2 border-white ${statusClass}`}>{statusText}</span></td>
+                                            <td className="p-6 text-center">
+                                                <div className="flex justify-center items-center gap-2">
+                                                    <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg border-2 border-white ${statusClass}`}>{statusText}</span>
+                                                    {isAdminView && (
+                                                        <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setEditingAttendance({ record: record || null, teacher: t });
+                                                            }}
+                                                            className="p-2 bg-white border border-slate-200 text-slate-400 hover:text-blue-600 hover:border-blue-200 rounded-xl transition-all shadow-sm"
+                                                            title="แก้ไขข้อมูลการลงเวลา"
+                                                        >
+                                                            <FileText size={14}/>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                {record?.remark && (
+                                                    <p className="text-[9px] text-slate-400 font-bold mt-1 text-center truncate max-w-[150px] mx-auto italic">{record.remark}</p>
+                                                )}
+                                            </td>
                                             <td className="p-6 text-center">{record?.coordinate && (<a href={`https://www.google.com/maps?q=${record.coordinate.lat},${record.coordinate.lng}`} target="_blank" rel="noopener noreferrer" className="p-2 text-slate-300 hover:text-blue-600 inline-block transition-colors"><Navigation size={18}/></a>)}</td>
                                         </tr>
                                     );
@@ -1113,6 +1335,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
             </div>
 
             <TeacherDetailsModal />
+            <EditAttendanceModal />
             <LoadingOverlay />
 
             <style>{`

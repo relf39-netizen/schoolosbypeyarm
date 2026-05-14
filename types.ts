@@ -48,6 +48,7 @@ export interface School {
   autoCheckOutEnabled?: boolean;
   autoCheckOutTime?: string;
   wfhModeEnabled?: boolean; // New: If true, allow check-in from any location
+  attendanceStartDate?: string; // New: Date string YYYY-MM-DD
   
   // Outgoing Document Prefix
   outgoingBookPrefix?: string; // e.g. "ศธ ๐๔๐๘๔.๒๐๖"
@@ -185,8 +186,9 @@ export interface AttendanceRecord {
   date: string;
   checkInTime: string;
   checkOutTime: string | null;
-  status: 'OnTime' | 'Late' | 'Absent' | 'Leave';
+  status: 'OnTime' | 'Late' | 'Absent' | 'Leave' | 'OfficialBusiness';
   leaveType?: string; // If status is Leave
+  remark?: string; // New: For official business or manual corrections
   isAutoCheckout?: boolean; // True if system auto-filled 17:00
   coordinate?: { lat: number; lng: number };
 }

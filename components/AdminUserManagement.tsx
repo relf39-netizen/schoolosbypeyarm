@@ -259,6 +259,7 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
 
 var BRIDGE_URL = "${window.location.origin}/api/gas/bridge";
 var BRIDGE_SECRET = "MySecretKey0930935255";
+var TELEGRAM_TOKEN = "${config.telegramBotToken ? config.telegramBotToken.replace(/"/g, '\\\\"') : ''}";
 
 function A_RUN_ME_FIRST_initialSetup() {
   try {
@@ -380,9 +381,13 @@ function handleTelegramWebhook(msg) {
     if (text.indexOf("/start") === 0) {
       var parts = text.split(" ");
       if (parts.length > 1) {
-        var citizenId = parts[1].trim();
+        var userId = parts[1].trim();
         // บันทึก Telegram Chat ID ลงฐานข้อมูล MySQL ผ่าน Bridge
-        logToDatabase('teachers', 'update', { telegram_chat_id: chatId }, citizenId);
+        var res = logToDatabase('profiles', 'update', { telegram_chat_id: chatId }, userId);
+        
+        if (res && res.status !== 'error' && TELEGRAM_TOKEN) {
+          sendMessage(TELEGRAM_TOKEN, chatId, "✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nบัญชีของท่านได้รับการผูกกับระบบโรงเรียนเรียบร้อยแล้ว ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาผ่านช่องทางนี้ครับ");
+        }
       }
     }
   } catch (e) {
@@ -1872,6 +1877,18 @@ function setTelegramWebhook() {
                                     </div>
                                 </div>
                             )}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-orange-100">
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-slate-800 uppercase tracking-tight ml-1">วันที่เริ่มนับการมาปฏิบัติราชการ</label>
+                                    <input 
+                                        type="date" 
+                                        value={schoolForm.attendanceStartDate || ''} 
+                                        onChange={e => setSchoolForm({...schoolForm, attendanceStartDate: e.target.value})} 
+                                        className="w-full px-4 py-2 border rounded-lg font-bold bg-white text-base outline-none focus:ring-2 ring-orange-500/10"
+                                    />
+                                    <p className="text-[9px] text-slate-400 font-bold ml-1">ระบบจะเริ่มนับสถิติการมาทำงานตั้งแต่วันที่กำหนดนี้เป็นต้นไป</p>
+                                </div>
+                            </div>
                         </div>
                         <div className="flex justify-end pt-4"><button type="submit" className="bg-slate-900 text-white px-10 py-3 rounded-xl font-bold shadow-lg hover:bg-black transition-all flex items-center gap-2 text-sm active:scale-95"><Save size={20}/> บันทึกการตั้งค่าทั้งหมด</button></div>
                     </form>
