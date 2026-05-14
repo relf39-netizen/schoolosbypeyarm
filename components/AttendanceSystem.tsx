@@ -128,91 +128,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
         }
     };
 
-    // --- Helper Components ---
-    const EditAttendanceModal = () => {
-        if (!editingAttendance) return null;
-        return (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden">
-                <div className="bg-white w-full max-w-lg rounded-[2rem] shadow-2xl overflow-hidden animate-fade-in border border-slate-200">
-                    <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
-                        <div>
-                            <h3 className="text-xl font-black">แก้ไขการลงเวลา</h3>
-                            <p className="text-blue-400 font-bold text-[10px] uppercase tracking-widest mt-1">{editingAttendance.teacher.name}</p>
-                        </div>
-                        <button onClick={() => setEditingAttendance(null)} className="p-2 hover:bg-white/10 rounded-xl transition-all">
-                            <ArrowLeft size={20}/>
-                        </button>
-                    </div>
-
-                    <div className="p-8 space-y-6">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">สถานะการมาปฏิบัติราชการ</label>
-                            <select 
-                                value={editForm.status}
-                                onChange={(e: any) => setEditForm({ ...editForm, status: e.target.value })}
-                                className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none focus:border-blue-500 transition-all"
-                            >
-                                <option value="OnTime">มาปกติ (On Time)</option>
-                                <option value="Late">มาสาย (Late)</option>
-                                <option value="OfficialBusiness">ไปราชการ (Official Business)</option>
-                                <option value="Leave">ลา (Leave)</option>
-                                <option value="Absent">ขาด (Absent)</option>
-                            </select>
-                        </div>
-
-                        {editForm.status !== 'Leave' && editForm.status !== 'Absent' && (
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">เวลามา</label>
-                                    <input 
-                                        type="time"
-                                        value={editForm.checkInTime}
-                                        onChange={e => setEditForm({ ...editForm, checkInTime: e.target.value })}
-                                        className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none focus:border-blue-500 transition-all"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">เวลากลับ</label>
-                                    <input 
-                                        type="time"
-                                        value={editForm.checkOutTime}
-                                        onChange={e => setEditForm({ ...editForm, checkOutTime: e.target.value })}
-                                        className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none focus:border-blue-500 transition-all"
-                                    />
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">หมายเหตุ / เหตุผล (ถ้ามี)</label>
-                            <textarea 
-                                value={editForm.remark}
-                                onChange={e => setEditForm({ ...editForm, remark: e.target.value })}
-                                placeholder="เช่น ไปอบรมที่ สพป., ลาป่วยกระทันหัน, ฯลฯ"
-                                className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-blue-500 transition-all min-h-[100px]"
-                            />
-                        </div>
-                    </div>
-
-                    <div className="p-6 bg-slate-50 border-t flex justify-end gap-3">
-                        <button 
-                            onClick={() => setEditingAttendance(null)}
-                            className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl font-black text-xs hover:bg-slate-50 transition-all"
-                        >
-                            ยกเลิก
-                        </button>
-                        <button 
-                            onClick={handleSaveManualAttendance}
-                            disabled={isUpdatingRecord}
-                            className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-black text-xs shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50"
-                        >
-                            {isUpdatingRecord ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    };
+    // --- Refactor: Use inline rendering for Modals to prevent focus loss ---
 
     const TeacherDetailsModal = () => {
         if (!selectedTeacherDetails) return null;
@@ -1436,7 +1352,89 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
             </div>
 
             <TeacherDetailsModal />
-            <EditAttendanceModal />
+            
+            {/* --- Manual Edit Attendance Modal (Inlined to prevent focus loss) --- */}
+            {editingAttendance && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden">
+                    <div className="bg-white w-full max-w-lg rounded-[2rem] shadow-2xl overflow-hidden animate-fade-in border border-slate-200">
+                        <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
+                            <div>
+                                <h3 className="text-xl font-black">แก้ไขการลงเวลา</h3>
+                                <p className="text-blue-400 font-bold text-[10px] uppercase tracking-widest mt-1">{editingAttendance.teacher.name}</p>
+                            </div>
+                            <button onClick={() => setEditingAttendance(null)} className="p-2 hover:bg-white/10 rounded-xl transition-all">
+                                <ArrowLeft size={20}/>
+                            </button>
+                        </div>
+
+                        <div className="p-8 space-y-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">สถานะการมาปฏิบัติราชการ</label>
+                                <select 
+                                    value={editForm.status}
+                                    onChange={(e: any) => setEditForm({ ...editForm, status: e.target.value })}
+                                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none focus:border-blue-500 transition-all"
+                                >
+                                    <option value="OnTime">มาปกติ (On Time)</option>
+                                    <option value="Late">มาสาย (Late)</option>
+                                    <option value="OfficialBusiness">ไปราชการ (Official Business)</option>
+                                    <option value="Leave">ลา (Leave)</option>
+                                    <option value="Absent">ขาด (Absent)</option>
+                                </select>
+                            </div>
+
+                            {editForm.status !== 'Leave' && editForm.status !== 'Absent' && (
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">เวลามา</label>
+                                        <input 
+                                            type="time"
+                                            value={editForm.checkInTime}
+                                            onChange={e => setEditForm({ ...editForm, checkInTime: e.target.value })}
+                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none focus:border-blue-500 transition-all"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">เวลากลับ</label>
+                                        <input 
+                                            type="time"
+                                            value={editForm.checkOutTime}
+                                            onChange={e => setEditForm({ ...editForm, checkOutTime: e.target.value })}
+                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none focus:border-blue-500 transition-all"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">หมายเหตุ / เหตุผล (ถ้ามี)</label>
+                                <textarea 
+                                    value={editForm.remark}
+                                    onChange={e => setEditForm({ ...editForm, remark: e.target.value })}
+                                    placeholder="เช่น ไปอบรมที่ สพป., ลาป่วยกระทันหัน, ฯลฯ"
+                                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-blue-500 transition-all min-h-[100px]"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="p-6 bg-slate-50 border-t flex justify-end gap-3">
+                            <button 
+                                onClick={() => setEditingAttendance(null)}
+                                className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl font-black text-xs hover:bg-slate-50 transition-all"
+                            >
+                                ยกเลิก
+                            </button>
+                            <button 
+                                onClick={handleSaveManualAttendance}
+                                disabled={isUpdatingRecord}
+                                className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-black text-xs shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50"
+                            >
+                                {isUpdatingRecord ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <LoadingOverlay />
 
             <style>{`
