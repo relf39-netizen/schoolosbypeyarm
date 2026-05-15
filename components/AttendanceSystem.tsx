@@ -887,12 +887,16 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                         <div className="text-center space-y-16">
                             <div className="space-y-2">
                                 {(() => {
-                                    const director = allTeachers.find(t => t.roles.includes('DIRECTOR')) || allTeachers.find(t => t.isActingDirector);
+                                    const director = allTeachers.find(t => (t.roles || []).includes('DIRECTOR')) || 
+                                                     allTeachers.find(t => t.isActingDirector) ||
+                                                     allTeachers.find(t => t.position === 'ผู้อำนวยการโรงเรียน');
+                                    const directorName = director?.name || '......................................................';
                                     const directorPosition = director?.isActingDirector ? 'รักษาการในตำแหน่งผู้อำนวยการโรงเรียน' : 'ผู้อำนวยการโรงเรียน';
+
                                     return (
                                         <>
                                             <p className="text-sm">ลงชื่อ..........................................................ผู้อนุมัติ</p>
-                                            <p className="font-bold text-sm">( {director?.name || '......................................................'} )</p>
+                                            <p className="font-bold text-sm">( {directorName} )</p>
                                             <p className="text-xs text-slate-500">{directorPosition}</p>
                                         </>
                                     );
@@ -1029,13 +1033,17 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                         {/* Director Signature */}
                         <div className="text-center mt-12 pb-10 print:break-inside-avoid">
                             {(() => {
-                                const director = allTeachers.find(t => t.roles.includes('DIRECTOR')) || allTeachers.find(t => t.isActingDirector);
+                                const director = allTeachers.find(t => (t.roles || []).includes('DIRECTOR')) || 
+                                                 allTeachers.find(t => t.isActingDirector) ||
+                                                 allTeachers.find(t => t.position === 'ผู้อำนวยการโรงเรียน');
+                                const directorName = director?.name || '......................................................';
                                 const directorPosition = director?.isActingDirector ? 'รักษาการในตำแหน่งผู้อำนวยการโรงเรียน' : 'ผู้อำนวยการโรงเรียน';
+
                                 return (
                                     <>
                                         <p className="mb-4 text-xs">ลงชื่อ......................................................{directorPosition}</p>
                                         <p className="font-black text-md">
-                                            ( {director?.name || '......................................................'} )
+                                            ( {directorName} )
                                         </p>
                                     </>
                                 );
