@@ -173,7 +173,8 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             const mappedStudents: Student[] = (studentsData || []).map((s: any) => {
                 const studentSavings = (savingsData || []).filter((sv: any) => sv.student_id === s.id);
                 const total = studentSavings.reduce((acc: number, curr: any) => {
-                    return curr.type === 'DEPOSIT' ? acc + curr.amount : acc - curr.amount;
+                    const amt = Number(curr.amount) || 0;
+                    return curr.type === 'DEPOSIT' ? acc + amt : acc - amt;
                 }, 0);
 
                 return {
@@ -232,6 +233,11 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
 
         studentTransactions = studentTransactions.sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
         
+        // Calculate period summary
+        const periodDeposits = studentTransactions.filter(t => t.type === 'DEPOSIT').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+        const periodWithdrawals = studentTransactions.filter(t => t.type === 'WITHDRAWAL').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+        const periodBalance = periodDeposits - periodWithdrawals;
+
         const periodText = startDate && endDate 
             ? `<p style="margin: 5px 0;">ช่วงวันที่: ${formatThaiDate(startDate)} ถึง ${formatThaiDate(endDate)}</p>`
             : '';
@@ -258,11 +264,11 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                             <tr>
                                 <td style="border: 1px solid #000; padding: 10px; text-align: left; font-size: 14px;">${formatThaiDate(t.createdAt!)}</td>
                                 <td style="border: 1px solid #000; padding: 10px; text-align: left; font-size: 14px;">${t.type === 'DEPOSIT' ? 'ฝาก' : 'ถอน'}</td>
-                                <td style="border: 1px solid #000; padding: 10px; text-align: left; font-size: 14px;">${t.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                <td style="border: 1px solid #000; padding: 10px; text-align: right; font-size: 14px;">${Number(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                                 <td style="border: 1px solid #000; padding: 10px; text-align: left; font-size: 14px;">
-                                    <div>บันทึกโดย: ${teachers[t.createdBy!] || 'ไม่ระบุ'}</div>
+                                    <div style="font-size: 12px;">บันทึกโดย: ${teachers[t.createdBy!] || 'ไม่ระบุ'}</div>
                                     ${t.editReason ? `
-                                        <div style="font-size: 11px; color: #666; font-style: italic; margin-top: 4px; display: block;">
+                                        <div style="font-size: 10px; color: #666; font-style: italic; margin-top: 4px; display: block;">
                                             * แก้ไขเมื่อ: ${formatThaiDate(t.editedAt!)} <br/>
                                             เหตุผล: ${t.editReason} <br/>
                                             โดย: ${teachers[t.editedBy!] || 'ไม่ระบุ'}
@@ -271,9 +277,18 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                                 </td>
                             </tr>
                         `).join('') : '<tr><td colspan="4" style="text-align: center; border: 1px solid #000; padding: 20px;">ไม่พบข้อมูลการทำรายการ</td></tr>'}
+                        <tr style="background-color: #fafafa; font-weight: bold;">
+                            <td colspan="2" style="border: 1px solid #000; padding: 10px; text-align: right;">สรุปยอดช่วงวันที่เลือก:</td>
+                            <td style="border: 1px solid #000; padding: 10px; text-align: right;">
+                                <div style="color: #059669;">ฝาก: ${periodDeposits.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                                <div style="color: #dc2626;">ถอน: ${periodWithdrawals.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                                <div style="border-top: 1px solid #ccc; margin-top: 4px; padding-top: 4px;">คงเหลือ: ${periodBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                            </td>
+                            <td style="border: 1px solid #000; padding: 10px;"></td>
+                        </tr>
                     </tbody>
                 </table>
-                <div style="margin-top: 20px; text-align: right; font-size: 1.2em; font-weight: bold;">ยอดเงินออมคงเหลือ: ฿${student.totalSavings?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                <div style="margin-top: 20px; text-align: right; font-size: 1.25em; font-weight: 800; border-top: 2px solid #000; padding-top: 10px;">ยอดเงินออมคงเหลือสุทธิ: ฿${Number(student.totalSavings || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                 
                 <div style="margin-top: 50px; display: flex; justify-content: flex-end;">
                     <div style="text-align: center; width: 250px;">
@@ -355,8 +370,8 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
         const classStudents = students.filter(s => s.currentClass === selectedClass || selectedClass === 'All');
         const reportData = classStudents.map(student => {
             const studentTransactions = savings.filter(s => s.studentId === student.id);
-            const deposits = studentTransactions.filter(t => t.type === 'DEPOSIT').reduce((sum, t) => sum + t.amount, 0);
-            const withdrawals = studentTransactions.filter(t => t.type === 'WITHDRAWAL').reduce((sum, t) => sum + t.amount, 0);
+            const deposits = studentTransactions.filter(t => t.type === 'DEPOSIT').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+            const withdrawals = studentTransactions.filter(t => t.type === 'WITHDRAWAL').reduce((sum, t) => sum + Number(t.amount || 0), 0);
             return {
                 ...student,
                 deposits,
@@ -450,8 +465,8 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 gradeGroups[grade] = { grade, studentCount: 0, deposits: 0, withdrawals: 0, balance: 0 };
             }
             const studentTransactions = savings.filter(sv => sv.studentId === s.id);
-            const deposits = studentTransactions.filter(t => t.type === 'DEPOSIT').reduce((sum, t) => sum + t.amount, 0);
-            const withdrawals = studentTransactions.filter(t => t.type === 'WITHDRAWAL').reduce((sum, t) => sum + t.amount, 0);
+            const deposits = studentTransactions.filter(t => t.type === 'DEPOSIT').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+            const withdrawals = studentTransactions.filter(t => t.type === 'WITHDRAWAL').reduce((sum, t) => sum + Number(t.amount || 0), 0);
             
             gradeGroups[grade].studentCount += 1;
             gradeGroups[grade].deposits += deposits;
