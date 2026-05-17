@@ -356,18 +356,32 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     const isDirector = roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR') || currentUser.isActingDirector;
 
     const sortClasses = (classes: ClassRoom[]) => {
-        const levelOrder: Record<string, number> = { 'อ.': 1, 'ป.': 2, 'ม.': 3 };
         return [...classes].sort((a, b) => {
-            const getLevel = (name: string) => {
-                for (const level in levelOrder) {
-                    if (name.startsWith(level)) return { level: levelOrder[level], sub: parseInt(name.replace(level, '')) || 0 };
-                }
-                return { level: 99, sub: 0 };
+            const getLevelOrder = (name: string) => {
+                const clean = name.replace(/\s+/g, '').replace(/\./g, '').trim();
+                // Priority: Kindergarten (อ) -> Primary (ป) -> Secondary (ม)
+                if (/^(อนุบาล|อ)/i.test(clean)) return 1;
+                if (/^(ประถม|ป)/i.test(clean)) return 2;
+                if (/^(มัธยม|ม)/i.test(clean)) return 3;
+                return 9;
             };
-            const levelA = getLevel(a.name);
-            const levelB = getLevel(b.name);
-            if (levelA.level !== levelB.level) return levelA.level - levelB.level;
-            return levelA.sub - levelB.sub;
+            
+            const getLevelSub = (name: string) => {
+                const match = name.match(/\d+/);
+                return match ? parseInt(match[0]) : 0;
+            };
+
+            const orderA = getLevelOrder(a.name);
+            const orderB = getLevelOrder(b.name);
+            
+            if (orderA !== orderB) return orderA - orderB;
+            
+            const subA = getLevelSub(a.name);
+            const subB = getLevelSub(b.name);
+            
+            if (subA !== subB) return subA - subB;
+            
+            return a.name.localeCompare(b.name, 'th');
         });
     };
 
@@ -488,12 +502,12 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                 }));
             }
             
-            setClassRooms(mappedClasses);
+            setClassRooms(sortClasses(mappedClasses));
             
             // Auto-select class
             const filteredClasses = isAdmin 
-                ? mappedClasses 
-                : mappedClasses.filter(c => assigned.some(a => a.trim() === c.name.trim()));
+                ? sortClasses(mappedClasses) 
+                : sortClasses(mappedClasses.filter(c => assigned.some(a => a.trim() === c.name.trim())));
 
             if (filteredClasses.length > 0) {
                 setSelectedClass(filteredClasses[0].name);

@@ -45,6 +45,39 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
         return `${d} ${t}`;
     };
 
+    const sortThaiClasses = (items: any[]) => {
+        return [...items].sort((a, b) => {
+            const nameA = typeof a === 'string' ? a : (a.name || a.currentClass || a.grade || '');
+            const nameB = typeof b === 'string' ? b : (b.name || b.currentClass || b.grade || '');
+
+            const getLevelOrder = (name: string) => {
+                const clean = name.replace(/\s+/g, '').replace(/\./g, '').trim();
+                // Priority: Kindergarten (อ) -> Primary (ป) -> Secondary (ม)
+                if (/^(อนุบาล|อ)/i.test(clean)) return 1;
+                if (/^(ประถม|ป)/i.test(clean)) return 2;
+                if (/^(มัธยม|ม)/i.test(clean)) return 3;
+                return 9;
+            };
+            
+            const getLevelSub = (name: string) => {
+                const match = name.match(/\d+/);
+                return match ? parseInt(match[0]) : 0;
+            };
+
+            const orderA = getLevelOrder(nameA);
+            const orderB = getLevelOrder(nameB);
+            
+            if (orderA !== orderB) return orderA - orderB;
+            
+            const subA = getLevelSub(nameA);
+            const subB = getLevelSub(nameB);
+            
+            if (subA !== subB) return subA - subB;
+            
+            return nameA.localeCompare(nameB, 'th');
+        });
+    };
+
     const [students, setStudents] = useState<Student[]>([]);
     const [savings, setSavings] = useState<StudentSaving[]>([]);
     const [classRooms, setClassRooms] = useState<ClassRoom[]>([]);
@@ -485,7 +518,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             gradeGroups[grade].balance += (deposits - withdrawals);
         });
 
-        const sortedGrades = Object.values(gradeGroups).sort((a: any, b: any) => a.grade.localeCompare(b.grade));
+        const sortedGrades = sortThaiClasses(Object.values(gradeGroups));
         const totalDeposits = sortedGrades.reduce((sum, g) => sum + g.deposits, 0);
         const totalWithdrawals = sortedGrades.reduce((sum, g) => sum + g.withdrawals, 0);
         const totalBalance = sortedGrades.reduce((sum, g) => sum + g.balance, 0);
@@ -764,13 +797,13 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
     const classes = useMemo(() => {
         const uniqueClasses = Array.from(new Set(students.map(s => s.currentClass)));
         const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
-        if (isDirector && assigned.length === 0) return uniqueClasses.sort();
+        if (isDirector && assigned.length === 0) return sortThaiClasses(uniqueClasses);
         
         // Filter classes by assigned rooms/levels
         const filtered = uniqueClasses.filter(c => 
             assigned.some(a => a.trim() === c.trim())
         );
-        return filtered.length > 0 ? filtered.sort() : ['None'];
+        return filtered.length > 0 ? sortThaiClasses(filtered) : ['None'];
     }, [students, isDirector, currentUser.assignedClasses]);
 
     useEffect(() => {

@@ -124,30 +124,41 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
     const [isDeletingBulk, setIsDeletingBulk] = useState(false);
 
-    const sortedClassRooms = useMemo(() => {
-        const order = [
-            'อนุบาล 1', 'อนุบาล 2', 'อนุบาล 3',
-            'อ.1', 'อ.2', 'อ.3',
-            'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6',
-            'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'
-        ];
-        
-        return [...classRooms].sort((a, b) => {
-            const getLevel = (name: string) => {
-                const normalized = name.replace(/[\s.]/g, '');
-                for (let i = 0; i < order.length; i++) {
-                    const normalizedOrder = order[i].replace(/[\s.]/g, '');
-                    if (normalized.includes(normalizedOrder)) return i;
-                }
-                return 999;
+    const sortThaiClasses = (items: any[]) => {
+        return [...items].sort((a, b) => {
+            const nameA = typeof a === 'string' ? a : (a.name || a.current_class || a.currentClass || '');
+            const nameB = typeof b === 'string' ? b : (b.name || b.current_class || b.currentClass || '');
+
+            const getLevelOrder = (name: string) => {
+                const clean = name.replace(/\s+/g, '').replace(/\./g, '').trim();
+                // Priority: Kindergarten (อ) -> Primary (ป) -> Secondary (ม)
+                if (/^(อนุบาล|อ)/i.test(clean)) return 1;
+                if (/^(ประถม|ป)/i.test(clean)) return 2;
+                if (/^(มัธยม|ม)/i.test(clean)) return 3;
+                return 9;
+            };
+            
+            const getLevelSub = (name: string) => {
+                const match = name.match(/\d+/);
+                return match ? parseInt(match[0]) : 0;
             };
 
-            const levelA = getLevel(a.name);
-            const levelB = getLevel(b.name);
-
-            if (levelA !== levelB) return levelA - levelB;
-            return a.name.localeCompare(b.name, 'th');
+            const orderA = getLevelOrder(nameA);
+            const orderB = getLevelOrder(nameB);
+            
+            if (orderA !== orderB) return orderA - orderB;
+            
+            const subA = getLevelSub(nameA);
+            const subB = getLevelSub(nameB);
+            
+            if (subA !== subB) return subA - subB;
+            
+            return nameA.localeCompare(nameB, 'th');
         });
+    };
+
+    const sortedClassRooms = useMemo(() => {
+        return sortThaiClasses(classRooms);
     }, [classRooms]);
 
     const handlePhotoUpload = async (file: File, isEdit: boolean) => {
@@ -603,22 +614,6 @@ function setTelegramWebhook() {
                 const classesFromStudents = mappedStudents.map((s: any) => s.currentClass).filter(Boolean);
                 const classesFromRooms = (classesData || []).map((c: any) => c.name);
                 
-                const sortThaiClasses = (classNames: string[]) => {
-                    const levelOrder: Record<string, number> = { 'อ.': 1, 'ป.': 2, 'ม.': 3 };
-                    return [...classNames].sort((a, b) => {
-                        const getLevel = (name: string) => {
-                            for (const level in levelOrder) {
-                                if (name.startsWith(level)) return { level: levelOrder[level], sub: parseInt(name.replace(level, '')) || 0 };
-                            }
-                            return { level: 99, sub: 0 };
-                        };
-                        const levelA = getLevel(a);
-                        const levelB = getLevel(b);
-                        if (levelA.level !== levelB.level) return levelA.level - levelB.level;
-                        return levelA.sub - levelB.sub;
-                    });
-                };
-
                 const allUniqueClasses = sortThaiClasses(Array.from(new Set([...classesFromStudents, ...classesFromRooms])));
                 setAvailableClasses(allUniqueClasses);
             }
@@ -1004,22 +999,7 @@ function setTelegramWebhook() {
             }).filter(s => s.name && s.current_class);
             
             if (toInsert.length > 0) {
-                const order = ['อนุบาล 1', 'อนุบาล 2', 'อนุบาล 3', 'อ.1', 'อ.2', 'อ.3', 'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6', 'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'];
-                const getLevel = (name: string) => {
-                    if (!name) return 999;
-                    const normalized = name.replace(/[\s.]/g, '');
-                    for (let i = 0; i < order.length; i++) {
-                        const normalizedOrder = order[i].replace(/[\s.]/g, '');
-                        if (normalized.includes(normalizedOrder)) return i;
-                    }
-                    return 999;
-                };
-                toInsert.sort((a, b) => {
-                    const levelA = getLevel(a.current_class);
-                    const levelB = getLevel(b.current_class);
-                    if (levelA !== levelB) return levelA - levelB;
-                    return a.name.localeCompare(b.name, 'th');
-                });
+                sortThaiClasses(toInsert);
                 setImportPreview(toInsert);
             } else {
                 alert('ไม่พบข้อมูลที่ถูกต้องในไฟล์ (ต้องการอย่างน้อย ชื่อ และ ชั้นเรียน)');
