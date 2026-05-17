@@ -32,6 +32,126 @@ const countWeekdays = (start: string, end: string) => {
     return count;
 };
 
+// Refactor: Move Modals/Overlays outside to prevent focus loss during typing
+const TeacherDetailsModal: React.FC<{ details: any, onClose: () => void }> = ({ details, onClose }) => {
+    if (!details) return null;
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden">
+            <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-fade-in border border-slate-200">
+                <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
+                    <div>
+                        <h3 className="text-2xl font-black">{details.name}</h3>
+                        <p className="text-blue-400 font-bold text-xs uppercase tracking-widest mt-1">{details.position}</p>
+                    </div>
+                    <button 
+                        onClick={onClose}
+                        className="p-3 bg-white/10 hover:bg-white/20 rounded-2xl transition-all"
+                    >
+                        <ArrowLeft size={24}/>
+                    </button>
+                </div>
+
+                <div className="p-8 max-h-[70vh] overflow-y-auto space-y-8">
+                    {/* Summary Stats in Modal */}
+                    <div className="grid grid-cols-4 gap-4">
+                        <div className="bg-green-50 p-4 rounded-3xl text-center border border-green-100">
+                            <p className="text-[10px] font-black text-green-600 uppercase mb-1">มาปกติ</p>
+                            <p className="text-2xl font-black text-green-700">{details.presentDays}</p>
+                        </div>
+                        <div className="bg-orange-50 p-4 rounded-3xl text-center border border-orange-100">
+                            <p className="text-[10px] font-black text-orange-600 uppercase mb-1">มาสาย</p>
+                            <p className="text-2xl font-black text-orange-700">{details.lateDays}</p>
+                        </div>
+                        <div className="bg-blue-50 p-4 rounded-3xl text-center border border-blue-100">
+                            <p className="text-[10px] font-black text-blue-600 uppercase mb-1">ลา</p>
+                            <p className="text-2xl font-black text-blue-700">{details.leaveDays}</p>
+                        </div>
+                        <div className="bg-red-50 p-4 rounded-3xl text-center border border-red-100">
+                            <p className="text-[10px] font-black text-red-600 uppercase mb-1">ขาด</p>
+                            <p className="text-2xl font-black text-red-700">{details.absentDays}</p>
+                        </div>
+                    </div>
+
+                    {/* Detailed Date Lists */}
+                    <div className="space-y-6">
+                        {details.lateDatesList?.length > 0 && (
+                            <div className="space-y-3">
+                                <h4 className="font-black text-orange-600 flex items-center gap-2 text-sm uppercase tracking-widest">
+                                    <Clock size={16}/> วันที่มาสาย
+                                </h4>
+                                <div className="flex flex-wrap gap-2">
+                                    {details.lateDatesList.map((date: string) => (
+                                        <span key={date} className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-bold">
+                                            {getThaiDate(date)}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {details.leaveDatesList?.length > 0 && (
+                            <div className="space-y-3">
+                                <h4 className="font-black text-blue-600 flex items-center gap-2 text-sm uppercase tracking-widest">
+                                    <Calendar size={16}/> วันที่ลา
+                                </h4>
+                                <div className="flex flex-wrap gap-2">
+                                    {details.leaveDatesList.map((date: string) => (
+                                        <span key={date} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">
+                                            {getThaiDate(date)}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {details.absentDatesList?.length > 0 && (
+                            <div className="space-y-3">
+                                <h4 className="font-black text-red-600 flex items-center gap-2 text-sm uppercase tracking-widest">
+                                    <AlertTriangle size={16}/> วันที่ขาดงาน
+                                </h4>
+                                <div className="flex flex-wrap gap-2">
+                                    {details.absentDatesList.map((date: string) => (
+                                        <span key={date} className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">
+                                            {getThaiDate(date)}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {details.presentDatesList?.length === 0 && 
+                         details.leaveDatesList?.length === 0 && 
+                         details.absentDatesList?.length === 0 && (
+                            <p className="text-center text-slate-400 italic py-10">ไม่พบข้อมูลรายละเอียด</p>
+                        )}
+                    </div>
+                </div>
+                
+                <div className="p-6 bg-slate-50 border-t flex justify-end">
+                    <button 
+                        onClick={onClose}
+                        className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm hover:bg-black transition-all active:scale-95"
+                    >
+                        ปิดหน้าต่าง
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const LoadingOverlay: React.FC<{ isVisible: boolean }> = ({ isVisible }) => {
+    if (!isVisible) return null;
+    return (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px]">
+            <div className="bg-white p-6 rounded-3xl shadow-2xl flex items-center gap-4 border border-slate-100">
+                <RefreshCw className="animate-spin text-blue-600" size={24}/>
+                <span className="font-black text-slate-700">กำลังดึงข้อมูลรายละเอียด...</span>
+            </div>
+        </div>
+    );
+};
+
 interface AttendanceSystemProps {
     currentUser: Teacher;
     allTeachers: Teacher[];
@@ -116,126 +236,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
         }
     };
 
-    // --- Refactor: Use inline rendering for Modals to prevent focus loss ---
-
-    const TeacherDetailsModal = () => {
-        if (!selectedTeacherDetails) return null;
-        return (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden">
-                <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-fade-in border border-slate-200">
-                    <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
-                        <div>
-                            <h3 className="text-2xl font-black">{selectedTeacherDetails.name}</h3>
-                            <p className="text-blue-400 font-bold text-xs uppercase tracking-widest mt-1">{selectedTeacherDetails.position}</p>
-                        </div>
-                        <button 
-                            onClick={() => setSelectedTeacherDetails(null)}
-                            className="p-3 bg-white/10 hover:bg-white/20 rounded-2xl transition-all"
-                        >
-                            <ArrowLeft size={24}/>
-                        </button>
-                    </div>
-
-                    <div className="p-8 max-h-[70vh] overflow-y-auto space-y-8">
-                        {/* Summary Stats in Modal */}
-                        <div className="grid grid-cols-4 gap-4">
-                            <div className="bg-green-50 p-4 rounded-3xl text-center border border-green-100">
-                                <p className="text-[10px] font-black text-green-600 uppercase mb-1">มาปกติ</p>
-                                <p className="text-2xl font-black text-green-700">{selectedTeacherDetails.presentDays}</p>
-                            </div>
-                            <div className="bg-orange-50 p-4 rounded-3xl text-center border border-orange-100">
-                                <p className="text-[10px] font-black text-orange-600 uppercase mb-1">มาสาย</p>
-                                <p className="text-2xl font-black text-orange-700">{selectedTeacherDetails.lateDays}</p>
-                            </div>
-                            <div className="bg-blue-50 p-4 rounded-3xl text-center border border-blue-100">
-                                <p className="text-[10px] font-black text-blue-600 uppercase mb-1">ลา</p>
-                                <p className="text-2xl font-black text-blue-700">{selectedTeacherDetails.leaveDays}</p>
-                            </div>
-                            <div className="bg-red-50 p-4 rounded-3xl text-center border border-red-100">
-                                <p className="text-[10px] font-black text-red-600 uppercase mb-1">ขาด</p>
-                                <p className="text-2xl font-black text-red-700">{selectedTeacherDetails.absentDays}</p>
-                            </div>
-                        </div>
-
-                        {/* Detailed Date Lists */}
-                        <div className="space-y-6">
-                            {selectedTeacherDetails.lateDatesList?.length > 0 && (
-                                <div className="space-y-3">
-                                    <h4 className="font-black text-orange-600 flex items-center gap-2 text-sm uppercase tracking-widest">
-                                        <Clock size={16}/> วันที่มาสาย
-                                    </h4>
-                                    <div className="flex flex-wrap gap-2">
-                                        {selectedTeacherDetails.lateDatesList.map((date: string) => (
-                                            <span key={date} className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-bold">
-                                                {getThaiDate(date)}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {selectedTeacherDetails.leaveDatesList?.length > 0 && (
-                                <div className="space-y-3">
-                                    <h4 className="font-black text-blue-600 flex items-center gap-2 text-sm uppercase tracking-widest">
-                                        <Calendar size={16}/> วันที่ลา
-                                    </h4>
-                                    <div className="flex flex-wrap gap-2">
-                                        {selectedTeacherDetails.leaveDatesList.map((date: string) => (
-                                            <span key={date} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">
-                                                {getThaiDate(date)}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {selectedTeacherDetails.absentDatesList?.length > 0 && (
-                                <div className="space-y-3">
-                                    <h4 className="font-black text-red-600 flex items-center gap-2 text-sm uppercase tracking-widest">
-                                        <AlertTriangle size={16}/> วันที่ขาดงาน
-                                    </h4>
-                                    <div className="flex flex-wrap gap-2">
-                                        {selectedTeacherDetails.absentDatesList.map((date: string) => (
-                                            <span key={date} className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">
-                                                {getThaiDate(date)}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {selectedTeacherDetails.presentDatesList?.length === 0 && 
-                             selectedTeacherDetails.leaveDatesList?.length === 0 && 
-                             selectedTeacherDetails.absentDatesList?.length === 0 && (
-                                <p className="text-center text-slate-400 italic py-10">ไม่พบข้อมูลรายละเอียด</p>
-                            )}
-                        </div>
-                    </div>
-                    
-                    <div className="p-6 bg-slate-50 border-t flex justify-end">
-                        <button 
-                            onClick={() => setSelectedTeacherDetails(null)}
-                            className="px-8 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm hover:bg-black transition-all active:scale-95"
-                        >
-                            ปิดหน้าต่าง
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
-    const LoadingOverlay = () => {
-        if (!isFetchingSummary || viewMode === 'SUMMARY_REPORT') return null;
-        return (
-            <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px]">
-                <div className="bg-white p-6 rounded-3xl shadow-2xl flex items-center gap-4 border border-slate-100">
-                    <RefreshCw className="animate-spin text-blue-600" size={24}/>
-                    <span className="font-black text-slate-700">กำลังดึงข้อมูลรายละเอียด...</span>
-                </div>
-            </div>
-        );
-    };
+    // --- Refactor: Use external components for Modals to prevent focus loss ---
 
     const isAdminView = currentUser.roles.some(role => 
         ['SYSTEM_ADMIN', 'DIRECTOR', 'VICE_DIRECTOR', 'DOCUMENT_OFFICER'].includes(role)
@@ -875,9 +876,11 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                         <div className="text-center space-y-16">
                             <div className="space-y-2">
                                 {(() => {
+                                    // Fix: More robust identification of Director for approval signature
                                     const director = allTeachers.find(t => (t.roles || []).includes('DIRECTOR')) || 
                                                      allTeachers.find(t => t.isActingDirector) ||
-                                                     allTeachers.find(t => t.position === 'ผู้อำนวยการโรงเรียน');
+                                                     allTeachers.sort((a,b) => (a.roles.includes('VICE_DIRECTOR') ? 1 : -1)).find(t => t.position === 'ผู้อำนวยการโรงเรียน');
+                                    
                                     const directorName = director?.name || '......................................................';
                                     const directorPosition = director?.isActingDirector ? 'รักษาการในตำแหน่งผู้อำนวยการโรงเรียน' : 'ผู้อำนวยการโรงเรียน';
 
@@ -897,8 +900,6 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                         รายงานนี้สร้างขึ้นโดยระบบอัตโนมัติ เมื่อวันที่ {getThaiDate(getTodayDateStr())} เวลา {new Date().toLocaleTimeString('th-TH')} น.
                     </div>
                 </div>
-
-                <TeacherDetailsModal />
 
                 <style>{`
                     @media print {
@@ -1021,9 +1022,11 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                         {/* Director Signature */}
                         <div className="text-center mt-12 pb-10 print:break-inside-avoid">
                             {(() => {
+                                // Fix: More robust identification of Director
                                 const director = allTeachers.find(t => (t.roles || []).includes('DIRECTOR')) || 
                                                  allTeachers.find(t => t.isActingDirector) ||
-                                                 allTeachers.find(t => t.position === 'ผู้อำนวยการโรงเรียน');
+                                                 allTeachers.sort((a,b) => (a.roles.includes('VICE_DIRECTOR') ? 1 : -1)).find(t => t.position === 'ผู้อำนวยการโรงเรียน');
+                                
                                 const directorName = director?.name || '......................................................';
                                 const directorPosition = director?.isActingDirector ? 'รักษาการในตำแหน่งผู้อำนวยการโรงเรียน' : 'ผู้อำนวยการโรงเรียน';
 
@@ -1347,91 +1350,11 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                 </div>
             </div>
 
-            <TeacherDetailsModal />
-            
-            {/* --- Manual Edit Attendance Modal (Inlined to prevent focus loss) --- */}
-            {editingAttendance && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden">
-                    <div className="bg-white w-full max-w-lg rounded-[2rem] shadow-2xl overflow-hidden animate-fade-in border border-slate-200">
-                        <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
-                            <div>
-                                <h3 className="text-xl font-black">แก้ไขการลงเวลา</h3>
-                                <p className="text-blue-400 font-bold text-[10px] uppercase tracking-widest mt-1">{editingAttendance.teacher.name}</p>
-                            </div>
-                            <button onClick={() => setEditingAttendance(null)} className="p-2 hover:bg-white/10 rounded-xl transition-all">
-                                <ArrowLeft size={20}/>
-                            </button>
-                        </div>
-
-                        <div className="p-8 space-y-6">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">สถานะการมาปฏิบัติราชการ</label>
-                                <select 
-                                    value={editForm.status}
-                                    onChange={(e: any) => setEditForm({ ...editForm, status: e.target.value })}
-                                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none focus:border-blue-500 transition-all"
-                                >
-                                    <option value="OnTime">มาปกติ (On Time)</option>
-                                    <option value="Late">มาสาย (Late)</option>
-                                    <option value="OfficialBusiness">ไปราชการ (Official Business)</option>
-                                    <option value="Leave">ลา (Leave)</option>
-                                    <option value="Absent">ขาด (Absent)</option>
-                                </select>
-                            </div>
-
-                            {editForm.status !== 'Leave' && editForm.status !== 'Absent' && (
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">เวลามา</label>
-                                        <input 
-                                            type="time"
-                                            value={editForm.checkInTime}
-                                            onChange={e => setEditForm({ ...editForm, checkInTime: e.target.value })}
-                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none focus:border-blue-500 transition-all"
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">เวลากลับ</label>
-                                        <input 
-                                            type="time"
-                                            value={editForm.checkOutTime}
-                                            onChange={e => setEditForm({ ...editForm, checkOutTime: e.target.value })}
-                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none focus:border-blue-500 transition-all"
-                                        />
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">หมายเหตุ / เหตุผล (ถ้ามี)</label>
-                                <textarea 
-                                    value={editForm.remark}
-                                    onChange={e => setEditForm({ ...editForm, remark: e.target.value })}
-                                    placeholder="เช่น ไปอบรมที่ สพป., ลาป่วยกระทันหัน, ฯลฯ"
-                                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-blue-500 transition-all min-h-[100px]"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="p-6 bg-slate-50 border-t flex justify-end gap-3">
-                            <button 
-                                onClick={() => setEditingAttendance(null)}
-                                className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl font-black text-xs hover:bg-slate-50 transition-all"
-                            >
-                                ยกเลิก
-                            </button>
-                            <button 
-                                onClick={handleSaveManualAttendance}
-                                disabled={isUpdatingRecord}
-                                className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-black text-xs shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50"
-                            >
-                                {isUpdatingRecord ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            <LoadingOverlay />
+                <TeacherDetailsModal 
+                    details={selectedTeacherDetails} 
+                    onClose={() => setSelectedTeacherDetails(null)}
+                />
+                <LoadingOverlay isVisible={isFetchingSummary} />
 
             <style>{`
                 @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } } .animate-shake { animation: shake 0.3s ease-in-out; }

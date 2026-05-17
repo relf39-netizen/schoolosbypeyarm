@@ -1,8 +1,10 @@
 {
-  "name": "mysql schoolosระบบบริหารจัดการโรงเรียนhostinglotus",
-  "description": "ระบบบริหารจัดการโรงเรียนครบวงจร: ธุรการ, การลา, การเงิน, แผนงาน, บันทึกเวลาทำงาน และระบบดูแลช่วยเหลือนักเรียน",
+  "name": "SchoolOS - ระบบบริหารจัดการโรงเรียนอัจฉริยะ",
+  "description": "ระบบบริหารจัดการโรงเรียนครบวงจร: ธุรการ, การลา, การเงิน, แผนงาน, บันทึกเวลาปฏิบัติงาน และระบบดูแลช่วยเหลือนักเรียน (Student Attendance & Savings)",
   "requestFramePermissions": [
     "geolocation"
   ],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

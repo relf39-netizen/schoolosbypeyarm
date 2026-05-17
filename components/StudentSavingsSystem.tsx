@@ -53,9 +53,9 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             const getLevelOrder = (name: string) => {
                 const clean = name.replace(/\s+/g, '').replace(/\./g, '').trim();
                 // Priority: Kindergarten (อ) -> Primary (ป) -> Secondary (ม)
-                if (/^(อนุบาล|อ)/i.test(clean)) return 1;
-                if (/^(ประถม|ป)/i.test(clean)) return 2;
-                if (/^(มัธยม|ม)/i.test(clean)) return 3;
+                if (/(อนุบาล|อ)/i.test(clean)) return 1;
+                if (/(ประถม|ป)/i.test(clean)) return 2;
+                if (/(มัธยม|ม)/i.test(clean)) return 3;
                 return 9;
             };
             
@@ -186,7 +186,8 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             const { data: savingsData, error: savingsError } = await supabase
                 .from('student_savings')
                 .select('*')
-                .eq('school_id', currentUser.schoolId);
+                .eq('school_id', currentUser.schoolId)
+                .limit(20000);
 
             if (savingsError) throw savingsError;
 

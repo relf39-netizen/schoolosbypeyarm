@@ -132,14 +132,20 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             // Fetch Director Name
             const { data: teachers } = await supabase
                 .from('profiles')
-                .select('name, roles, position')
+                .select('name, roles, position, is_acting_director')
                 .eq('school_id', currentUser.schoolId);
             
-            if (teachers) {
-                const director = teachers.find((t: any) => t.roles?.includes('DIRECTOR')) || 
-                                 teachers.find((t: any) => t.roles?.includes('ACTING_DIRECTOR')) ||
-                                 teachers.find((t: any) => t.roles?.includes('VICE_DIRECTOR')) ||
-                                 teachers.find((t: any) => t.position?.includes('ผู้อำนวยการ'));
+            if (teachers && teachers.length > 0) {
+                const director = 
+                    teachers.find((t: any) => t.roles?.includes('DIRECTOR')) || 
+                    teachers.find((t: any) => t.is_acting_director === true) ||
+                    teachers.find((t: any) => t.position?.includes('ผู้อำนวยการโรงเรียน')) ||
+                    teachers.sort((a: any, b: any) => {
+                        const isViceA = a.roles?.includes('VICE_DIRECTOR') ? 1 : 0;
+                        const isViceB = b.roles?.includes('VICE_DIRECTOR') ? 1 : 0;
+                        return isViceB - isViceA;
+                    })[0];
+                
                 if (director) {
                     setDirectorName(director.name);
                 }
@@ -360,15 +366,25 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             const getLevelOrder = (name: string) => {
                 const clean = name.replace(/\s+/g, '').replace(/\./g, '').trim();
                 // Priority: Kindergarten (อ) -> Primary (ป) -> Secondary (ม)
-                if (/^(อนุบาล|อ)/i.test(clean)) return 1;
-                if (/^(ประถม|ป)/i.test(clean)) return 2;
-                if (/^(มัธยม|ม)/i.test(clean)) return 3;
+                if (/(อนุบาล|อ)/i.test(clean)) return 1;
+                if (/(ประถม|ป)/i.test(clean)) return 2;
+                if (/(มัธยม|ม)/i.test(clean)) return 3;
                 return 9;
             };
             
             const getLevelSub = (name: string) => {
                 const match = name.match(/\d+/);
                 return match ? parseInt(match[0]) : 0;
+            };
+
+            const getRoomSub = (name: string) => {
+                const parts = name.split(/[/|.-]/);
+                if (parts.length > 1) {
+                    const roomPart = parts[parts.length - 1];
+                    const match = roomPart.match(/\d+/);
+                    return match ? parseInt(match[0]) : 0;
+                }
+                return 0;
             };
 
             const orderA = getLevelOrder(a.name);
@@ -380,6 +396,10 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             const subB = getLevelSub(b.name);
             
             if (subA !== subB) return subA - subB;
+
+            const roomA = getRoomSub(a.name);
+            const roomB = getRoomSub(b.name);
+            if (roomA !== roomB) return roomA - roomB;
             
             return a.name.localeCompare(b.name, 'th');
         });
@@ -529,6 +549,9 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         if (!supabase || !selectedClass) return;
         setIsLoadingHistory(true);
         try {
+            // Clear old history to prevent showing stale data
+            setHistoryAttendance([]);
+            
             const classStudents = students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim());
             const studentIds = classStudents.map(s => s.id);
             
@@ -539,12 +562,14 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                 .gte('date', historyStartDate)
                 .lte('date', historyEndDate);
 
-            // If we have specific students, filter by them to be more precise and faster
+            // Filter by student IDs to be specific
             if (studentIds.length > 0) {
                 query = query.in('student_id', studentIds);
             }
             
-            const { data, error } = await query.order('date', { ascending: false });
+            const { data, error } = await query
+                .order('date', { ascending: false })
+                .limit(20000);
             
             if (error) throw error;
             if (data) {
@@ -567,10 +592,10 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     };
 
     useEffect(() => {
-        if (viewMode === 'HISTORY') {
+        if (viewMode === 'HISTORY' && students.length > 0) {
             fetchHistory();
         }
-    }, [viewMode, historyStartDate, historyEndDate, selectedClass]);
+    }, [viewMode, historyStartDate, historyEndDate, selectedClass, students]);
 
     const historyStats = useMemo(() => {
         const classStudents = students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim());
@@ -671,6 +696,10 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             
             alert('บันทึกข้อมูลการมาเรียนเรียบร้อยแล้ว');
             await fetchAttendance(selectedDate);
+            // Refresh history as well to ensure it's up to date
+            if (viewMode === 'HISTORY' || true) {
+                fetchHistory();
+            }
             setViewMode('DASHBOARD');
         } catch (error: any) {
             console.error('Error saving attendance:', error);
