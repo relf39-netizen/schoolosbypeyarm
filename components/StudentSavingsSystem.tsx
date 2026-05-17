@@ -85,7 +85,10 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedClass, setSelectedClass] = useState<string>('All');
-    const [currentAcademicYear, setCurrentAcademicYear] = useState<string>(new Date().getFullYear() + 543 + '');
+    const [currentAcademicYear, setCurrentAcademicYear] = useState<string>('');
+    const [historyAcademicYear, setHistoryAcademicYear] = useState<string>('');
+    const [historyStartDate, setHistoryStartDate] = useState<string>(formatToISODate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
+    const [historyEndDate, setHistoryEndDate] = useState<string>(formatToISODate(new Date()));
     
     // Modals
     const [isTransactionOpen, setIsTransactionOpen] = useState(false);
@@ -135,6 +138,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 .eq('school_id', currentUser.schoolId)
                 .order('year', { ascending: false });
             
+            let currentYear = '';
             if (yearsData) {
                 const mappedYears = yearsData.map((y: any) => ({
                     id: y.id,
@@ -144,7 +148,11 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 }));
                 setAcademicYears(mappedYears);
                 const current = mappedYears.find((y: any) => y.isCurrent);
-                if (current) setCurrentAcademicYear(current.year);
+                if (current) {
+                    currentYear = current.year;
+                    setCurrentAcademicYear(currentYear);
+                    setHistoryAcademicYear(currentYear);
+                }
             }
 
             // Fetch Classrooms
@@ -182,12 +190,13 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
 
             if (studentError) throw studentError;
 
-            // Fetch Savings
+            // Fetch Savings (Filter by current academic year to save data)
             const { data: savingsData, error: savingsError } = await supabase
                 .from('student_savings')
                 .select('*')
                 .eq('school_id', currentUser.schoolId)
-                .limit(20000);
+                .eq('academic_year', currentYear || currentAcademicYear)
+                .limit(10000);
 
             if (savingsError) throw savingsError;
 
@@ -1181,9 +1190,22 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                             {/* Date Filter Section */}
                             <div className="bg-white p-4 rounded-2xl border border-slate-100 mb-6 shadow-sm">
                                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                    <Calendar size={14} /> กรองตามวันที่
+                                    <Calendar size={14} /> กรองตามปีการศึกษาและวันที่
                                 </p>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 mb-1">ปีการศึกษา</label>
+                                        <select 
+                                            value={historyAcademicYear}
+                                            onChange={(e) => setHistoryAcademicYear(e.target.value)}
+                                            className="w-full p-2 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-pink-500"
+                                        >
+                                            <option value="">ทั้งหมด</option>
+                                            {academicYears.map(y => (
+                                                <option key={y.id} value={y.year}>{y.year}</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-400 mb-1">วันที่เริ่มต้น</label>
                                         <input 
@@ -1219,6 +1241,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                             <div className="space-y-4">
                                 {savings
                                     .filter(s => s.studentId === selectedStudent.id)
+                                    .filter(s => !historyAcademicYear || s.academicYear === historyAcademicYear)
                                     .filter(s => !reportStartDate || (s.createdAt && s.createdAt.split('T')[0] >= reportStartDate))
                                     .filter(s => !reportEndDate || (s.createdAt && s.createdAt.split('T')[0] <= reportEndDate))
                                     .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime())

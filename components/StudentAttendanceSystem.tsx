@@ -74,12 +74,14 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+    const [isPurging, setIsPurging] = useState(false);
 
     const [selectedDate, setSelectedDate] = useState<string>(formatToISODate(new Date()));
-    const [historyStartDate, setHistoryStartDate] = useState<string>(formatToISODate(new Date(new Date().setDate(new Date().getDate() - 7))));
+    const [historyStartDate, setHistoryStartDate] = useState<string>(formatToISODate(new Date(new Date().getFullYear(), new Date().getMonth(), 1))); // Default to start of current month
     const [historyEndDate, setHistoryEndDate] = useState<string>(formatToISODate(new Date()));
     const [selectedClass, setSelectedClass] = useState<string>('');
     const [currentAcademicYear, setCurrentAcademicYear] = useState<string>('');
+    const [historyAcademicYear, setHistoryAcademicYear] = useState<string>('');
     
     // Attendance Recording State
     const [tempAttendance, setTempAttendance] = useState<Record<string, StudentAttendanceStatus>>({});
@@ -450,6 +452,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                 if (current) {
                     currentYear = current.year;
                     setCurrentAcademicYear(currentYear);
+                    setHistoryAcademicYear(currentYear);
                 }
             }
 
@@ -558,9 +561,19 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             let query = supabase
                 .from('student_attendance')
                 .select('*')
-                .eq('school_id', currentUser.schoolId)
-                .gte('date', historyStartDate)
-                .lte('date', historyEndDate);
+                .eq('school_id', currentUser.schoolId);
+
+            if (historyAcademicYear) {
+                query = query.eq('academic_year', historyAcademicYear);
+            }
+
+            if (historyStartDate) {
+                query = query.gte('date', historyStartDate);
+            }
+
+            if (historyEndDate) {
+                query = query.lte('date', historyEndDate);
+            }
 
             // Filter by student IDs to be specific
             if (studentIds.length > 0) {
@@ -595,7 +608,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         if (viewMode === 'HISTORY' && students.length > 0) {
             fetchHistory();
         }
-    }, [viewMode, historyStartDate, historyEndDate, selectedClass, students]);
+    }, [viewMode, historyStartDate, historyEndDate, selectedClass, students, historyAcademicYear]);
 
     const historyStats = useMemo(() => {
         const classStudents = students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim());
@@ -709,6 +722,48 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             alert(`เกิดข้อผิดพลาดในการบันทึกข้อมูล: ${errorMsg} ${errorCode}`);
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handlePurgeAttendance = async () => {
+        if (!isAdmin) {
+            alert('ขออภัย เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถล้างข้อมูลได้');
+            return;
+        }
+
+        if (!historyAcademicYear) {
+            alert('กรุณาเลือกปีการศึกษาที่ต้องการล้างข้อมูลในช่องตัวกรองด้านบนก่อนครับ');
+            return;
+        }
+
+        const confirmFirst = window.confirm(`⚠️ คำเตือน: คุณแน่ใจหรือไม่ที่จะลบข้อมูลการมาเรียนทั้งหมดของ "ปีการศึกษา ${historyAcademicYear}"? \n\nการกระทำนี้จะไม่สามารถย้อนกลับได้ และข้อมูลจะหายไปจากระบบถาวร!`);
+        
+        if (!confirmFirst) return;
+
+        const confirmationPhrase = window.prompt(`เพื่อความปลอดภัยสูงสุด กรุณาพิมพ์คำว่า "ลบข้อมูล" (โดยไม่มีเครื่องหมายคำพูด) เพื่อยืนยันการลบข้อมูลปีการศึกษา ${historyAcademicYear}:`);
+        
+        if (confirmationPhrase !== "ลบข้อมูล") {
+            alert('การยืนยันไม่ถูกต้อง ระบบยกเลิกการลบข้อมูล');
+            return;
+        }
+
+        setIsPurging(true);
+        try {
+            const { error } = await supabase
+                .from('student_attendance')
+                .delete()
+                .eq('school_id', currentUser.schoolId)
+                .eq('academic_year', historyAcademicYear);
+
+            if (error) throw error;
+
+            alert(`✅ ลบข้อมูลการมาเรียนของปีการศึกษา ${historyAcademicYear} เรียบร้อยแล้ว`);
+            fetchHistory(); // Refresh the view
+        } catch (error: any) {
+            console.error('Error purging data:', error);
+            alert('เกิดข้อผิดพลาดในการล้างข้อมูล: ' + (error.message || 'Unknown error'));
+        } finally {
+            setIsPurging(false);
         }
     };
 
@@ -1453,6 +1508,19 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                         </div>
                         <div className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-2xl border border-slate-100 shadow-sm">
                             <div className="flex items-center gap-2 px-3 border-r border-slate-100">
+                                <span className="text-[10px] font-black text-slate-400 uppercase">ปีการศึกษา:</span>
+                                <select 
+                                    className="bg-transparent border-none font-black text-slate-700 text-sm focus:ring-0"
+                                    value={historyAcademicYear}
+                                    onChange={(e) => setHistoryAcademicYear(e.target.value)}
+                                >
+                                    <option value="">ทั้งหมด</option>
+                                    {academicYears.map(y => (
+                                        <option key={y.id} value={y.year}>{y.year}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex items-center gap-2 px-3 border-r border-slate-100">
                                 <span className="text-[10px] font-black text-slate-400 uppercase">ชั้นเรียน:</span>
                                 <select 
                                     className="bg-transparent border-none font-black text-slate-700 text-sm focus:ring-0"
@@ -1472,9 +1540,26 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                 <span className="text-[10px] font-black text-slate-400 uppercase">ถึง:</span>
                                 <input type="date" value={historyEndDate} onChange={e => setHistoryEndDate(e.target.value)} className="bg-transparent border-none font-black text-slate-700 text-sm focus:ring-0"/>
                             </div>
-                            <button onClick={fetchHistory} className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all">
+                            <button onClick={fetchHistory} className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all flex items-center gap-1 px-4">
                                 <Search size={18} />
+                                <span className="text-xs font-black uppercase">ค้นหา</span>
                             </button>
+
+                            {isAdmin && (
+                                <button 
+                                    onClick={handlePurgeAttendance}
+                                    disabled={isPurging || !historyAcademicYear}
+                                    className="p-2 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-600 hover:text-white border border-rose-100 transition-all flex items-center gap-1 px-4 disabled:opacity-50"
+                                    title="ล้างข้อมูลปีการศึกษาที่เลือก"
+                                >
+                                    {isPurging ? (
+                                        <Loader className="animate-spin" size={18} />
+                                    ) : (
+                                        <Trash2 size={18} />
+                                    )}
+                                    <span className="text-xs font-black uppercase">ล้างข้อมูลชั้นเรียน</span>
+                                </button>
+                            )}
                         </div>
                     </div>
 
