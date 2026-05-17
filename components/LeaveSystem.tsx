@@ -21,6 +21,15 @@ interface LeaveSystemProps {
     onClearFocus?: () => void;
 }
 
+const getTodayDateStr = () => {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(new Date());
+};
+
 const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, currentSchool, focusRequestId, onClearFocus }) => {
     // --- State ---
     const [requests, setRequests] = useState<LeaveRequest[]>([]);
@@ -33,8 +42,8 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
     
     // Form State
     const [leaveType, setLeaveType] = useState<'Sick' | 'Personal' | 'OffCampus' | 'Late' | 'Maternity'>('Sick');
-    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const [startDate, setStartDate] = useState(getTodayDateStr());
+    const [endDate, setEndDate] = useState(getTodayDateStr());
     const [startTime, setStartTime] = useState('08:30');
     const [endTime, setEndTime] = useState('16:30');
     const [substituteName, setSubstituteName] = useState('');
@@ -48,9 +57,10 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
     const [statTeacher, setStatTeacher] = useState<Teacher | null>(null);
     const [statStartDate, setStatStartDate] = useState<string>(() => {
         const d = new Date();
-        return `${d.getFullYear()}-01-01`; 
+        const year = new Intl.DateTimeFormat('en-US', { year: 'numeric', timeZone: 'Asia/Bangkok' }).format(d);
+        return `${year}-01-01`; 
     });
-    const [statEndDate, setStatEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [statEndDate, setStatEndDate] = useState<string>(getTodayDateStr());
     const [summaryPdfUrl, setSummaryPdfUrl] = useState<string>('');
     const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
 
@@ -58,7 +68,7 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
     const canViewAll = isDirectorRole || (currentUser.roles || []).includes('SYSTEM_ADMIN') || (currentUser.roles || []).includes('DOCUMENT_OFFICER');
 
     // --- Helpers ---
-    const getThaiDate = (dateStr: string) => dateStr ? new Date(dateStr).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+    const getThaiDate = (dateStr: string) => dateStr ? new Date(dateStr).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'Asia/Bangkok' }) : '';
     const getLeaveTypeName = (type: string) => { 
         const map: any = { 'Sick': 'ลาป่วย', 'Personal': 'ลากิจส่วนตัว', 'OffCampus': 'ขอออกนอกบริเวณ', 'Late': 'เข้าสาย', 'Maternity': 'ลาคลอดบุตร' }; 
         return map[type] || type; 
@@ -204,8 +214,8 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
             teacher_name: currentUser.name,
             teacher_position: currentUser.position,
             type: leaveType,
-            start_date: leaveType === 'OffCampus' ? new Date().toISOString().split('T')[0] : startDate,
-            end_date: leaveType === 'OffCampus' ? new Date().toISOString().split('T')[0] : endDate,
+            start_date: leaveType === 'OffCampus' ? getTodayDateStr() : startDate,
+            end_date: leaveType === 'OffCampus' ? getTodayDateStr() : endDate,
             start_time: (leaveType === 'OffCampus' || leaveType === 'Late') ? startTime : null,
             end_time: leaveType === 'OffCampus' ? endTime : null,
             substitute_name: leaveType === 'OffCampus' ? substituteName : null,
@@ -238,7 +248,7 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
         const client = supabase;
         if (!selectedRequest || !client) return;
         setIsProcessingApproval(true);
-        const now = new Date().toISOString().split('T')[0];
+        const now = getTodayDateStr();
         const { error } = await client.from('leave_requests').update({ 
             status: isApproved ? 'Approved' : 'Rejected', 
             director_signature: currentUser.name,
@@ -439,13 +449,13 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
                         <form onSubmit={e => { e.preventDefault(); submitRequest(); }} className="space-y-8">
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                 {['Sick', 'Personal', 'Maternity', 'OffCampus'].map(t => (
-                                    <button key={t} type="button" onClick={() => { setLeaveType(t as any); if(t==='OffCampus') { setStartDate(new Date().toISOString().split('T')[0]); setEndDate(new Date().toISOString().split('T')[0]); } }} className={`py-4 rounded-2xl text-[11px] font-black transition-all border-2 ${leaveType === t ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg' : 'bg-white text-slate-500 border-slate-100 hover:border-emerald-200'}`}>{getLeaveTypeName(t)}</button>
+                                    <button key={t} type="button" onClick={() => { setLeaveType(t as any); if(t==='OffCampus') { setStartDate(getTodayDateStr()); setEndDate(getTodayDateStr()); } }} className={`py-4 rounded-2xl text-[11px] font-black transition-all border-2 ${leaveType === t ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg' : 'bg-white text-slate-500 border-slate-100 hover:border-emerald-200'}`}>{getLeaveTypeName(t)}</button>
                                 ))}
                             </div>
 
                             {leaveType === 'OffCampus' ? (
                                 <div className="space-y-6 animate-fade-in bg-blue-50 p-6 rounded-[2rem] border-2 border-blue-100">
-                                    <div className="flex items-center gap-2 text-blue-800 font-black mb-2"><Timer size={20}/> ระบุเวลาออกนอกบริเวณ (วันนี้: {getThaiDate(new Date().toISOString())})</div>
+                                    <div className="flex items-center gap-2 text-blue-800 font-black mb-2"><Timer size={20}/> ระบุเวลาออกนอกบริเวณ (วันนี้: {getThaiDate(getTodayDateStr())})</div>
                                     <div className="grid grid-cols-2 gap-6">
                                         <div className="space-y-2"><label className="block text-[10px] font-black text-blue-400 uppercase tracking-widest ml-1">เวลาที่ไป</label><input type="time" value={startTime} onChange={e=>setStartTime(e.target.value)} className="w-full px-5 py-4 border-2 border-white rounded-2xl font-bold outline-none focus:border-blue-500" required/></div>
                                         <div className="space-y-2"><label className="block text-[10px] font-black text-blue-400 uppercase tracking-widest ml-1">เวลาที่กลับ</label><input type="time" value={endTime} onChange={e=>setEndTime(e.target.value)} className="w-full px-5 py-4 border-2 border-white rounded-2xl font-bold outline-none focus:border-blue-500" required/></div>

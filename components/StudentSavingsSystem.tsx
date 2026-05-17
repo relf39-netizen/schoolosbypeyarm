@@ -18,20 +18,31 @@ interface StudentSavingsSystemProps {
 
 const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser }) => {
     const formatToISODate = (date: Date) => {
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, '0');
-        const d = String(date.getDate()).padStart(2, '0');
-        return `${y}-${m}-${d}`;
+        return new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Bangkok',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(date);
     };
 
     const formatToMySQLDateTime = (date: Date) => {
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, '0');
-        const d = String(date.getDate()).padStart(2, '0');
-        const h = String(date.getHours()).padStart(2, '0');
-        const min = String(date.getMinutes()).padStart(2, '0');
-        const s = String(date.getSeconds()).padStart(2, '0');
-        return `${y}-${m}-${d} ${h}:${min}:${s}`;
+        const d = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Bangkok',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(date);
+        
+        const t = date.toLocaleTimeString('th-TH', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false,
+            timeZone: 'Asia/Bangkok'
+        });
+        
+        return `${d} ${t}`;
     };
 
     const [students, setStudents] = useState<Student[]>([]);
@@ -68,9 +79,9 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
 
     // Date range for individual reports
     const [reportStartDate, setReportStartDate] = useState<string>('');
-    const [reportEndDate, setReportEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [reportEndDate, setReportEndDate] = useState<string>(formatToISODate(new Date()));
 
-    const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [transactionDate, setTransactionDate] = useState<string>(formatToISODate(new Date()));
 
     const roles = Array.isArray(currentUser.roles) ? currentUser.roles : [];
     const isAdmin = roles.includes('SYSTEM_ADMIN') || roles.includes('ADMIN') || roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR') || currentUser.isActingDirector;

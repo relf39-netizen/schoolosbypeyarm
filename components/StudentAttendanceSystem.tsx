@@ -22,29 +22,42 @@ const THAI_MONTHS = [
 ];
 
 const formatToISODate = (date: Date) => {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(date);
 };
 
 const formatToMySQLDateTime = (date: Date) => {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    const h = String(date.getHours()).padStart(2, '0');
-    const min = String(date.getMinutes()).padStart(2, '0');
-    const s = String(date.getSeconds()).padStart(2, '0');
-    return `${y}-${m}-${d} ${h}:${min}:${s}`;
+    const d = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(date);
+    
+    const t = date.toLocaleTimeString('th-TH', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Bangkok'
+    });
+    
+    return `${d} ${t}`;
 };
 
 const formatToThaiDate = (dateString: string) => {
     if (!dateString) return '';
     const date = new Date(dateString);
-    const d = date.getDate();
-    const m = THAI_MONTHS[date.getMonth()];
-    const y = date.getFullYear() + 543;
-    return `${d} ${m} ${y}`;
+    return date.toLocaleDateString('th-TH', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        timeZone: 'Asia/Bangkok'
+    });
 };
 
 interface StudentAttendanceSystemProps {

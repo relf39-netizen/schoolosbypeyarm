@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { AttendanceRecord, Teacher, School, LeaveRequest } from '../types';
 import { sendTelegramMessage } from '../utils/telegram';
+import { getThaiDate, getThaiMonthYear, getTodayDateStr, getThailandTime } from '../utils/date';
 import { 
     MapPin, Navigation, CheckCircle, LogOut, History, Loader, 
     RefreshCw, AlertTriangle, Clock, Calendar, ShieldCheck, 
@@ -18,19 +19,6 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
     const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
-
-const getThaiDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    return new Date(dateStr).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
-};
-
-const getThaiMonthYear = (dateStr: string) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
-};
-
-const getTodayDateStr = () => new Date().toISOString().split('T')[0];
 
 const countWeekdays = (start: string, end: string) => {
     let count = 0;
@@ -613,7 +601,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
             }
             const now = new Date();
             const dateStr = getTodayDateStr();
-            const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false });
+            const timeStr = getThailandTime();
             if (type === 'IN') {
                 const status = timeStr > (currentSchool.lateTimeThreshold || '08:30') ? 'Late' : 'OnTime';
                 const { error } = await supabase!.from('attendance').insert([{
