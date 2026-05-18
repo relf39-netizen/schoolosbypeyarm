@@ -962,7 +962,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                 </div>
 
                 {/* A4 Sheet Container: Absolutely NO shadows or borders on web preview as requested */}
-                <div className="mx-auto bg-white my-0 print:my-0 min-h-[297mm] w-[210mm] print:w-full box-border p-[2.5cm_2cm_2cm_2.5cm] print:p-0 no-scrollbar overflow-visible print:overflow-visible">
+                <div className="mx-auto bg-white my-0 print:my-0 min-h-[297mm] w-[210mm] print:w-full box-border p-[1cm_1.5cm] print:p-0 no-scrollbar overflow-visible print:overflow-visible">
                     <div className="flex flex-col h-full bg-white print:p-0 border-none outline-none">
                         {/* Header Section */}
                         <div className="text-center mb-8 border-b-2 border-slate-900 pb-4">
@@ -976,13 +976,13 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                         <table className="w-full border-collapse border border-black mb-8 text-[11px]">
                             <thead className="bg-slate-50/50">
                                 <tr className="font-bold text-center">
-                                    <th className="border border-black p-2 w-10">ที่</th>
-                                    <th className="border border-black p-2 text-left">ชื่อ-นามสกุล</th>
-                                    <th className="border border-black p-2 text-left w-40">ตำแหน่ง</th>
-                                    <th className="border border-black p-2 w-20">เวลามา</th>
-                                    <th className="border border-black p-2 w-20">เวลากลับ</th>
-                                    <th className="border border-black p-2 w-32">สถานะ</th>
-                                    <th className="border border-black p-2 text-left min-w-[100px]">หมายเหตุ</th>
+                                    <th className="border border-black p-2 w-8">ที่</th>
+                                    <th className="border border-black p-2 text-left min-w-[220px]">ชื่อ-นามสกุล</th>
+                                    <th className="border border-black p-2 text-left w-28">ตำแหน่ง</th>
+                                    <th className="border border-black p-2 w-14">เวลามา</th>
+                                    <th className="border border-black p-2 w-14">เวลากลับ</th>
+                                    <th className="border border-black p-2 w-20">สถานะ</th>
+                                    <th className="border border-black p-2 text-left min-w-[120px]">หมายเหตุ</th>
                                 </tr>
                             </thead>
                             <tbody>
