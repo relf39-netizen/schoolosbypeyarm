@@ -188,11 +188,13 @@ async function startServer() {
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         school_id VARCHAR(255),
         teacher_id VARCHAR(255),
+        teacher_name VARCHAR(255),
         date DATE,
-        check_in TEXT,
-        check_out TEXT,
+        check_in_time TEXT,
+        check_out_time TEXT,
         status VARCHAR(255),
         leave_type VARCHAR(255),
+        remark TEXT,
         is_auto_checkout BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`,
@@ -424,6 +426,32 @@ async function startServer() {
       if (!studentColNames.includes('batch_number')) {
         console.log('Adding batch_number to students...');
         await query("ALTER TABLE students ADD COLUMN batch_number VARCHAR(255)");
+      }
+
+      // Migration for attendance table
+      try {
+        const attCols = await query("SHOW COLUMNS FROM attendance");
+        const attColNames = attCols.map(c => c.Field || c.column_name);
+        
+        if (!attColNames.includes('teacher_name')) {
+          await query("ALTER TABLE attendance ADD COLUMN teacher_name VARCHAR(255)");
+        }
+        if (!attColNames.includes('remark')) {
+          await query("ALTER TABLE attendance ADD COLUMN remark TEXT");
+        }
+        if (!attColNames.includes('check_in_time') && attColNames.includes('check_in')) {
+          await query("ALTER TABLE attendance CHANGE COLUMN check_in check_in_time TEXT");
+        } else if (!attColNames.includes('check_in_time')) {
+          await query("ALTER TABLE attendance ADD COLUMN check_in_time TEXT");
+        }
+        
+        if (!attColNames.includes('check_out_time') && attColNames.includes('check_out')) {
+          await query("ALTER TABLE attendance CHANGE COLUMN check_out check_out_time TEXT");
+        } else if (!attColNames.includes('check_out_time')) {
+          await query("ALTER TABLE attendance ADD COLUMN check_out_time TEXT");
+        }
+      } catch (attMigErr) {
+        console.error('Attendance migration failed:', attMigErr.message);
       }
 
       // Migration for director_events, finance_accounts, finance_transactions
