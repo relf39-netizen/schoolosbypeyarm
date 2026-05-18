@@ -464,7 +464,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                 .eq('is_active', true)
                 .eq('is_alumni', false);
             
-            const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
+            const assigned = (Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : []).map(a => a.trim());
             if (assigned.length > 0) {
                 // If admin assigned specific classes, only see those
                 studentQuery = studentQuery.in('current_class', assigned);

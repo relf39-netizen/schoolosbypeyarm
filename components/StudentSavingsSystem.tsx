@@ -177,7 +177,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 .eq('school_id', currentUser.schoolId)
                 .eq('is_active', true);
             
-            const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
+            const assigned = (Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : []).map(a => a.trim());
             if (assigned.length > 0) {
                 // If admin assigned specific classes, only see those
                 studentQuery = studentQuery.in('current_class', assigned);
@@ -805,41 +805,67 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
     }, [students]);
 
     const classes = useMemo(() => {
-        const uniqueClasses = Array.from(new Set(students.map(s => s.currentClass)));
+        const uniqueClasses = Array.from(new Set(students.map(s => s.currentClass))).filter(Boolean);
         const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
-        if (isDirector && assigned.length === 0) return sortThaiClasses(uniqueClasses);
         
-        // Filter classes by assigned rooms/levels
-        const filtered = uniqueClasses.filter(c => 
-            assigned.some(a => a.trim() === c.trim())
-        );
-        return filtered.length > 0 ? sortThaiClasses(filtered) : ['None'];
-    }, [students, isDirector, currentUser.assignedClasses]);
+        // Admins and Directors with no assignments see everything
+        if ((isAdmin || isDirector) && assigned.length === 0) return sortThaiClasses(uniqueClasses);
+        
+        // If they have assignments, filter by those (regardless of admin/director status)
+        if (assigned.length > 0) {
+            const filtered = uniqueClasses.filter(c => 
+                assigned.some(a => a.trim() === c.trim())
+            );
+            if (filtered.length > 0) return sortThaiClasses(filtered);
+        }
+
+        // If regular teacher with no assignments, or no students found matching assignments
+        if (isAdmin || isDirector) return sortThaiClasses(uniqueClasses);
+        return uniqueClasses.length > 0 ? sortThaiClasses(uniqueClasses) : ['None'];
+    }, [students, isAdmin, isDirector, currentUser.assignedClasses]);
 
     useEffect(() => {
-        if (selectedClass === 'All' && classes.length > 0 && classes[0] !== 'None') {
-            if (!isDirector || (isDirector && currentUser.assignedClasses && currentUser.assignedClasses.length > 0)) {
+        if ((selectedClass === 'All' || selectedClass === '' || selectedClass === 'None') && classes.length > 0 && classes[0] !== 'None') {
+            const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
+            if (!isAdmin && !isDirector && assigned.length > 0) {
+                // Regular teacher with assignment: pick first assigned class
+                setSelectedClass(classes[0]);
+            } else if (isAdmin || isDirector) {
+                // Admin/Director: default to 'All' or first class if 'All' isn't an option
+                if (isDirector && selectedClass === '') {
+                     setSelectedClass('All');
+                } else if (selectedClass === '' || selectedClass === 'None') {
+                     setSelectedClass(classes[0]);
+                }
+            } else {
+                // Regular teacher no assignment: pick first anyway if they see students
                 setSelectedClass(classes[0]);
             }
         }
-    }, [isDirector, classes, selectedClass, currentUser.assignedClasses]);
+    }, [isAdmin, isDirector, classes, selectedClass, currentUser.assignedClasses]);
 
     const filteredStudents = useMemo(() => {
+        const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
+        
         return students.filter(s => {
             const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase());
-            const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
-            const matchesClass = selectedClass === 'All' || (s.currentClass || '').trim() === selectedClass.trim();
+            const matchesClass = selectedClass === 'All' || (s.currentClass || '').trim() === (selectedClass || '').trim();
 
-            if (isDirector && assigned.length === 0) {
+            // Admin/Director with no assignment sees everything matching search/class
+            if ((isAdmin || isDirector) && assigned.length === 0) {
                 return matchesSearch && matchesClass;
             }
 
-            // Teacher visibility or Director with specific assignment
-            const isAssigned = assigned.some(a => a.trim() === (s.currentClass || '').trim());
+            // If there's an assignment, they must be in the assigned list
+            if (assigned.length > 0) {
+                const isAssigned = assigned.some(a => a.trim() === (s.currentClass || '').trim());
+                return matchesSearch && matchesClass && isAssigned;
+            }
 
-            return matchesSearch && matchesClass && isAssigned;
+            // Default for regular teacher (though they might see nothing due to fetchData restrictions)
+            return matchesSearch && matchesClass;
         });
-    }, [students, searchTerm, selectedClass, isDirector, currentUser.assignedClasses]);
+    }, [students, searchTerm, selectedClass, isAdmin, isDirector, currentUser.assignedClasses]);
 
     const totalSavingsToDisplay = useMemo(() => {
         if (isDirector) {
