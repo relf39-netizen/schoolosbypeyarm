@@ -978,10 +978,10 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                                 <tr className="font-bold text-center">
                                     <th className="border border-black p-2 w-8">ที่</th>
                                     <th className="border border-black p-2 text-center min-w-[240px]">ชื่อ-นามสกุล</th>
-                                    <th className="border border-black p-2 text-center w-28">ตำแหน่ง</th>
-                                    <th className="border border-black p-2 text-center w-[60px]">เวลามา</th>
-                                    <th className="border border-black p-2 text-center w-[60px]">เวลากลับ</th>
-                                    <th className="border border-black p-2 text-center w-20">สถานะ</th>
+                                    <th className="border border-black p-2 text-center w-40">ตำแหน่ง</th>
+                                    <th className="border border-black p-2 text-center w-[80px]">เวลามา</th>
+                                    <th className="border border-black p-2 text-center w-[80px]">เวลากลับ</th>
+                                    <th className="border border-black p-2 text-center w-24">สถานะ</th>
                                     <th className="border border-black p-2 text-center w-[100px]">หมายเหตุ</th>
                                 </tr>
                             </thead>
