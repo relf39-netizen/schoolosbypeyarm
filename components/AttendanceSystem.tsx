@@ -199,6 +199,13 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
 
     const handleSaveManualAttendance = async () => {
         if (!supabase || !editingAttendance) return;
+        
+        // ⚠️ บังคับให้ใส่หมายเหตุเมื่อมีการแก้ไขโดย Admin
+        if (!editForm.remark || editForm.remark.trim() === '') {
+            alert('กรุณาระบุหมายเหตุหรือเหตุผลในการแก้ไขข้อมูลครั้งนี้ด้วยครับ (เช่น ลืมลงชื่อ, ติดภารกิจ, ฯลฯ)');
+            return;
+        }
+
         setIsUpdatingRecord(true);
         try {
             const dataToSave = {
