@@ -125,7 +125,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
 
     useEffect(() => {
         fetchData();
-    }, [currentUser.schoolId]);
+    }, [currentUser.schoolId, currentUser.assignedClasses, currentUser.roles]);
 
     const fetchData = async () => {
         if (!supabase) return;
@@ -144,7 +144,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                     id: y.id,
                     schoolId: y.school_id,
                     year: y.year,
-                    isCurrent: y.is_current
+                    isCurrent: y.is_current === true || y.is_current === 1
                 }));
                 setAcademicYears(mappedYears);
                 const current = mappedYears.find((y: any) => y.isCurrent);
@@ -155,7 +155,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 }
             }
 
-            // Fetch Classrooms
+            // Fetch Classrooms - Very important for the classes dropdown
             const { data: classesData } = await supabase
                 .from('class_rooms')
                 .select('*')
@@ -175,7 +175,8 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 .from('students')
                 .select('*')
                 .eq('school_id', currentUser.schoolId)
-                .eq('is_active', true);
+                .eq('is_active', true)
+                .eq('is_alumni', false);
             
             const assigned = (Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : []).map(a => a.trim());
             if (assigned.length > 0) {
@@ -237,7 +238,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                     name: s.name,
                     currentClass: s.current_class,
                     academicYear: s.academic_year,
-                    isActive: s.is_active,
+                    isActive: s.is_active === true || s.is_active === 1,
                     totalSavings: total
                 };
             });
@@ -805,7 +806,11 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
     }, [students]);
 
     const classes = useMemo(() => {
-        const uniqueClasses = Array.from(new Set(students.map(s => s.currentClass))).filter(Boolean);
+        // Source classes from BOTH students and class_rooms for robustness
+        const fromStudents = Array.from(new Set(students.map(s => s.currentClass))).filter(Boolean);
+        const fromRooms = Array.from(new Set(classRooms.map(c => c.name))).filter(Boolean);
+        const uniqueClasses = Array.from(new Set([...fromStudents, ...fromRooms]));
+        
         const assigned = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
         
         // Admins and Directors with no assignments see everything
@@ -816,13 +821,15 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             const filtered = uniqueClasses.filter(c => 
                 assigned.some(a => a.trim() === c.trim())
             );
-            if (filtered.length > 0) return sortThaiClasses(filtered);
+            // If no students found in assigned rooms yet, still show the assigned rooms
+            if (filtered.length === 0) return sortThaiClasses(assigned);
+            return sortThaiClasses(filtered);
         }
 
         // If regular teacher with no assignments, or no students found matching assignments
         if (isAdmin || isDirector) return sortThaiClasses(uniqueClasses);
-        return uniqueClasses.length > 0 ? sortThaiClasses(uniqueClasses) : ['None'];
-    }, [students, isAdmin, isDirector, currentUser.assignedClasses]);
+        return uniqueClasses.length > 0 ? sortThaiClasses(uniqueClasses) : (assigned.length > 0 ? sortThaiClasses(assigned) : ['None']);
+    }, [students, classRooms, isAdmin, isDirector, currentUser.assignedClasses]);
 
     useEffect(() => {
         if ((selectedClass === 'All' || selectedClass === '' || selectedClass === 'None') && classes.length > 0 && classes[0] !== 'None') {
