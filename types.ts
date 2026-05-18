@@ -105,7 +105,7 @@ export interface LeaveRequest {
   teacherId: string;
   teacherName: string;
   teacherPosition?: string; // Snapshot of position at time of request
-  type: 'Sick' | 'Personal' | 'OffCampus' | 'Late' | 'Maternity';
+  type: 'Sick' | 'Personal' | 'OffCampus' | 'Late' | 'Maternity' | 'OfficialBusiness';
   startDate: string;
   endDate: string;
   // For OffCampus or Late
