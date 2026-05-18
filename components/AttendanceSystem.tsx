@@ -982,6 +982,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                                     <th className="border border-black p-2 w-20">เวลามา</th>
                                     <th className="border border-black p-2 w-20">เวลากลับ</th>
                                     <th className="border border-black p-2 w-32">สถานะ</th>
+                                    <th className="border border-black p-2 text-left min-w-[100px]">หมายเหตุ</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1011,6 +1012,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                                             <td className="border border-black p-2 text-center font-bold">{record?.checkInTime || '-'}</td>
                                             <td className="border border-black p-2 text-center font-bold">{record?.checkOutTime || '-'}</td>
                                             <td className={`border border-black p-2 text-center ${statusClass}`}>{statusText}</td>
+                                            <td className="border border-black p-2 text-slate-500 italic text-[10px]">{record?.remark || '-'}</td>
                                         </tr>
                                     )
                                 })}
