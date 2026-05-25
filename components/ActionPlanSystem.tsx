@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { PlanDepartment, Project, Teacher, ProjectStatus, SystemConfig, School } from '../types';
+import { PlanDepartment, Project, Teacher, ProjectStatus, SystemConfig, School, ProjectExpense } from '../types';
 import { 
     Briefcase, CheckCircle, Clock, Plus, ArrowLeft, Trash2, Loader, 
     Wallet, BookOpen, Settings, X, Save, CalendarRange, ChevronDown, 
@@ -47,6 +47,10 @@ const ActionPlanSystem: React.FC<ActionPlanSystemProps> = ({ currentUser, curren
     const [budgetSource, setBudgetSource] = useState<'Subsidy' | 'LearnerDev'>('Subsidy');
     
     const [isSaving, setIsSaving] = useState(false);
+    const [expenses, setExpenses] = useState<ProjectExpense[]>([]);
+    const [showExpenseModal, setShowExpenseModal] = useState(false);
+    const [selectedProjectForExpense, setSelectedProjectForExpense] = useState<{deptId: string, project: Project} | null>(null);
+    const [newExpenseForm, setNewExpenseForm] = useState({ description: '', amount: '', date: new Date().toISOString().split('T')[0] });
 
     const isDirector = (currentUser.roles || []).includes('DIRECTOR');
     const isPlanOfficer = (currentUser.roles || []).includes('PLAN_OFFICER');
@@ -85,6 +89,19 @@ const ActionPlanSystem: React.FC<ActionPlanSystemProps> = ({ currentUser, curren
                 allProjectYears?.forEach((p: any) => p.fiscal_year && yearSet.add(p.fiscal_year));
                 allBudgetYears?.forEach((b: any) => b.fiscal_year && yearSet.add(b.fiscal_year));
                 setAvailableYears(Array.from(yearSet).sort((a, b) => parseInt(b) - parseInt(a)));
+
+                const { data: expenseData } = await supabase.from('plan_project_expenses').select('*').eq('school_id', currentUser.schoolId);
+                if (expenseData) {
+                    setExpenses(expenseData.map((e: any) => ({
+                        id: e.id,
+                        projectId: e.project_id,
+                        schoolId: e.school_id,
+                        description: e.description,
+                        amount: Number(e.amount) || 0,
+                        date: e.date,
+                        createdAt: e.created_at
+                    })));
+                }
 
                 if (budget) { 
                     setTotalSubsidyBudget(Number(budget.subsidy) || 0); 
@@ -248,6 +265,75 @@ const ActionPlanSystem: React.FC<ActionPlanSystemProps> = ({ currentUser, curren
         setIsSaving(false);
     };
 
+    const handleAddExpense = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedProjectForExpense || !supabase) return;
+        setIsSaving(true);
+        const amount = parseFloat(newExpenseForm.amount) || 0;
+        const payload = {
+            project_id: selectedProjectForExpense.project.id,
+            school_id: currentUser.schoolId,
+            description: newExpenseForm.description,
+            amount,
+            date: newExpenseForm.date
+        };
+
+        try {
+            const { data, error } = await supabase.from('plan_project_expenses').insert([payload]).select().single();
+            if (error) throw error;
+            
+            const newExp: ProjectExpense = {
+                id: data.id,
+                projectId: data.project_id,
+                schoolId: data.school_id,
+                description: data.description,
+                amount: data.amount,
+                date: data.date,
+                createdAt: data.created_at
+            };
+            
+            setExpenses(prev => [newExp, ...prev]);
+            setNewExpenseForm({ ...newExpenseForm, description: '', amount: '' });
+            
+            // Optional: Update actual_expense in plan_projects for quick reference
+            const projectExpenses = [newExp, ...expenses.filter(ex => ex.projectId === selectedProjectForExpense.project.id)];
+            const totalSpent = projectExpenses.reduce((sum, ex) => sum + ex.amount, 0);
+            await supabase.from('plan_projects').update({ actual_expense: totalSpent }).eq('id', selectedProjectForExpense.project.id);
+            
+            // Refresh local state for departments to show updated actualExpense
+            setDepartments(prev => prev.map(d => d.id === selectedProjectForExpense.deptId ? { ...d, projects: d.projects.map(p => p.id === selectedProjectForExpense.project.id ? { ...p, actualExpense: totalSpent } : p) } : d));
+            
+        } catch (err: any) {
+            alert("บันทึกล้มเหลว: " + err.message);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleDeleteExpense = async (id: string, projectId: string, deptId: string) => {
+        if (!supabase || !confirm("ยืนยันการลบรายการใช้จ่ายนี้?")) return;
+        setIsSaving(true);
+        try {
+            const { error } = await supabase.from('plan_project_expenses').delete().eq('id', id);
+            if (error) throw error;
+            
+            const remainingExpenses = expenses.filter(ex => ex.id !== id);
+            setExpenses(remainingExpenses);
+            
+            // Update actual_expense in plan_projects
+            const projectExpenses = remainingExpenses.filter(ex => ex.projectId === projectId);
+            const totalSpent = projectExpenses.reduce((sum, ex) => sum + ex.amount, 0);
+            await supabase.from('plan_projects').update({ actual_expense: totalSpent }).eq('id', projectId);
+            
+            setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, projects: d.projects.map(p => p.id === projectId ? { ...p, actualExpense: totalSpent } : p) } : d));
+            
+        } catch (err: any) {
+            alert("ลบล้มเหลว: " + err.message);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const handleStatusChange = async (deptId: string, projectId: string, newStatus: ProjectStatus) => {
         if (!supabase) return;
         const { error } = await supabase.from('plan_projects').update({ status: newStatus }).eq('id', projectId);
@@ -385,9 +471,45 @@ const ActionPlanSystem: React.FC<ActionPlanSystemProps> = ({ currentUser, curren
                                     <tr key={p.id} className="hover:bg-slate-50/50 transition-colors group">
                                         <td className="p-6"><div className="font-black text-slate-800 text-base mb-1">{p.name}</div><div className="text-[10px] font-bold text-slate-400">{p.subsidyBudget > 0 ? 'เงินอุดหนุนรายหัว' : 'เงินกิจกรรมพัฒนาผู้เรียน'}</div></td>
                                         <td className="p-6 text-right font-black text-slate-700">{(p.subsidyBudget+p.learnerDevBudget).toLocaleString()}</td>
-                                        <td className="p-6 text-center font-black text-emerald-600 bg-emerald-50/20">{p.actualExpense?.toLocaleString() || '-'}</td>
-                                        <td className="p-6 text-center">{p.status === 'Completed' ? <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black border border-emerald-200 shadow-sm flex items-center gap-1 justify-center"><CheckCircle size={10}/> ปิดยอด</span> : p.status === 'Approved' ? <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-black border border-blue-200">อนุมัติ</span> : <span className="bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-[10px] font-black border border-slate-200">ฉบับร่าง</span>}</td>
-                                        <td className="p-6 text-right"><div className="flex justify-end gap-2">{isAdmin && <button onClick={() => { setEditingProject({deptId: activeDept.id, project: {...p}}); setShowEditProjectModal(true); }} className="p-2 text-slate-400 hover:text-indigo-600 bg-white border rounded-xl shadow-sm transition-all"><Edit3 size={16}/></button>}{isDirector && p.status === 'Draft' && <button onClick={() => handleStatusChange(activeDept.id, p.id, 'Approved')} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-md hover:bg-indigo-700 transition-all">อนุมัติ</button>}{isPlanOfficer && p.status === 'Approved' && <button onClick={() => { setSettleProjectData({deptId: activeDept.id, project: p}); setActualAmountInput((p.subsidyBudget+p.learnerDevBudget).toString()); setShowSettlementModal(true); }} className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase shadow-md hover:bg-emerald-700 transition-all">สรุปยอดจ่าย</button>}{isAdmin && p.status === 'Draft' && <button onClick={() => handleDeleteProject(activeDept.id, p.id)} className="p-2 text-slate-300 hover:text-rose-600 transition-all"><Trash2 size={16}/></button>}</div></td>
+                                        <td className="p-6 text-center font-black text-emerald-600 bg-emerald-50/20">฿{p.actualExpense?.toLocaleString() || '0'}</td>
+                                        <td className="p-6 text-center">
+                                            {p.status === 'Completed' ? (
+                                                <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black border border-emerald-200 shadow-sm flex items-center gap-1 justify-center"><CheckCircle size={10}/> ปิดยอด</span>
+                                            ) : p.status === 'Approved' ? (
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-black border border-blue-200">อนุมัติแล้ว</span>
+                                                    <span className={`text-[10px] font-bold ${((p.subsidyBudget + p.learnerDevBudget) - (p.actualExpense || 0)) < 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+                                                        เหลือ: ฿{((p.subsidyBudget + p.learnerDevBudget) - (p.actualExpense || 0)).toLocaleString()}
+                                                    </span>
+                                                </div>
+                                            ) : (
+                                                <span className="bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-[10px] font-black border border-slate-200">ฉบับร่าง</span>
+                                            )}
+                                        </td>
+                                        <td className="p-6 text-right">
+                                            <div className="flex justify-end gap-2">
+                                                {p.status === 'Approved' && (
+                                                    <button 
+                                                        onClick={() => { setSelectedProjectForExpense({deptId: activeDept.id, project: p}); setShowExpenseModal(true); }} 
+                                                        className="px-4 py-2 bg-white border-2 border-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase shadow-sm hover:border-indigo-200 hover:text-indigo-600 transition-all flex items-center gap-2"
+                                                    >
+                                                        <Wallet size={12}/> บันทึกใช้จ่าย
+                                                    </button>
+                                                )}
+                                                {isAdmin && p.status !== 'Completed' && (
+                                                    <button onClick={() => { setEditingProject({deptId: activeDept.id, project: {...p}}); setShowEditProjectModal(true); }} className="p-2 text-slate-400 hover:text-indigo-600 bg-white border rounded-xl shadow-sm transition-all"><Edit3 size={16}/></button>
+                                                )}
+                                                {isDirector && p.status === 'Draft' && (
+                                                    <button onClick={() => handleStatusChange(activeDept.id, p.id, 'Approved')} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-md hover:bg-indigo-700 transition-all">อนุมัติ</button>
+                                                )}
+                                                {isPlanOfficer && p.status === 'Approved' && (
+                                                    <button onClick={() => { setSettleProjectData({deptId: activeDept.id, project: p}); setActualAmountInput((p.actualExpense || 0).toString()); setShowSettlementModal(true); }} className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase shadow-md hover:bg-emerald-700 transition-all">ปิดโครงการ</button>
+                                                )}
+                                                {isAdmin && p.status === 'Draft' && (
+                                                    <button onClick={() => handleDeleteProject(activeDept.id, p.id)} className="p-2 text-slate-300 hover:text-rose-600 transition-all"><Trash2 size={16}/></button>
+                                                )}
+                                            </div>
+                                        </td>
                                     </tr>
                                 ))}</tbody>
                             </table>
@@ -453,6 +575,83 @@ const ActionPlanSystem: React.FC<ActionPlanSystemProps> = ({ currentUser, curren
                 </div>
             )}
             <style>{`.animate-scale-up { animation: scaleUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; } @keyframes scaleUp { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }`}</style>
+            
+            {showExpenseModal && selectedProjectForExpense && (
+                <div className="fixed inset-0 bg-slate-900/80 z-[60] flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col border-4 border-indigo-50 animate-scale-up overflow-hidden">
+                        <div className="p-8 border-b bg-slate-50/50">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <h3 className="text-xl font-black text-slate-800">บันทึกการใช้จ่ายโครงการ</h3>
+                                    <p className="text-xs font-bold text-indigo-600 uppercase tracking-widest mt-1">{selectedProjectForExpense.project.name}</p>
+                                </div>
+                                <button onClick={() => setShowExpenseModal(false)} className="p-2 hover:bg-white rounded-full text-slate-400 shadow-sm border"><X size={20}/></button>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <div className="bg-white p-4 rounded-2xl border shadow-sm">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase mb-1">งบประมาณที่จัดสรร</p>
+                                    <p className="text-xl font-black text-slate-800">฿{(selectedProjectForExpense.project.subsidyBudget + selectedProjectForExpense.project.learnerDevBudget).toLocaleString()}</p>
+                                </div>
+                                <div className="bg-white p-4 rounded-2xl border shadow-sm">
+                                    <p className="text-[10px] font-black text-emerald-400 uppercase mb-1">ใช้ไปแล้ว</p>
+                                    <p className="text-xl font-black text-emerald-600">฿{(selectedProjectForExpense.project.actualExpense || 0).toLocaleString()}</p>
+                                </div>
+                                <div className="bg-white p-4 rounded-2xl border shadow-sm">
+                                    <p className="text-[10px] font-black text-orange-400 uppercase mb-1">คงเหลือ</p>
+                                    <p className="text-xl font-black text-orange-600">฿{((selectedProjectForExpense.project.subsidyBudget + selectedProjectForExpense.project.learnerDevBudget) - (selectedProjectForExpense.project.actualExpense || 0)).toLocaleString()}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-8 border-b pb-0">
+                            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Plus size={14} className="text-indigo-600"/> เพิ่มรายการใช้จ่ายใหม่</h4>
+                            <form onSubmit={handleAddExpense} className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-6 bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100">
+                                <div className="md:col-span-5">
+                                    <input required placeholder="รายละเอียดรายการ..." className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-indigo-500" value={newExpenseForm.description} onChange={e => setNewExpenseForm({...newExpenseForm, description: e.target.value})}/>
+                                </div>
+                                <div className="md:col-span-3">
+                                    <input required type="number" placeholder="จำนวนเงิน" className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl font-black text-sm outline-none focus:border-indigo-500" value={newExpenseForm.amount} onChange={e => setNewExpenseForm({...newExpenseForm, amount: e.target.value})}/>
+                                </div>
+                                <div className="md:col-span-3">
+                                    <input required type="date" className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl font-bold text-xs outline-none focus:border-indigo-500" value={newExpenseForm.date} onChange={e => setNewExpenseForm({...newExpenseForm, date: e.target.value})}/>
+                                </div>
+                                <div className="md:col-span-1">
+                                    <button type="submit" disabled={isSaving} className="w-full h-full bg-indigo-600 text-white rounded-xl flex items-center justify-center hover:bg-indigo-700 transition-all disabled:opacity-50">
+                                        {isSaving ? <Loader className="animate-spin" size={20}/> : <Plus size={20}/>}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-8 pt-0">
+                            <table className="w-full">
+                                <thead className="sticky top-0 bg-white text-[10px] font-black text-slate-400 uppercase tracking-widest border-b h-12">
+                                    <tr>
+                                        <th className="text-left py-2">วันที่</th>
+                                        <th className="text-left py-2">รายการ</th>
+                                        <th className="text-right py-2">จำนวนเงิน</th>
+                                        <th className="text-right py-2"></th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {expenses.filter(ex => ex.projectId === selectedProjectForExpense.project.id).length === 0 ? (
+                                        <tr><td colSpan={4} className="p-12 text-center text-slate-300 font-bold italic text-xs">ยังไม่มีรายการใช้จ่าย</td></tr>
+                                    ) : expenses.filter(ex => ex.projectId === selectedProjectForExpense.project.id).map(ex => (
+                                        <tr key={ex.id} className="group transition-colors h-14">
+                                            <td className="text-xs font-bold text-slate-500">{ex.date}</td>
+                                            <td className="text-sm font-black text-slate-700">{ex.description}</td>
+                                            <td className="text-right font-black text-slate-800">฿{ex.amount.toLocaleString()}</td>
+                                            <td className="text-right">
+                                                <button onClick={() => handleDeleteExpense(ex.id, ex.projectId, selectedProjectForExpense.deptId)} className="p-2 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><X size={16}/></button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

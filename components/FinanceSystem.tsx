@@ -144,7 +144,7 @@ const FinanceSystem: React.FC<FinanceSystemProps> = ({ currentUser, allTeachers 
         };
         try {
             if (isUpdate && t.id) {
-                const { error } = await client.from('finance_transactions').update(payload).eq('id', parseInt(t.id));
+                const { error } = await client.from('finance_transactions').update(payload).eq('id', t.id);
                 if (error) throw error;
             } else {
                 const { error } = await client.from('finance_transactions').insert([payload]);
@@ -268,7 +268,7 @@ const FinanceSystem: React.FC<FinanceSystemProps> = ({ currentUser, allTeachers 
     const handleDeleteTransaction = async () => {
         const client = supabase;
         if (!editingTransaction || !client) return;
-        const { error } = await client.from('finance_transactions').delete().eq('id', parseInt(editingTransaction.id));
+        const { error } = await client.from('finance_transactions').delete().eq('id', editingTransaction.id);
         if (!error) { await fetchData(); setShowEditModal(false); }
     };
 

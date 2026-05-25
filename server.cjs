@@ -220,6 +220,15 @@ async function startServer() {
         status VARCHAR(255) DEFAULT 'Draft',
         fiscal_year VARCHAR(255)
       )`,
+      `CREATE TABLE IF NOT EXISTS plan_project_expenses (
+        id VARCHAR(100) PRIMARY KEY,
+        project_id VARCHAR(100) NOT NULL,
+        school_id VARCHAR(255) NOT NULL,
+        description VARCHAR(255) NOT NULL,
+        amount FLOAT NOT NULL,
+        date DATE NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`,
       `CREATE TABLE IF NOT EXISTS budget_settings (
         id VARCHAR(255) PRIMARY KEY,
         school_id VARCHAR(255),
@@ -834,7 +843,7 @@ async function startServer() {
     const data = req.body;
     console.log(`[${new Date().toISOString()}] POST request for ${tableName}. Data type: ${Array.isArray(data) ? 'Array' : typeof data}`);
     
-    const uuidTables = ['students', 'class_rooms', 'student_savings', 'student_attendance', 'student_health_records', 'academic_years', 'director_events', 'profiles', 'schools', 'documents', 'finance_accounts', 'finance_transactions'];
+    const uuidTables = ['students', 'class_rooms', 'student_savings', 'student_attendance', 'student_health_records', 'academic_years', 'director_events', 'profiles', 'schools', 'documents', 'finance_accounts', 'finance_transactions', 'plan_project_expenses'];
 
     if (!data || (typeof data !== 'object' && !Array.isArray(data))) {
       console.error(`[POST /api/table/${tableName}] Invalid data format:`, typeof data);

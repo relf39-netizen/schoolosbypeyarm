@@ -227,6 +227,16 @@ export interface Project {
   fiscalYear?: string; // ปีงบประมาณ (e.g. "2567", "2568")
 }
 
+export interface ProjectExpense {
+  id: string;
+  projectId: string;
+  schoolId: string;
+  description: string;
+  amount: number;
+  date: string;
+  createdAt?: string;
+}
+
 export interface PlanDepartment {
   id: string;
   schoolId?: string;
