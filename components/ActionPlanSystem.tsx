@@ -496,16 +496,19 @@ const ActionPlanSystem: React.FC<ActionPlanSystemProps> = ({ currentUser, curren
                                                         <Wallet size={12}/> บันทึกใช้จ่าย
                                                     </button>
                                                 )}
+                                                {isDirector && (
+                                                    <button onClick={() => handleDeleteProject(activeDept.id, p.id)} className="p-2 text-rose-300 hover:text-rose-600 transition-all bg-rose-50/50 rounded-xl border border-rose-100 shadow-sm"><Trash2 size={16}/></button>
+                                                )}
                                                 {isAdmin && p.status !== 'Completed' && (
                                                     <button onClick={() => { setEditingProject({deptId: activeDept.id, project: {...p}}); setShowEditProjectModal(true); }} className="p-2 text-slate-400 hover:text-indigo-600 bg-white border rounded-xl shadow-sm transition-all"><Edit3 size={16}/></button>
                                                 )}
-                                                {isDirector && p.status === 'Draft' && (
-                                                    <button onClick={() => handleStatusChange(activeDept.id, p.id, 'Approved')} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-md hover:bg-indigo-700 transition-all">อนุมัติ</button>
+                                                {isPlanOfficer && p.status === 'Draft' && (
+                                                    <button onClick={() => handleStatusChange(activeDept.id, p.id, 'Approved')} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-md hover:bg-indigo-700 transition-all">อนุมัติโครงการ</button>
                                                 )}
                                                 {isPlanOfficer && p.status === 'Approved' && (
                                                     <button onClick={() => { setSettleProjectData({deptId: activeDept.id, project: p}); setActualAmountInput((p.actualExpense || 0).toString()); setShowSettlementModal(true); }} className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase shadow-md hover:bg-emerald-700 transition-all">ปิดโครงการ</button>
                                                 )}
-                                                {isAdmin && p.status === 'Draft' && (
+                                                {isAdmin && p.status === 'Draft' && !isDirector && (
                                                     <button onClick={() => handleDeleteProject(activeDept.id, p.id)} className="p-2 text-slate-300 hover:text-rose-600 transition-all"><Trash2 size={16}/></button>
                                                 )}
                                             </div>
