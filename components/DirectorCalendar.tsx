@@ -46,11 +46,27 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
     const isAdmin = (currentUser.roles || []).includes('SYSTEM_ADMIN');
     const canEdit = isDocOfficer || isDirector || isAdmin;
 
-    // Helper to parse "YYYY-MM-DD" string correctly in local time
+    // Helper to parse date string correctly in local time (robust version)
     const parseDateLocal = (dateStr: string) => {
         if (!dateStr) return new Date();
-        const [y, m, d] = dateStr.split('-').map(Number);
-        return new Date(y, m - 1, d);
+        // If it's an ISO string or has time component
+        if (dateStr.includes('T')) return new Date(dateStr);
+        
+        // If it's YYYY-MM-DD
+        if (dateStr.includes('-')) {
+            const parts = dateStr.split('-');
+            if (parts.length >= 3) {
+                const y = parseInt(parts[0]);
+                const m = parseInt(parts[1]);
+                const d = parseInt(parts[2]);
+                if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+                    return new Date(y, m - 1, d);
+                }
+            }
+        }
+        
+        const d = new Date(dateStr);
+        return isNaN(d.getTime()) ? new Date() : d;
     };
 
     const getThaiFullDate = (dateStr: string) => { 
@@ -101,14 +117,22 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
         const fetchEvents = async () => {
             if (isSupabaseConfigured && supabase) {
                 try {
-                    const { data, error } = await supabase
+                    const { data: directorData, error: directorError } = await supabase
                         .from('director_events')
                         .select('*')
                         .eq('school_id', currentUser.schoolId);
                     
-                    if (error) throw error;
+                    if (directorError) throw directorError;
+
+                    // Fetch Academic Calendar too
+                    const { data: academicData, error: academicError } = await supabase
+                        .from('academic_calendar')
+                        .select('*')
+                        .eq('school_id', currentUser.schoolId);
+
+                    if (academicError) throw academicError;
                     
-                    const mappedEvents: DirectorEvent[] = (data || []).map((d: any) => ({
+                    const mappedDirectorEvents: DirectorEvent[] = (directorData || []).map((d: any) => ({
                         id: d.id,
                         schoolId: d.school_id,
                         title: d.title,
@@ -121,8 +145,29 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                         notifiedOneDayBefore: d.notified_one_day_before,
                         notifiedOnDay: d.notified_on_day
                     }));
+
+                    const mappedAcademicEvents: DirectorEvent[] = (academicData || []).map((d: any) => {
+                        // Ensure date is in YYYY-MM-DD format if possible
+                        let eventDate = d.start_date;
+                        if (eventDate && eventDate.includes('T')) {
+                            eventDate = eventDate.split('T')[0];
+                        }
+                        
+                        return {
+                            id: `acad_${d.id}`,
+                            schoolId: d.school_id,
+                            title: `[วิชาการ] ${d.title}`,
+                            description: d.description,
+                            date: eventDate || formatDateLocal(new Date()),
+                            startTime: '08:30',
+                            location: 'โรงเรียน',
+                            createdBy: 'SYSTEM',
+                            notifiedOneDayBefore: true,
+                            notifiedOnDay: true
+                        };
+                    });
                     
-                    setEvents(mappedEvents);
+                    setEvents([...mappedDirectorEvents, ...mappedAcademicEvents]);
                 } catch (e) {
                     console.error("Error fetching events from Supabase:", e);
                     setEvents(MOCK_DIRECTOR_EVENTS);
@@ -275,6 +320,10 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
     };
 
     const handleDeleteEvent = async (id: string) => { 
+        if (id.startsWith('acad_')) {
+            alert("ไม่สามารถลบกิจกรรมวิชาการจากหน้านี้ได้ กรุณาจัดการในระบบงานวิชาการ");
+            return;
+        }
         if (confirm("คุณแน่ใจหรือไม่ว่าต้องการลบรายการปฏิทินนี้?")) { 
             try {
                 if (isSupabaseConfigured && supabase) {
@@ -429,8 +478,9 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                                     dayEventsForSelected.map(event => {
                                         const isPast = parseDateLocal(event.date).getTime() < today.getTime();
                                         const isToday = event.date === formatDateLocal(new Date());
+                                        const isAcademic = event.id.startsWith('acad_');
                                         return (
-                                            <div key={event.id} className={`p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all hover:shadow-md relative overflow-hidden ${isPast ? 'bg-slate-50 border-slate-200' : 'bg-white border-purple-100 hover:border-purple-200'}`}>
+                                            <div key={event.id} className={`p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border-2 transition-all hover:shadow-md relative overflow-hidden ${isPast ? 'bg-slate-50 border-slate-200' : isAcademic ? 'bg-indigo-50/30 border-indigo-100 hover:border-indigo-200' : 'bg-white border-purple-100 hover:border-purple-200'}`}>
                                                 {isPast && (
                                                     <div className="absolute top-0 right-0 p-3 z-10">
                                                         <X className="text-slate-300 md:w-10 md:h-10" size={32} strokeWidth={1}/>
@@ -442,13 +492,13 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                                                     </div>
                                                 )}
                                                 <div className="flex flex-col md:flex-row gap-4 md:gap-6 relative z-10">
-                                                    <div className={`flex flex-col items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-2xl md:rounded-3xl shrink-0 ${isPast ? 'bg-slate-200 text-slate-400' : 'bg-purple-100 text-purple-700'}`}>
+                                                    <div className={`flex flex-col items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-2xl md:rounded-3xl shrink-0 ${isPast ? 'bg-slate-200 text-slate-400' : isAcademic ? 'bg-indigo-100 text-indigo-700' : 'bg-purple-100 text-purple-700'}`}>
                                                         <Clock size={16} className="mb-1 md:w-5 md:h-5"/>
                                                         <span className="text-xs md:text-sm font-black">{event.startTime} น.</span>
                                                     </div>
                                                     <div className="flex-1 space-y-1 md:space-y-2">
                                                         <div className="flex items-center gap-2">
-                                                            {!isPast && <Circle className="text-purple-600 fill-purple-600 md:w-2.5 md:h-2.5" size={8} />}
+                                                            {!isPast && <Circle className={`${isAcademic ? 'text-indigo-600 fill-indigo-600' : 'text-purple-600 fill-purple-600'} md:w-2.5 md:h-2.5`} size={8} />}
                                                             <h3 className={`text-lg md:text-xl font-black ${isPast ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{event.title}</h3>
                                                         </div>
                                                         <div className="flex flex-wrap gap-3 md:gap-4 text-[10px] md:text-xs font-bold text-slate-400">
@@ -457,7 +507,7 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                                                         {event.description && <p className="text-xs md:text-sm text-slate-500 font-medium italic mt-1 md:mt-2">"{event.description}"</p>}
                                                     </div>
                                                     <div className="flex items-end justify-end">
-                                                        {canEdit && <button onClick={() => handleDeleteEvent(event.id)} className="p-2 md:p-3 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl md:rounded-2xl transition-all active:scale-95"><Trash2 size={18} className="md:w-5 md:h-5"/></button>}
+                                                        {canEdit && !isAcademic && <button onClick={() => handleDeleteEvent(event.id)} className="p-2 md:p-3 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl md:rounded-2xl transition-all active:scale-95"><Trash2 size={18} className="md:w-5 md:h-5"/></button>}
                                                     </div>
                                                 </div>
                                             </div>
@@ -487,6 +537,7 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                                 const todayStr = formatDateLocal(new Date());
                                 const isToday = event.date === todayStr;
                                 const isPast = parseDateLocal(event.date).getTime() < today.getTime();
+                                const isAcademic = event.id.startsWith('acad_');
                                 return (
                                     <div key={event.id} className={`bg-white rounded-[1.5rem] md:rounded-[2rem] p-4 md:p-6 shadow-sm border transition-all hover:shadow-md relative overflow-hidden ${isToday ? 'border-purple-500 ring-2 ring-purple-100' : 'border-slate-200'} ${isPast ? 'opacity-70' : ''}`}>
                                         {isPast && (
@@ -495,25 +546,25 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                                             </div>
                                         )}
                                         <div className="flex flex-col md:flex-row gap-4 md:gap-6">
-                                            <div className={`flex flex-col items-center justify-center w-20 h-20 md:w-24 md:h-24 rounded-2xl md:rounded-3xl shrink-0 transition-transform hover:scale-105 ${isToday ? 'bg-purple-600 text-white shadow-xl shadow-purple-200' : (isPast ? 'bg-slate-100 text-slate-400' : 'bg-purple-50 text-purple-700')}`}>
+                                            <div className={`flex flex-col items-center justify-center w-20 h-20 md:w-24 md:h-24 rounded-2xl md:rounded-3xl shrink-0 transition-transform hover:scale-105 ${isToday ? 'bg-purple-600 text-white shadow-xl shadow-purple-200' : (isPast ? 'bg-slate-100 text-slate-400' : isAcademic ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-200' : 'bg-purple-50 text-purple-700')}`}>
                                                 <span className="text-[9px] md:text-[10px] font-black uppercase tracking-widest">{getThaiMonthShort(event.date)}</span>
                                                 <span className="text-2xl md:text-3xl font-black">{parseDateLocal(event.date).getDate()}</span>
                                             </div>
                                             <div className="flex-1 space-y-1 md:space-y-2">
                                                 <div className="flex items-center gap-2">
                                                     {isToday && <span className="bg-red-500 text-white text-[8px] md:text-[9px] px-2 md:px-3 py-1 rounded-full font-black uppercase tracking-widest animate-pulse shadow-lg shadow-red-200">วันนี้</span>}
-                                                    {!isPast && <Circle className="text-purple-600 fill-purple-600 md:w-2.5 md:h-2.5" size={8} />}
+                                                    {!isPast && <Circle className={`${isAcademic ? 'text-indigo-600 fill-indigo-600' : 'text-purple-600 fill-purple-600'} md:w-2.5 md:h-2.5`} size={8} />}
                                                     <h3 className="text-lg md:text-xl font-black text-slate-800 tracking-tight">{event.title}</h3>
                                                 </div>
                                                 <p className="text-xs md:text-sm font-bold text-slate-500">{getThaiFullDate(event.date)}</p>
                                                 <div className="flex flex-wrap gap-3 md:gap-4 text-[10px] md:text-xs font-bold text-slate-400 mt-1 md:mt-2">
-                                                    <div className="flex items-center gap-1.5"><Clock size={14} className="text-purple-400 md:w-4 md:h-4"/> {event.startTime} น.</div>
+                                                    <div className="flex items-center gap-1.5"><Clock size={14} className={`${isAcademic ? 'text-indigo-400' : 'text-purple-400'} md:w-4 md:h-4`}/> {event.startTime} น.</div>
                                                     {event.location && (<div className="flex items-center gap-1.5"><MapPin size={14} className="text-red-400 md:w-4 md:h-4"/> {event.location}</div>)}
                                                 </div>
                                                 {event.description && <p className="text-xs md:text-sm text-slate-600 font-medium bg-slate-50 p-3 md:p-4 rounded-xl md:rounded-2xl mt-3 md:mt-4 border border-slate-100 italic">"{event.description}"</p>}
                                             </div>
                                             <div className="flex items-end justify-end">
-                                                {canEdit && <button onClick={() => handleDeleteEvent(event.id)} className="p-2 md:p-3 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl md:rounded-2xl transition-all active:scale-95"><Trash2 size={20} className="md:w-5.5 md:h-5.5"/></button>}
+                                                {canEdit && !isAcademic && <button onClick={() => handleDeleteEvent(event.id)} className="p-2 md:p-3 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl md:rounded-2xl transition-all active:scale-95"><Trash2 size={20} className="md:w-5.5 md:h-5.5"/></button>}
                                             </div>
                                         </div>
                                     </div>
