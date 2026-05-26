@@ -34,6 +34,19 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
     const [activeTab, setActiveTab] = useState<'UPCOMING' | 'PAST' | 'TEACHER_TRAVEL'>('UPCOMING');
     const [viewMode, setViewMode] = useState<'CALENDAR' | 'LIST'>('CALENDAR');
     const [showForm, setShowForm] = useState(false);
+    const [showTravelForm, setShowTravelForm] = useState(false);
+    
+    const [travelForm, setTravelForm] = useState({
+        teacherId: '',
+        teacherName: '',
+        startDate: formatDateLocal(new Date()),
+        endDate: formatDateLocal(new Date()),
+        reason: ''
+    });
+
+    const teachers = useMemo(() => {
+        return allTeachers || [];
+    }, [allTeachers]);
     
     const [selectedDay, setSelectedDay] = useState<string>(formatDateLocal(new Date()));
     const [newEvent, setNewEvent] = useState<Partial<DirectorEvent>>({ 
@@ -94,6 +107,141 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
     };
 
     // --- Data Fetching ---
+    const handleAddTravel = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!travelForm.teacherId || !travelForm.reason) return;
+
+        try {
+            if (isSupabaseConfigured && supabase) {
+                const teacher = teachers.find(t => t.id === travelForm.teacherId);
+                const travelData = {
+                    school_id: currentUser.schoolId,
+                    teacher_id: travelForm.teacherId,
+                    teacher_name: teacher?.name || 'ไม่ระบุชื่อ',
+                    type: 'OfficialBusiness',
+                    start_date: travelForm.startDate,
+                    end_date: travelForm.endDate,
+                    reason: travelForm.reason,
+                    status: 'Approved', 
+                    created_at: new Date().toISOString()
+                };
+
+                const { error } = await supabase.from('leave_requests').insert([travelData]);
+                if (error) throw error;
+                
+                setShowTravelForm(false);
+                setTravelForm({
+                    teacherId: '',
+                    teacherName: '',
+                    startDate: formatDateLocal(new Date()),
+                    endDate: formatDateLocal(new Date()),
+                    reason: ''
+                });
+                
+                // Refresh official travels
+                const { data: travelDataRefreshed } = await supabase
+                    .from('leave_requests')
+                    .select('*')
+                    .eq('school_id', currentUser.schoolId)
+                    .eq('type', 'OfficialBusiness')
+                    .eq('status', 'Approved');
+                
+                if (travelDataRefreshed) {
+                    setOfficialTravels(travelDataRefreshed);
+                }
+            }
+        } catch (e) {
+            console.error("Error adding travel record:", e);
+            alert("ไม่สามารถบันทึกข้อมูลได้");
+        }
+    };
+
+    const fetchEvents = async () => {
+        if (isSupabaseConfigured && supabase) {
+            try {
+                const { data: directorData, error: directorError } = await supabase
+                    .from('director_events')
+                    .select('*')
+                    .eq('school_id', currentUser.schoolId);
+                
+                if (directorError) throw directorError;
+
+                // Fetch Academic Calendar too
+                const { data: academicData, error: academicError } = await supabase
+                    .from('academic_calendar')
+                    .select('*')
+                    .eq('school_id', currentUser.schoolId);
+
+                if (academicError) throw academicError;
+                
+                const mappedDirectorEvents: DirectorEvent[] = (directorData || []).map((d: any) => {
+                    // Normalize date to YYYY-MM-DD
+                    let eventDate = d.date;
+                    if (eventDate && eventDate.includes('T')) {
+                        eventDate = eventDate.split('T')[0];
+                    }
+
+                    return {
+                        id: d.id,
+                        schoolId: d.school_id,
+                        title: d.title,
+                        description: d.description,
+                        date: eventDate,
+                        startTime: d.start_time,
+                        endTime: d.end_time,
+                        location: d.location,
+                        createdBy: d.created_by,
+                        notifiedOneDayBefore: d.notified_one_day_before,
+                        notifiedOnDay: d.notified_on_day
+                    };
+                });
+
+                const mappedAcademicEvents: DirectorEvent[] = (academicData || []).map((d: any) => {
+                    // Ensure date is in YYYY-MM-DD format if possible
+                    let eventDate = d.start_date;
+                    if (eventDate && eventDate.includes('T')) {
+                        eventDate = eventDate.split('T')[0];
+                    }
+                    
+                    return {
+                        id: `acad_${d.id}`,
+                        schoolId: d.school_id,
+                        title: `[วิชาการ] ${d.title}`,
+                        description: d.description,
+                        date: eventDate || formatDateLocal(new Date()),
+                        startTime: '08:30',
+                        location: 'โรงเรียน',
+                        createdBy: 'SYSTEM',
+                        notifiedOneDayBefore: true,
+                        notifiedOnDay: true
+                    };
+                });
+                
+                setEvents([...mappedDirectorEvents, ...mappedAcademicEvents]);
+
+                // Fetch Official Travel (Leave requests of type OfficialBusiness)
+                const { data: travelData, error: travelError } = await supabase
+                    .from('leave_requests')
+                    .select('*')
+                    .eq('school_id', currentUser.schoolId)
+                    .eq('type', 'OfficialBusiness')
+                    .eq('status', 'Approved');
+                
+                if (!travelError) {
+                    setOfficialTravels(travelData || []);
+                }
+            } catch (e) {
+                console.error("Error fetching events from Supabase:", e);
+                setEvents(MOCK_DIRECTOR_EVENTS);
+            } finally {
+                setIsLoading(false);
+            }
+        } else {
+            setEvents(MOCK_DIRECTOR_EVENTS);
+            setIsLoading(false);
+        }
+    };
+
     useEffect(() => {
         const loadConfigs = async () => {
             if (isSupabaseConfigured && supabase) {
@@ -118,96 +266,7 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
             }
         };
         loadConfigs();
-
-        const fetchEvents = async () => {
-            if (isSupabaseConfigured && supabase) {
-                try {
-                    const { data: directorData, error: directorError } = await supabase
-                        .from('director_events')
-                        .select('*')
-                        .eq('school_id', currentUser.schoolId);
-                    
-                    if (directorError) throw directorError;
-
-                    // Fetch Academic Calendar too
-                    const { data: academicData, error: academicError } = await supabase
-                        .from('academic_calendar')
-                        .select('*')
-                        .eq('school_id', currentUser.schoolId);
-
-                    if (academicError) throw academicError;
-                    
-                    const mappedDirectorEvents: DirectorEvent[] = (directorData || []).map((d: any) => {
-                        // Normalize date to YYYY-MM-DD
-                        let eventDate = d.date;
-                        if (eventDate && eventDate.includes('T')) {
-                            eventDate = eventDate.split('T')[0];
-                        }
-
-                        return {
-                            id: d.id,
-                            schoolId: d.school_id,
-                            title: d.title,
-                            description: d.description,
-                            date: eventDate,
-                            startTime: d.start_time,
-                            endTime: d.end_time,
-                            location: d.location,
-                            createdBy: d.created_by,
-                            notifiedOneDayBefore: d.notified_one_day_before,
-                            notifiedOnDay: d.notified_on_day
-                        };
-                    });
-
-                    const mappedAcademicEvents: DirectorEvent[] = (academicData || []).map((d: any) => {
-                        // Ensure date is in YYYY-MM-DD format if possible
-                        let eventDate = d.start_date;
-                        if (eventDate && eventDate.includes('T')) {
-                            eventDate = eventDate.split('T')[0];
-                        }
-                        
-                        return {
-                            id: `acad_${d.id}`,
-                            schoolId: d.school_id,
-                            title: `[วิชาการ] ${d.title}`,
-                            description: d.description,
-                            date: eventDate || formatDateLocal(new Date()),
-                            startTime: '08:30',
-                            location: 'โรงเรียน',
-                            createdBy: 'SYSTEM',
-                            notifiedOneDayBefore: true,
-                            notifiedOnDay: true
-                        };
-                    });
-                    
-                    setEvents([...mappedDirectorEvents, ...mappedAcademicEvents]);
-
-                    // Fetch Official Travel (Leave requests of type OfficialBusiness)
-                    const { data: travelData, error: travelError } = await supabase
-                        .from('leave_requests')
-                        .select('*')
-                        .eq('school_id', currentUser.schoolId)
-                        .eq('type', 'OfficialBusiness')
-                        .eq('status', 'Approved');
-                    
-                    if (!travelError) {
-                        setOfficialTravels(travelData || []);
-                    }
-                } catch (e) {
-                    console.error("Error fetching events from Supabase:", e);
-                    setEvents(MOCK_DIRECTOR_EVENTS);
-                } finally {
-                    setIsLoading(false);
-                }
-            } else {
-                setEvents(MOCK_DIRECTOR_EVENTS);
-                setIsLoading(false);
-            }
-        };
-
         fetchEvents();
-        
-        // Note: Real-time updates could be added here with supabase.channel() if needed
     }, [currentUser.schoolId]);
 
     // --- Auto-Notification Trigger Logic ---
@@ -627,48 +686,60 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                         <div className="space-y-6 animate-fade-in">
                             {/* Summary Chart */}
                             <div className="bg-white p-6 md:p-8 rounded-[2rem] border border-slate-200 shadow-sm">
-                                <div className="flex items-center gap-3 mb-6">
-                                    <div className="p-2 bg-blue-100 text-blue-600 rounded-xl">
-                                        <BarChart3 size={20}/>
+                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-blue-100 text-blue-600 rounded-xl">
+                                            <BarChart3 size={20}/>
+                                        </div>
+                                        <h4 className="text-lg font-black text-slate-800">สรุปจำนวนวันไปราชการของคุณครู</h4>
                                     </div>
-                                    <h4 className="text-lg font-black text-slate-800">สรุปจำนวนวันไปราชการของคุณครู (เรียงจากมากไปน้อย)</h4>
+                                    <button 
+                                        onClick={() => setShowTravelForm(true)} 
+                                        className="flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-black shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95"
+                                    >
+                                        <Plus size={18}/> บันทึกการไปราชการ
+                                    </button>
                                 </div>
                                 
                                 <div className="h-[300px] md:h-[400px] w-full">
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={travelStats} layout="vertical" margin={{ left: 20, right: 30, top: 20, bottom: 20 }}>
+                                        <BarChart data={travelStats} layout="vertical" margin={{ left: 40, right: 30, top: 20, bottom: 20 }}>
                                             <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0"/>
-                                            <XAxis type="number" hide />
+                                            <XAxis type="number" tick={{ fontSize: 10, fontWeight: 700, fill: '#64748B' }} />
                                             <YAxis 
                                                 dataKey="name" 
                                                 type="category" 
                                                 width={100} 
-                                                tick={{ fontSize: 12, fontWeight: 700, fill: '#64748B' }}
+                                                tick={{ fontSize: 11, fontWeight: 800, fill: '#1E293B' }}
                                                 axisLine={false}
                                                 tickLine={false}
                                             />
                                             <Tooltip 
-                                                cursor={{ fill: 'transparent' }} 
+                                                cursor={{ fill: 'rgba(59, 130, 246, 0.05)' }} 
                                                 content={({ active, payload }) => {
                                                     if (active && payload && payload.length) {
                                                         return (
-                                                            <div className="bg-white p-3 border shadow-xl rounded-xl font-bold text-sm">
-                                                                <p className="text-slate-800">{payload[0].payload.name}</p>
-                                                                <p className="text-blue-600">ไปราชการ: {payload[0].value} วัน</p>
+                                                            <div className="bg-white p-4 border-2 border-blue-50 shadow-2xl rounded-2xl font-bold">
+                                                                <p className="text-slate-800 text-base mb-1">{payload[0].payload.name}</p>
+                                                                <div className="flex items-center gap-2 text-blue-600">
+                                                                    <div className="w-2 h-2 rounded-full bg-blue-600"></div>
+                                                                    <span>จำนวนสะสม: {payload[0].value} วัน</span>
+                                                                </div>
                                                             </div>
                                                         );
                                                     }
                                                     return null;
                                                 }}
                                             />
-                                            <Bar dataKey="days" radius={[0, 10, 10, 0]} barSize={20}>
+                                            <Bar dataKey="days" radius={[0, 10, 10, 0]} barSize={24}>
                                                 {travelStats.map((entry, index) => (
-                                                    <Cell key={`cell-${index}`} fill={index === 0 ? '#4F46E5' : '#818CF8'} />
+                                                    <Cell key={`cell-${index}`} fill={index === 0 ? '#1D4ED8' : '#60A5FA'} />
                                                 ))}
                                             </Bar>
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
+                                <p className="text-[10px] font-bold text-slate-400 mt-4 text-center">* เรียงลำดับจากจำนวนวันไปราชการสงสุดลงมา</p>
                             </div>
 
                             {/* List of Travels */}
@@ -783,6 +854,82 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                                 <button type="button" onClick={() => setShowForm(false)} className="flex-1 py-3 md:py-5 bg-slate-100 text-slate-600 rounded-xl md:rounded-2xl font-black hover:bg-slate-200 uppercase tracking-widest text-[10px] md:text-xs transition-all">ยกเลิก</button>
                                 <button type="submit" className="flex-[2] py-3 md:py-5 bg-purple-600 text-white rounded-xl md:rounded-2xl font-black text-base md:text-lg shadow-xl shadow-purple-200 hover:bg-purple-700 active:scale-95 transition-all">บันทึกภารกิจ</button>
                             </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Teacher Travel Form Modal */}
+            {showTravelForm && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+                    <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+                        <div className="px-8 pt-8 pb-6 bg-blue-600 text-white relative">
+                            <button onClick={() => setShowTravelForm(false)} className="absolute top-6 right-6 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-all"><X size={20}/></button>
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-white/20 rounded-2xl"><User size={24}/></div>
+                                <div>
+                                    <h3 className="text-xl font-black">บันทึกข้อมูลการไปราชการ</h3>
+                                    <p className="text-blue-100 text-xs font-bold">บันทึกประวัติเพื่อแจ้งให้ผู้อำนวยการทราบ</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <form onSubmit={handleAddTravel} className="p-8 space-y-6">
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">เลือกคุณครูที่ไปราชการ</label>
+                                    <select 
+                                        required
+                                        value={travelForm.teacherId}
+                                        onChange={e => setTravelForm({...travelForm, teacherId: e.target.value})}
+                                        className="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-700 font-bold focus:border-blue-500 focus:bg-white outline-none transition-all"
+                                    >
+                                        <option value="">- เลือกรายชื่อคุณครู -</option>
+                                        {teachers.map(t => (
+                                            <option key={t.id} value={t.id}>{t.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">วันที่เริ่มต้น</label>
+                                        <input 
+                                            type="date" 
+                                            required
+                                            value={travelForm.startDate}
+                                            onChange={e => setTravelForm({...travelForm, startDate: e.target.value})}
+                                            className="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-700 font-bold focus:border-blue-500 focus:bg-white outline-none transition-all"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">วันที่สิ้นสุด</label>
+                                        <input 
+                                            type="date" 
+                                            required
+                                            value={travelForm.endDate}
+                                            onChange={e => setTravelForm({...travelForm, endDate: e.target.value})}
+                                            className="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-700 font-bold focus:border-blue-500 focus:bg-white outline-none transition-all"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">รายละเอียด / สถานที่ไปราชการ</label>
+                                    <textarea 
+                                        required
+                                        value={travelForm.reason}
+                                        onChange={e => setTravelForm({...travelForm, reason: e.target.value})}
+                                        placeholder="เช่น อบรมการใช้งานระบบงานวิชาการ ณ เขตพื้นที่..."
+                                        rows={3}
+                                        className="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-700 font-bold focus:border-blue-500 focus:bg-white outline-none transition-all resize-none"
+                                    ></textarea>
+                                </div>
+                            </div>
+
+                            <button type="submit" className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all active:scale-[0.98] uppercase tracking-widest text-sm">
+                                บันทึกข้อมูล
+                            </button>
                         </form>
                     </div>
                 </div>
