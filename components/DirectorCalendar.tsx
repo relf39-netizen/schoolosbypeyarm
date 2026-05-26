@@ -4,8 +4,12 @@ import { MOCK_DIRECTOR_EVENTS } from '../constants';
 import { 
     Calendar as CalendarIcon, Clock, MapPin, Plus, Trash2, Bell, 
     ServerOff, ListFilter, History, CheckCircle, ChevronLeft, 
-    ChevronRight, Circle, X, CalendarDays, Layout, AlertCircle, RefreshCw, Loader
+    ChevronRight, Circle, X, CalendarDays, Layout, AlertCircle, RefreshCw, Loader,
+    User, BarChart3, TrendingUp
 } from 'lucide-react';
+import { 
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
+} from 'recharts';
 import { supabase, isConfigured as isSupabaseConfigured } from '../supabaseClient';
 import { sendTelegramMessage } from '../utils/telegram';
 
@@ -24,9 +28,10 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
     };
 
     const [events, setEvents] = useState<DirectorEvent[]>([]);
+    const [officialTravels, setOfficialTravels] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [sysConfig, setSysConfig] = useState<SystemConfig | null>(null);
-    const [activeTab, setActiveTab] = useState<'UPCOMING' | 'PAST'>('UPCOMING');
+    const [activeTab, setActiveTab] = useState<'UPCOMING' | 'PAST' | 'TEACHER_TRAVEL'>('UPCOMING');
     const [viewMode, setViewMode] = useState<'CALENDAR' | 'LIST'>('CALENDAR');
     const [showForm, setShowForm] = useState(false);
     
@@ -176,6 +181,18 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                     });
                     
                     setEvents([...mappedDirectorEvents, ...mappedAcademicEvents]);
+
+                    // Fetch Official Travel (Leave requests of type OfficialBusiness)
+                    const { data: travelData, error: travelError } = await supabase
+                        .from('leave_requests')
+                        .select('*')
+                        .eq('school_id', currentUser.schoolId)
+                        .eq('type', 'OfficialBusiness')
+                        .eq('status', 'Approved');
+                    
+                    if (!travelError) {
+                        setOfficialTravels(travelData || []);
+                    }
                 } catch (e) {
                     console.error("Error fetching events from Supabase:", e);
                     setEvents(MOCK_DIRECTOR_EVENTS);
@@ -240,6 +257,37 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
 
     const today = new Date(); today.setHours(0, 0, 0, 0);
     
+    // Calculate Stats for Official Travel
+    const travelStats = useMemo(() => {
+        const stats: { [name: string]: { days: number, id: string } } = {};
+        
+        officialTravels.forEach(request => {
+            const start = parseDateLocal(request.startDate);
+            const end = parseDateLocal(request.endDate);
+            // Rough calculation of days
+            const diffTime = Math.abs(end.getTime() - start.getTime());
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+            
+            if (stats[request.teacherName]) {
+                stats[request.teacherName].days += diffDays;
+            } else {
+                stats[request.teacherName] = { days: diffDays, id: request.teacherId };
+            }
+        });
+
+        return Object.entries(stats)
+            .map(([name, data]) => ({ name, days: data.days, id: data.id }))
+            .sort((a, b) => b.days - a.days);
+    }, [officialTravels]);
+
+    const teachersTravelingToday = useMemo(() => {
+        return officialTravels.filter(trip => {
+            const start = trip.startDate;
+            const end = trip.endDate;
+            return selectedDay >= start && selectedDay <= end;
+        });
+    }, [officialTravels, selectedDay]);
+
     const upcomingEvents = useMemo(() => 
         events.filter(e => parseDateLocal(e.date).getTime() >= today.getTime())
               .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime)),
@@ -490,6 +538,28 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                             </h3>
 
                             <div className="space-y-4">
+                                {/* Teachers on Business Trip Today */}
+                                {teachersTravelingToday.length > 0 && (
+                                    <div className="mb-6 md:mb-8">
+                                        <h4 className="text-[10px] md:text-xs font-black text-blue-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                            <TrendingUp size={14}/> คุณครูไปราชการ ({teachersTravelingToday.length} ท่าน)
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {teachersTravelingToday.map(trip => (
+                                                <div key={trip.id} className="bg-blue-50/50 border border-blue-100 p-3 md:p-4 rounded-xl flex items-center gap-3">
+                                                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
+                                                        <User size={20}/>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-black text-slate-800">{trip.teacherName}</p>
+                                                        <p className="text-[10px] font-bold text-blue-600 italic">"{trip.reason}"</p>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {dayEventsForSelected.length === 0 ? (
                                     <div className="text-center py-16 md:py-20 bg-slate-50/50 rounded-[1.5rem] md:rounded-[2rem] border-2 border-dashed border-slate-100 flex flex-col items-center gap-4">
                                         <CalendarIcon size={40} className="text-slate-200 md:w-12 md:h-12"/>
@@ -548,9 +618,87 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                         <button onClick={() => setActiveTab('PAST')} className={`px-4 md:px-6 py-1.5 md:py-2 rounded-lg md:rounded-xl text-xs md:text-sm font-black flex items-center gap-2 transition-all ${activeTab === 'PAST' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'}`}>
                             <History size={16} className="md:w-4.5 md:h-4.5"/> ภารกิจที่ผ่านมา ({pastEvents.length})
                         </button>
+                        <button onClick={() => setActiveTab('TEACHER_TRAVEL')} className={`px-4 md:px-6 py-1.5 md:py-2 rounded-lg md:rounded-xl text-xs md:text-sm font-black flex items-center gap-2 transition-all ${activeTab === 'TEACHER_TRAVEL' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>
+                            <User size={16} className="md:w-4.5 md:h-4.5"/> การไปราชการ ({officialTravels.length})
+                        </button>
                     </div>
 
-                    <div className="space-y-3 md:space-y-4">
+                    {activeTab === 'TEACHER_TRAVEL' ? (
+                        <div className="space-y-6 animate-fade-in">
+                            {/* Summary Chart */}
+                            <div className="bg-white p-6 md:p-8 rounded-[2rem] border border-slate-200 shadow-sm">
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="p-2 bg-blue-100 text-blue-600 rounded-xl">
+                                        <BarChart3 size={20}/>
+                                    </div>
+                                    <h4 className="text-lg font-black text-slate-800">สรุปจำนวนวันไปราชการของคุณครู (เรียงจากมากไปน้อย)</h4>
+                                </div>
+                                
+                                <div className="h-[300px] md:h-[400px] w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={travelStats} layout="vertical" margin={{ left: 20, right: 30, top: 20, bottom: 20 }}>
+                                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0"/>
+                                            <XAxis type="number" hide />
+                                            <YAxis 
+                                                dataKey="name" 
+                                                type="category" 
+                                                width={100} 
+                                                tick={{ fontSize: 12, fontWeight: 700, fill: '#64748B' }}
+                                                axisLine={false}
+                                                tickLine={false}
+                                            />
+                                            <Tooltip 
+                                                cursor={{ fill: 'transparent' }} 
+                                                content={({ active, payload }) => {
+                                                    if (active && payload && payload.length) {
+                                                        return (
+                                                            <div className="bg-white p-3 border shadow-xl rounded-xl font-bold text-sm">
+                                                                <p className="text-slate-800">{payload[0].payload.name}</p>
+                                                                <p className="text-blue-600">ไปราชการ: {payload[0].value} วัน</p>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return null;
+                                                }}
+                                            />
+                                            <Bar dataKey="days" radius={[0, 10, 10, 0]} barSize={20}>
+                                                {travelStats.map((entry, index) => (
+                                                    <Cell key={`cell-${index}`} fill={index === 0 ? '#4F46E5' : '#818CF8'} />
+                                                ))}
+                                            </Bar>
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </div>
+
+                            {/* List of Travels */}
+                            <div className="space-y-4">
+                                <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest px-4">รายการบันทึกทั้งหมด</h4>
+                                {officialTravels.length === 0 ? (
+                                    <div className="text-center py-20 bg-white rounded-[2rem] border-2 border-dashed text-slate-300 font-bold italic">ไม่พบข้อมูลการไปราชการ</div>
+                                ) : (
+                                    [...officialTravels].sort((a, b) => b.startDate.localeCompare(a.startDate)).map(trip => (
+                                        <div key={trip.id} className="bg-white p-4 md:p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center">
+                                            <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 shrink-0">
+                                                <User size={30}/>
+                                            </div>
+                                            <div className="flex-1 text-center md:text-left">
+                                                <h5 className="text-lg font-black text-slate-800">{trip.teacherName}</h5>
+                                                <div className="flex flex-wrap justify-center md:justify-start gap-4 text-xs font-bold text-slate-500 mt-1">
+                                                    <div className="flex items-center gap-1.5"><CalendarIcon size={14}/> {getThaiFullDate(trip.startDate)} - {getThaiFullDate(trip.endDate)}</div>
+                                                    <div className="flex items-center gap-1.5"><TrendingUp size={14}/> {trip.reason}</div>
+                                                </div>
+                                            </div>
+                                            <div className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black shadow-lg shadow-blue-100 uppercase tracking-widest shrink-0">
+                                                อนุมัติแล้ว
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-3 md:space-y-4">
                         {displayedEvents.length === 0 ? (
                             <div className="text-center py-20 bg-white rounded-[1.5rem] md:rounded-[2rem] border-2 border-dashed text-slate-300 font-bold italic text-sm md:text-base">ไม่พบข้อมูลนัดหมาย</div>
                         ) : (
@@ -593,8 +741,9 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                             })
                         )}
                     </div>
-                </div>
-            )}
+                )}
+            </div>
+        )}
 
             {/* Event Form Modal */}
             {showForm && (
