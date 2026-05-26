@@ -10,7 +10,6 @@ import {
 import { 
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
 } from 'recharts';
-import { supabase, isConfigured as isSupabaseConfigured } from '../supabaseClient';
 import { sendTelegramMessage } from '../utils/telegram';
 
 interface DirectorCalendarProps {
@@ -106,147 +105,140 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
         return months[d.getMonth()]; 
     };
 
-    // --- Data Fetching ---
+    // --- Data Fetching (Using MySQL API) ---
+    const normalizeDate = (val: any) => {
+        if (!val) return '';
+        // If it's already a Date object (common with mysql2)
+        if (val instanceof Date) return formatDateLocal(val);
+        // If it's a string from an API
+        const str = String(val);
+        if (str.includes('T')) return str.split('T')[0];
+        return str;
+    };
+
     const handleAddTravel = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!travelForm.teacherId || !travelForm.reason) return;
 
         try {
-            if (isSupabaseConfigured && supabase) {
-                const teacher = teachers.find(t => t.id === travelForm.teacherId);
-                const travelData = {
-                    school_id: currentUser.schoolId,
-                    teacher_id: travelForm.teacherId,
-                    teacher_name: teacher?.name || 'ไม่ระบุชื่อ',
-                    type: 'OfficialBusiness',
-                    start_date: travelForm.startDate,
-                    end_date: travelForm.endDate,
-                    reason: travelForm.reason,
-                    status: 'Approved', 
-                    created_at: new Date().toISOString()
-                };
+            const teacher = teachers.find(t => t.id === travelForm.teacherId);
+            const travelData = {
+                school_id: currentUser.schoolId,
+                teacher_id: travelForm.teacherId,
+                teacher_name: teacher?.name || 'ไม่ระบุชื่อ',
+                type: 'OfficialBusiness',
+                start_date: travelForm.startDate,
+                end_date: travelForm.endDate,
+                reason: travelForm.reason,
+                status: 'Approved',
+                created_at: new Date().toISOString()
+            };
 
-                const { error } = await supabase.from('leave_requests').insert([travelData]);
-                if (error) throw error;
-                
-                setShowTravelForm(false);
-                setTravelForm({
-                    teacherId: '',
-                    teacherName: '',
-                    startDate: formatDateLocal(new Date()),
-                    endDate: formatDateLocal(new Date()),
-                    reason: ''
-                });
-                
-                // Refresh official travels
-                const { data: travelDataRefreshed } = await supabase
-                    .from('leave_requests')
-                    .select('*')
-                    .eq('school_id', currentUser.schoolId)
-                    .eq('type', 'OfficialBusiness')
-                    .eq('status', 'Approved');
-                
-                if (travelDataRefreshed) {
-                    setOfficialTravels(travelDataRefreshed);
-                }
-            }
+            const response = await fetch('/api/table/leave_requests', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(travelData)
+            });
+
+            if (!response.ok) throw new Error('Failed to save to MySQL');
+            
+            setShowTravelForm(false);
+            setTravelForm({
+                teacherId: '',
+                teacherName: '',
+                startDate: formatDateLocal(new Date()),
+                endDate: formatDateLocal(new Date()),
+                reason: ''
+            });
+            
+            // Refresh official travels
+            fetchOfficialTravels();
         } catch (e) {
             console.error("Error adding travel record:", e);
             alert("ไม่สามารถบันทึกข้อมูลได้");
         }
     };
 
-    const fetchEvents = async () => {
-        if (isSupabaseConfigured && supabase) {
-            try {
-                const { data: directorData, error: directorError } = await supabase
-                    .from('director_events')
-                    .select('*')
-                    .eq('school_id', currentUser.schoolId);
-                
-                if (directorError) throw directorError;
-
-                // Fetch Academic Calendar too
-                const { data: academicData, error: academicError } = await supabase
-                    .from('academic_calendar')
-                    .select('*')
-                    .eq('school_id', currentUser.schoolId);
-
-                if (academicError) throw academicError;
-                
-                const mappedDirectorEvents: DirectorEvent[] = (directorData || []).map((d: any) => {
-                    // Normalize date to YYYY-MM-DD
-                    let eventDate = d.date;
-                    if (eventDate && eventDate.includes('T')) {
-                        eventDate = eventDate.split('T')[0];
-                    }
-
-                    return {
-                        id: d.id,
-                        schoolId: d.school_id,
-                        title: d.title,
-                        description: d.description,
-                        date: eventDate,
-                        startTime: d.start_time,
-                        endTime: d.end_time,
-                        location: d.location,
-                        createdBy: d.created_by,
-                        notifiedOneDayBefore: d.notified_one_day_before,
-                        notifiedOnDay: d.notified_on_day
-                    };
-                });
-
-                const mappedAcademicEvents: DirectorEvent[] = (academicData || []).map((d: any) => {
-                    // Ensure date is in YYYY-MM-DD format if possible
-                    let eventDate = d.start_date;
-                    if (eventDate && eventDate.includes('T')) {
-                        eventDate = eventDate.split('T')[0];
-                    }
-                    
-                    return {
-                        id: `acad_${d.id}`,
-                        schoolId: d.school_id,
-                        title: `[วิชาการ] ${d.title}`,
-                        description: d.description,
-                        date: eventDate || formatDateLocal(new Date()),
-                        startTime: '08:30',
-                        location: 'โรงเรียน',
-                        createdBy: 'SYSTEM',
-                        notifiedOneDayBefore: true,
-                        notifiedOnDay: true
-                    };
-                });
-                
-                setEvents([...mappedDirectorEvents, ...mappedAcademicEvents]);
-
-                // Fetch Official Travel (Leave requests of type OfficialBusiness)
-                const { data: travelData, error: travelError } = await supabase
-                    .from('leave_requests')
-                    .select('*')
-                    .eq('school_id', currentUser.schoolId)
-                    .eq('type', 'OfficialBusiness')
-                    .eq('status', 'Approved');
-                
-                if (!travelError) {
-                    setOfficialTravels(travelData || []);
-                }
-            } catch (e) {
-                console.error("Error fetching events from Supabase:", e);
-                setEvents(MOCK_DIRECTOR_EVENTS);
-            } finally {
-                setIsLoading(false);
+    const fetchOfficialTravels = async () => {
+        try {
+            const response = await fetch(`/api/table/leave_requests?school_id=${currentUser.schoolId}&type=OfficialBusiness&status=Approved`);
+            if (response.ok) {
+                const data = await response.json();
+                const mapped = (data || []).map((r: any) => ({
+                    id: r.id,
+                    schoolId: r.school_id,
+                    teacherId: r.teacher_id,
+                    teacherName: r.teacher_name,
+                    startDate: normalizeDate(r.start_date),
+                    endDate: normalizeDate(r.end_date),
+                    reason: r.reason,
+                    status: r.status
+                }));
+                setOfficialTravels(mapped);
             }
-        } else {
+        } catch (e) {
+            console.error("Error fetching travel data:", e);
+        }
+    };
+
+    const fetchEvents = async () => {
+        try {
+            const directorRes = await fetch(`/api/table/director_events?school_id=${currentUser.schoolId}`);
+            const academicRes = await fetch(`/api/table/academic_calendar?school_id=${currentUser.schoolId}`);
+
+            if (!directorRes.ok || !academicRes.ok) throw new Error('Failed to fetch events from MySQL');
+
+            const directorData = await directorRes.json();
+            const academicData = await academicRes.json();
+
+            const mappedDirectorEvents: DirectorEvent[] = (directorData || []).map((d: any) => {
+                return {
+                    id: String(d.id),
+                    schoolId: d.school_id,
+                    title: d.title,
+                    description: d.description,
+                    date: normalizeDate(d.date),
+                    startTime: d.start_time,
+                    endTime: d.end_time,
+                    location: d.location,
+                    createdBy: d.created_by,
+                    notifiedOneDayBefore: d.notified_one_day_before === 1 || d.notified_one_day_before === true,
+                    notifiedOnDay: d.notified_on_day === 1 || d.notified_on_day === true
+                };
+            });
+
+            const mappedAcademicEvents: DirectorEvent[] = (academicData || []).map((d: any) => {
+                return {
+                    id: `acad_${d.id}`,
+                    schoolId: d.school_id,
+                    title: `[วิชาการ] ${d.title}`,
+                    description: d.description,
+                    date: normalizeDate(d.start_date) || formatDateLocal(new Date()),
+                    startTime: '08:30',
+                    location: 'โรงเรียน',
+                    createdBy: 'SYSTEM',
+                    notifiedOneDayBefore: true,
+                    notifiedOnDay: true
+                };
+            });
+
+            setEvents([...mappedDirectorEvents, ...mappedAcademicEvents]);
+            fetchOfficialTravels();
+        } catch (e) {
+            console.error("Error fetching events from MySQL:", e);
             setEvents(MOCK_DIRECTOR_EVENTS);
+        } finally {
             setIsLoading(false);
         }
     };
 
     useEffect(() => {
         const loadConfigs = async () => {
-            if (isSupabaseConfigured && supabase) {
-                try {
-                    const { data } = await supabase.from('school_configs').select('*').eq('school_id', currentUser.schoolId).maybeSingle();
+            try {
+                const response = await fetch(`/api/table/school_configs?school_id=${currentUser.schoolId}`);
+                if (response.ok) {
+                    const configs = await response.json();
+                    const data = configs[0];
                     if (data) {
                         setSysConfig({
                             driveFolderId: data.drive_folder_id || '',
@@ -256,13 +248,12 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                             schoolName: data.school_name || ''
                         } as SystemConfig);
                     } else {
-                        // Reset config if not found for current school to prevent leaking state
                         setSysConfig(null);
                     }
-                } catch (e) {
-                    console.error("Error loading school config from Supabase:", e);
-                    setSysConfig(null);
                 }
+            } catch (e) {
+                console.error("Error loading school config:", e);
+                setSysConfig(null);
             }
         };
         loadConfigs();
@@ -282,13 +273,10 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                     let type: 'TODAY' | 'TOMORROW' | null = null;
                     let updateField = "";
 
-                    // Check for Today
                     if (event.date === todayStr && !event.notifiedOnDay) {
                         type = 'TODAY';
                         updateField = "notified_on_day";
-                    } 
-                    // Check for Tomorrow
-                    else if (event.date === tomorrowStr && !event.notifiedOneDayBefore) {
+                    } else if (event.date === tomorrowStr && !event.notifiedOneDayBefore) {
                         type = 'TOMORROW';
                         updateField = "notified_one_day_before";
                     }
@@ -296,16 +284,15 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                     if (type && updateField) {
                         console.log(`Auto-notifying mission: ${event.title} (${type})`);
                         await notifyDirector(event, type);
-                        // Update DB to prevent repeated notifications
-                        if (isSupabaseConfigured && supabase) {
-                            try {
-                                await supabase
-                                    .from('director_events')
-                                    .update({ [updateField]: true })
-                                    .eq('id', event.id);
-                            } catch (e) {
-                                console.error("Failed to update notification flag", e);
-                            }
+                        
+                        try {
+                            await fetch(`/api/table/director_events?id=${event.id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ [updateField]: 1 })
+                            });
+                        } catch (e) {
+                            console.error("Failed to update notification flag", e);
                         }
                     }
                 }
@@ -387,50 +374,49 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
         if (!newEvent.title || !newEvent.date || !newEvent.startTime) return;
         
         try {
-            if (isSupabaseConfigured && supabase) { 
-                const payload = {
-                    school_id: currentUser.schoolId,
-                    title: newEvent.title,
-                    description: newEvent.description,
-                    date: newEvent.date,
-                    start_time: newEvent.startTime,
-                    location: newEvent.location,
-                    created_by: currentUser.id,
-                    notified_one_day_before: false,
-                    notified_on_day: false
-                };
-                
-                const { data, error } = await supabase
-                    .from('director_events')
-                    .insert([payload])
-                    .select()
-                    .single();
-                
-                if (error) throw error;
-                
-                let savedDate = data.date;
-                if (savedDate && savedDate.includes('T')) {
-                    savedDate = savedDate.split('T')[0];
-                }
-                
-                const mappedEvent: DirectorEvent = {
-                    id: data.id,
-                    schoolId: data.school_id,
-                    title: data.title,
-                    description: data.description,
-                    date: savedDate,
-                    startTime: data.start_time,
-                    location: data.location,
-                    createdBy: data.created_by,
-                    notifiedOneDayBefore: data.notified_one_day_before,
-                    notifiedOnDay: data.notified_on_day
-                };
-                
-                setEvents([...events, mappedEvent]);
-                notifyDirector(mappedEvent, 'NEW'); 
-            } else { 
-                setEvents([...events, { ...newEvent, id: `evt_${Date.now()}`, schoolId: currentUser.schoolId, createdBy: currentUser.id } as DirectorEvent]); 
+            const payload = {
+                school_id: currentUser.schoolId,
+                title: newEvent.title,
+                description: newEvent.description,
+                date: newEvent.date,
+                start_time: newEvent.startTime,
+                location: newEvent.location,
+                created_by: currentUser.id,
+                notified_one_day_before: 0,
+                notified_on_day: 0
+            };
+            
+            const response = await fetch('/api/table/director_events', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            if (!response.ok) throw new Error('Failed to save to MySQL');
+            const dataArr = await response.json();
+            // MySQL generic API might return array for POST if optimized, but standard is single object
+            const data = Array.isArray(dataArr) ? dataArr[0] : dataArr;
+            
+            let savedDate = data.date;
+            if (savedDate && String(savedDate).includes('T')) {
+                savedDate = savedDate.split('T')[0];
             }
+            
+            const mappedEvent: DirectorEvent = {
+                id: String(data.id),
+                schoolId: data.school_id,
+                title: data.title,
+                description: data.description,
+                date: savedDate,
+                startTime: data.start_time,
+                location: data.location,
+                createdBy: data.created_by,
+                notifiedOneDayBefore: false,
+                notifiedOnDay: false
+            };
+            
+            setEvents([...events, mappedEvent]);
+            notifyDirector(mappedEvent, 'NEW'); 
             setShowForm(false); 
             setNewEvent({ date: formatDateLocal(new Date()), startTime: '09:00', title: '', location: '', description: '' });
         } catch (e: any) { 
@@ -446,17 +432,11 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
         }
         if (confirm("คุณแน่ใจหรือไม่ว่าต้องการลบรายการปฏิทินนี้?")) { 
             try {
-                if (isSupabaseConfigured && supabase) {
-                    const { error } = await supabase
-                        .from('director_events')
-                        .delete()
-                        .eq('id', id);
-                    
-                    if (error) throw error;
-                    setEvents(events.filter(e => e.id !== id)); 
-                } else {
-                    setEvents(events.filter(e => e.id !== id)); 
-                }
+                const response = await fetch(`/api/table/director_events?id=${id}`, {
+                    method: 'DELETE'
+                });
+                if (!response.ok) throw new Error('Failed to delete from MySQL');
+                setEvents(events.filter(e => e.id !== id)); 
             } catch (e: any) {
                 console.error("Delete event error:", e);
                 alert("ลบไม่สำเร็จ: " + e.message);
