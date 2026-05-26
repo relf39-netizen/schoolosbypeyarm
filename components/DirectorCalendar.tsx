@@ -132,19 +132,27 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
 
                     if (academicError) throw academicError;
                     
-                    const mappedDirectorEvents: DirectorEvent[] = (directorData || []).map((d: any) => ({
-                        id: d.id,
-                        schoolId: d.school_id,
-                        title: d.title,
-                        description: d.description,
-                        date: d.date,
-                        startTime: d.start_time,
-                        endTime: d.end_time,
-                        location: d.location,
-                        createdBy: d.created_by,
-                        notifiedOneDayBefore: d.notified_one_day_before,
-                        notifiedOnDay: d.notified_on_day
-                    }));
+                    const mappedDirectorEvents: DirectorEvent[] = (directorData || []).map((d: any) => {
+                        // Normalize date to YYYY-MM-DD
+                        let eventDate = d.date;
+                        if (eventDate && eventDate.includes('T')) {
+                            eventDate = eventDate.split('T')[0];
+                        }
+
+                        return {
+                            id: d.id,
+                            schoolId: d.school_id,
+                            title: d.title,
+                            description: d.description,
+                            date: eventDate,
+                            startTime: d.start_time,
+                            endTime: d.end_time,
+                            location: d.location,
+                            createdBy: d.created_by,
+                            notifiedOneDayBefore: d.notified_one_day_before,
+                            notifiedOnDay: d.notified_on_day
+                        };
+                    });
 
                     const mappedAcademicEvents: DirectorEvent[] = (academicData || []).map((d: any) => {
                         // Ensure date is in YYYY-MM-DD format if possible
@@ -293,12 +301,17 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                 
                 if (error) throw error;
                 
+                let savedDate = data.date;
+                if (savedDate && savedDate.includes('T')) {
+                    savedDate = savedDate.split('T')[0];
+                }
+                
                 const mappedEvent: DirectorEvent = {
                     id: data.id,
                     schoolId: data.school_id,
                     title: data.title,
                     description: data.description,
-                    date: data.date,
+                    date: savedDate,
                     startTime: data.start_time,
                     location: data.location,
                     createdBy: data.created_by,
