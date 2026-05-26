@@ -437,15 +437,23 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                                     <div 
                                         key={dateStr} 
                                         onClick={() => setSelectedDay(dateStr)}
-                                        className={`h-10 w-10 md:h-12 md:w-12 flex flex-col items-center justify-center relative cursor-pointer rounded-xl md:rounded-2xl transition-all group ${isSelected ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 ring-2 ring-purple-100' : (isToday ? 'bg-purple-50 text-purple-700' : 'hover:bg-slate-50 text-slate-600')}`}
+                                        className={`h-10 w-10 md:h-12 md:w-12 flex flex-col items-center justify-center relative cursor-pointer rounded-full transition-all duration-300 group ${
+                                            isSelected 
+                                                ? 'bg-purple-600 text-white shadow-lg shadow-purple-300 ring-4 ring-purple-50 scale-110 z-10' 
+                                                : isToday 
+                                                    ? 'bg-purple-100 text-purple-800 border-2 border-purple-300 font-black' 
+                                                    : dayEvents.length > 0 
+                                                        ? 'bg-white border-2 border-purple-500 text-purple-900 shadow-sm font-bold' 
+                                                        : 'hover:bg-purple-50 text-slate-600'
+                                        }`}
                                     >
-                                        <span className={`text-xs md:text-sm font-black ${isSelected ? 'text-white' : (isToday ? 'text-purple-600' : (day.getDay() === 0 ? 'text-red-400' : (day.getDay() === 6 ? 'text-blue-400' : '')))}`}>
+                                        <span className={`text-xs md:text-sm font-black ${isSelected ? 'text-white' : (isToday ? 'text-purple-800' : (dayEvents.length > 0 ? 'text-purple-900' : (day.getDay() === 0 ? 'text-red-400' : (day.getDay() === 6 ? 'text-blue-400' : ''))))}`}>
                                             {day.getDate()}
                                         </span>
 
-                                        {dayEvents.length > 0 && (
-                                            <div className="mt-0.5 flex justify-center">
-                                                <Circle className={`${isSelected ? 'text-white fill-white' : 'text-purple-600 fill-purple-600'}`} size={4} />
+                                        {dayEvents.length > 0 && !isSelected && (
+                                            <div className="absolute -bottom-1 flex justify-center">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse" />
                                             </div>
                                         )}
 
