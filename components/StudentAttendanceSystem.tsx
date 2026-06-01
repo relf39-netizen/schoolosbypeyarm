@@ -163,28 +163,64 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         if (!supabase) return;
         setIsLoadingStats(true);
         try {
-            const { data, error } = await supabase
+            // 1. Fetch student attendance for this school
+            const { data: attendanceData, error: attendanceError } = await supabase
                 .from('student_attendance')
-                .select('student_id, students(name, current_class)')
+                .select('*')
+                .eq('school_id', currentUser.schoolId)
                 .eq('status', 'Absent');
             
-            if (data) {
+            if (attendanceError) throw attendanceError;
+
+            // 2. Fetch all student profiles for this school to build name / class map
+            const { data: studentsData, error: studentsError } = await supabase
+                .from('students')
+                .select('*')
+                .eq('school_id', currentUser.schoolId);
+
+            if (studentsError) throw studentsError;
+
+            if (attendanceData && studentsData) {
+                const studentMap: Record<string, any> = {};
+                studentsData.forEach((s: any) => {
+                    studentMap[s.id] = s;
+                });
+
+                const rolesList = Array.isArray(currentUser.roles) ? currentUser.roles : [];
+                const isUserAdmin = rolesList.includes('SYSTEM_ADMIN') || rolesList.includes('ADMIN') || rolesList.includes('DIRECTOR') || rolesList.includes('VICE_DIRECTOR') || currentUser.isActingDirector;
+                const isUserDirector = rolesList.includes('DIRECTOR') || rolesList.includes('VICE_DIRECTOR') || currentUser.isActingDirector;
+                const assignedClasses = Array.isArray(currentUser.assignedClasses) ? currentUser.assignedClasses : [];
+
                 const counts: {[key: string]: {name: string, class: string, count: number}} = {};
-                data.forEach((record: any) => {
+                attendanceData.forEach((record: any) => {
                     const id = record.student_id;
+                    const student = studentMap[id];
+                    if (!student) return;
+
+                    // Apply layout/access check by role
+                    if (!isUserAdmin && !isUserDirector && assignedClasses.length > 0) {
+                        const isAllowed = assignedClasses.some(a => a.trim() === (student.current_class || '').trim());
+                        if (!isAllowed) return;
+                    } else if (!isUserAdmin && !isUserDirector && assignedClasses.length === 0) {
+                        // Regular teacher with no assigned classes is not allowed to see any students
+                        return;
+                    }
+
                     if (!counts[id]) {
                         counts[id] = { 
-                            name: record.students?.name || 'Unknown', 
-                            class: record.students?.current_class || 'Unknown', 
+                            name: student.name || 'ไม่ระบุชื่อ', 
+                            class: student.current_class || 'ไม่ระบุห้อง', 
                             count: 0 
                         };
                     }
                     counts[id].count++;
                 });
+
                 const sorted = Object.entries(counts)
                     .map(([id, info]) => ({ studentId: id, ...info }))
                     .sort((a, b) => b.count - a.count)
                     .filter(s => s.count >= 3); // Threshold for "frequent"
+                
                 setAbsenceStats(sorted);
             }
         } catch (err) {
@@ -605,7 +641,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     };
 
     useEffect(() => {
-        if (viewMode === 'HISTORY' && students.length > 0) {
+        if ((viewMode === 'HISTORY' || viewMode === 'DASHBOARD') && students.length > 0) {
             fetchHistory();
         }
     }, [viewMode, historyStartDate, historyEndDate, selectedClass, students, historyAcademicYear]);
