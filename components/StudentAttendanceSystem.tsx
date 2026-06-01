@@ -65,7 +65,7 @@ interface StudentAttendanceSystemProps {
 }
 
 const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ currentUser }) => {
-    const [viewMode, setViewMode] = useState<'DASHBOARD' | 'RECORD' | 'HISTORY' | 'STUDENT_INFO' | 'OVERALL_REPORT' | 'CLASS_REPORT'>('DASHBOARD');
+    const [viewMode, setViewMode] = useState<'DASHBOARD' | 'RECORD' | 'HISTORY' | 'STUDENT_INFO' | 'OVERALL_REPORT' | 'CLASS_REPORT' | 'RANGE_REPORT'>('DASHBOARD');
     const [students, setStudents] = useState<Student[]>([]);
     const [attendance, setAttendance] = useState<StudentAttendance[]>([]);
     const [historyAttendance, setHistoryAttendance] = useState<StudentAttendance[]>([]);
@@ -93,6 +93,9 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     // Student Info State
     const [selectedStudentForInfo, setSelectedStudentForInfo] = useState<Student | null>(null);
     const [selectedStudentForAbsenceDetails, setSelectedStudentForAbsenceDetails] = useState<Student | null>(null);
+    const [selectedDateForDetails, setSelectedDateForDetails] = useState<string | null>(null);
+    const [searchQueryForDetails, setSearchQueryForDetails] = useState<string>('');
+    const [statusFilterForDetails, setStatusFilterForDetails] = useState<'All' | StudentAttendanceStatus>('All');
     const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
     const [healthRecords, setHealthRecords] = useState<StudentHealthRecord[]>([]);
     const [newWeight, setNewWeight] = useState<string>('');
@@ -852,6 +855,106 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         return counts;
     }, [attendance, historyAttendance]);
 
+    const modalDetailsData = useMemo(() => {
+        if (!selectedDateForDetails) return { students: [], stats: { total: 0, present: 0, late: 0, sick: 0, absent: 0, unrecorded: 0 } };
+        
+        const classStudents = students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim());
+        const dateStr = selectedDateForDetails;
+
+        // Combine current active and history attendance
+        const allAtt = [...attendance, ...historyAttendance];
+        
+        const mappedStudents = classStudents.map(student => {
+            const match = allAtt.find(a => a.studentId === student.id && a.date === dateStr);
+            return {
+                student,
+                status: match ? match.status : null
+            };
+        });
+
+        const filteredMapped = mappedStudents.filter(item => {
+            // Search query filter
+            if (searchQueryForDetails) {
+                const query = searchQueryForDetails.trim().toLowerCase();
+                const matchesSearch = item.student.name.toLowerCase().includes(query) || item.student.id.includes(query);
+                if (!matchesSearch) return false;
+            }
+
+            // Status filter
+            if (statusFilterForDetails !== 'All') {
+                if (statusFilterForDetails === 'Present') return item.status === 'Present';
+                if (statusFilterForDetails === 'Late') return item.status === 'Late';
+                if (statusFilterForDetails === 'Sick') return item.status === 'Sick';
+                if (statusFilterForDetails === 'Absent') return item.status === 'Absent';
+            }
+
+            return true;
+        });
+
+        // Compute detailed stats for this date and classroom
+        const stats = {
+            total: classStudents.length,
+            present: mappedStudents.filter(m => m.status === 'Present').length,
+            late: mappedStudents.filter(m => m.status === 'Late').length,
+            sick: mappedStudents.filter(m => m.status === 'Sick').length,
+            absent: mappedStudents.filter(m => m.status === 'Absent').length,
+            unrecorded: mappedStudents.filter(m => m.status === null).length
+        };
+
+        return {
+            students: filteredMapped,
+            stats
+        };
+    }, [selectedDateForDetails, students, selectedClass, attendance, historyAttendance, searchQueryForDetails, statusFilterForDetails]);
+
+    const rangeStatsData = useMemo(() => {
+        const classStudents = students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim())
+            .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+        
+        // Compute statistics for each student over the selected date range
+        const studentStats = classStudents.map(student => {
+            const studentAtt = historyAttendance.filter(a => a.studentId === student.id);
+            const present = studentAtt.filter(a => a.status === 'Present').length;
+            const late = studentAtt.filter(a => a.status === 'Late').length;
+            const sick = studentAtt.filter(a => a.status === 'Sick').length;
+            const absent = studentAtt.filter(a => a.status === 'Absent').length;
+            const total = present + late + sick + absent;
+            return {
+                student,
+                present,
+                late,
+                sick,
+                absent,
+                total,
+                rate: total > 0 ? ((present / total) * 100).toFixed(1) : '0.0'
+            };
+        });
+
+        // Compute overall counts across all students
+        const totalPresent = studentStats.reduce((sum, item) => sum + item.present, 0);
+        const totalLate = studentStats.reduce((sum, item) => sum + item.late, 0);
+        const totalSick = studentStats.reduce((sum, item) => sum + item.sick, 0);
+        const totalAbsent = studentStats.reduce((sum, item) => sum + item.absent, 0);
+        const totalInterventions = totalPresent + totalLate + totalSick + totalAbsent;
+
+        const averageRate = classStudents.length > 0 
+            ? (studentStats.reduce((sum, item) => sum + parseFloat(item.rate), 0) / classStudents.length).toFixed(1)
+            : '0.0';
+
+        return {
+            students: studentStats,
+            summary: {
+                totalStudents: classStudents.length,
+                totalPresent,
+                totalLate,
+                totalSick,
+                totalAbsent,
+                totalInterventions,
+                averageRate
+            }
+        };
+    }, [students, selectedClass, historyAttendance]);
+
     const handlePrint = () => {
         window.print();
     };
@@ -1530,17 +1633,30 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             {viewMode === 'HISTORY' && (
                 <div className="space-y-6 animate-fade-in">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <div className="flex items-center gap-4">
-                            <button 
-                                onClick={() => setViewMode('DASHBOARD')}
-                                className="p-3 bg-white text-slate-600 rounded-2xl shadow-sm border border-slate-100 hover:bg-slate-50 transition-all"
-                            >
-                                <ArrowLeft size={20} />
-                            </button>
-                            <div>
-                                <h3 className="text-xl font-black text-slate-800">ประวัติการมาเรียน</h3>
-                                <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest">Attendance History & Reports</p>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full md:w-auto gap-4">
+                            <div className="flex items-center gap-4">
+                                <button 
+                                    onClick={() => setViewMode('DASHBOARD')}
+                                    className="p-3 bg-white text-slate-600 rounded-2xl shadow-sm border border-slate-100 hover:bg-slate-50 transition-all"
+                                >
+                                    <ArrowLeft size={20} />
+                                </button>
+                                <div>
+                                    <h3 className="text-xl font-black text-slate-800">ประวัติการมาเรียน</h3>
+                                    <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest">Attendance History & Reports</p>
+                                </div>
                             </div>
+                            <button 
+                                onClick={async () => {
+                                    if (historyAttendance.length === 0) {
+                                        await fetchHistory();
+                                    }
+                                    setViewMode('RANGE_REPORT');
+                                }}
+                                className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-black text-xs hover:from-indigo-700 hover:to-violet-700 transition-all shadow-md flex items-center justify-center gap-2"
+                            >
+                                <Printer size={16} /> พิมพ์รายงานราชการ (ช่วงวันที่)
+                            </button>
                         </div>
                         <div className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-2xl border border-slate-100 shadow-sm">
                             <div className="flex items-center gap-2 px-3 border-r border-slate-100">
@@ -1680,11 +1796,11 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                                     <td className="p-4 text-right">
                                                         <button 
                                                             onClick={() => {
-                                                                setSelectedDate(stat.date);
-                                                                fetchAttendance(stat.date);
-                                                                setViewMode('DASHBOARD');
+                                                                setSelectedDateForDetails(stat.date);
+                                                                setSearchQueryForDetails('');
+                                                                setStatusFilterForDetails('All');
                                                             }}
-                                                            className="text-indigo-600 hover:text-indigo-800 font-black text-[10px] uppercase tracking-widest"
+                                                            className="px-3 py-1.5 bg-slate-50 hover:bg-indigo-600 hover:text-white border border-slate-200 hover:border-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
                                                         >
                                                             ดูรายละเอียด
                                                         </button>
@@ -1984,6 +2100,156 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                 </div>
             )}
 
+            {viewMode === 'RANGE_REPORT' && (
+                <div className="space-y-6 animate-fade-in print:m-0 print:p-0">
+                    <div className="flex justify-between items-center print:hidden">
+                        <div className="flex items-center gap-4">
+                            <button 
+                                onClick={() => setViewMode('HISTORY')}
+                                className="p-3 bg-white text-slate-600 rounded-2xl shadow-sm border border-slate-100 hover:bg-slate-50 transition-all"
+                            >
+                                <ArrowLeft size={20} />
+                            </button>
+                            <div>
+                                <h3 className="text-xl font-black text-slate-800">รายงานราชการสรุปความถี่การมาเรียน (ตราครุฑ)</h3>
+                                <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest">Official Range Attendance Summary</p>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={handlePrint}
+                            className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-black text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center gap-2"
+                        >
+                            <Printer size={18} /> พิมพ์รายงานทางการ
+                        </button>
+                    </div>
+
+                    <div className="bg-white p-12 rounded-[2.5rem] shadow-sm border border-slate-100 print:shadow-none print:border-none print:p-0 print:mt-[-2.5cm] print:text-black font-sarabun max-w-4xl mx-auto">
+                        {/* Garuda Emblem */}
+                        <div className="flex justify-start mb-0 print:mb-0 print:mt-4">
+                            <img 
+                                src={schoolConfig?.official_garuda_base_64 ? (schoolConfig.official_garuda_base_64.startsWith('data:') ? schoolConfig.official_garuda_base_64 : `data:image/png;base64,${schoolConfig.official_garuda_base_64}`) : "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/Garuda_Emb_of_Thailand.svg/1200px-Garuda_Emb_of_Thailand.svg.png"} 
+                                alt="Garuda" 
+                                className="h-24 w-auto print:h-20"
+                                referrerPolicy="no-referrer"
+                            />
+                        </div>
+
+                        <div className="text-center mb-2 print:mb-1">
+                            <h1 className="text-2xl font-black">บันทึกข้อความ</h1>
+                        </div>
+
+                        <div className="space-y-2 mb-6 print:mb-2">
+                            <div className="flex items-end">
+                                <span className="font-black w-24 shrink-0">ส่วนราชการ</span>
+                                <span className="border-b border-dotted border-slate-400 flex-1 text-right sm:text-left overflow-hidden text-ellipsis whitespace-nowrap print:text-sm">
+                                    {schoolConfig?.school_name || 'โรงเรียนของท่าน'}
+                                </span>
+                            </div>
+                            <div className="flex">
+                                <div className="w-1/2 flex items-end">
+                                    <span className="font-black w-8 shrink-0">ที่</span>
+                                    <span className="border-b border-dotted border-slate-400 flex-1 mr-4"></span>
+                                </div>
+                                <div className="w-1/2 flex items-end">
+                                    <span className="font-black shrink-0">วันที่</span>
+                                    <span className="border-b border-dotted border-slate-400 ml-2 px-2 min-w-[4cm] text-center">
+                                        {formatToThaiDate(formatToISODate(new Date()))}
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="flex items-end">
+                                <span className="font-black w-12 shrink-0">เรื่อง</span>
+                                <span className="border-b border-dotted border-slate-400 flex-1 col-span-3">
+                                    รายงานสรุปสถิติอัตราการเข้าเรียนของนักเรียนระดับชั้น {selectedClass} ในช่วงวันที่ {formatToThaiDate(historyStartDate)} ถึงวันที่ {formatToThaiDate(historyEndDate)}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="mb-6 print:mb-2">
+                            <p className="font-black mb-2">เรียน ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................................'}</p>
+                            
+                            <div className="indent-16 leading-relaxed space-y-2 text-justify">
+                                <p>
+                                    ตามที่ข้าพเจ้า {currentUser.name} ตำแหน่ง {currentUser.position || 'ครูประจำชั้น'} {selectedClass} ได้รับมอบหมายให้ดูแลจัดกิจกรรม ตรวจสอบความถูกต้อง และรวบรวมข้อมูลสถิติการมาเรียนของนักเรียน ระดับชั้น {selectedClass} ภาคเรียนปัจจุบัน ปีการศึกษา {currentAcademicYear || '..............'} นั้น
+                                </p>
+                                <p>
+                                    บัดนี้ ข้าพเจ้าได้ดำเนินการสรุปสถิติและวิเคราะห์อัตราการมาเรียนของนักเรียนเป็นรายบุคคล ในช่วงตั้งแต่วันที่ {formatToThaiDate(historyStartDate)} ถึงวันที่ {formatToThaiDate(historyEndDate)} เป็นที่เรียบร้อยแล้ว จึงขอรายงานผลสถิติภาพรวม โดยมีรายละเอียดอัตราสถิติการมาโรงเรียนรายชื่อบุคคล ปรากฏตามตารางจำแนกผลสถิติด้านล่างนี้เพื่อตรวจสอบ ดำเนินการ ตลอดจนให้คำปรึกษาดูแลช่วยเหลือนักเรียนในความปกครองต่อไป
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mb-12 print:mb-4 overflow-hidden">
+                            <table className="w-full border-collapse border border-black text-xs">
+                                <thead>
+                                    <tr className="bg-slate-50 print:bg-transparent">
+                                        <th className="border border-black p-2 text-center font-black w-12">ลำดับ</th>
+                                        <th className="border border-black p-2 text-center font-black w-24">รหัสนักเรียน</th>
+                                        <th className="border border-black p-2 text-left font-black">ชื่อ - สกุล</th>
+                                        <th className="border border-black p-2 text-center font-black w-16">มาเรียน (วัน)</th>
+                                        <th className="border border-black p-2 text-center font-black w-16">สาย (วัน)</th>
+                                        <th className="border border-black p-2 text-center font-black w-16">ลา (วัน)</th>
+                                        <th className="border border-black p-2 text-center font-black w-16">ขาด (วัน)</th>
+                                        <th className="border border-black p-2 text-center font-black w-20">ร้อยละมาเรียน</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {rangeStatsData.students.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={8} className="border border-black p-4 text-center italic text-slate-400">
+                                                ไม่พบสถิติข้อมูลประวัติการมาเรียนในช่วงเวลาดังกล่าว
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        rangeStatsData.students.map((item, idx) => (
+                                            <tr key={item.student.id} className="hover:bg-slate-50 print:hover:bg-transparent transition-all">
+                                                <td className="border border-black p-2 text-center">{idx + 1}</td>
+                                                <td className="border border-black p-2 text-center font-mono">{item.student.id.slice(0, 8)}</td>
+                                                <td className="border border-black p-2 font-black">{item.student.name}</td>
+                                                <td className="border border-black p-2 text-center">{item.present}</td>
+                                                <td className="border border-black p-2 text-center">{item.late}</td>
+                                                <td className="border border-black p-2 text-center">{item.sick}</td>
+                                                <td className="border border-black p-2 text-center font-black text-rose-600">{item.absent}</td>
+                                                <td className="border border-black p-2 text-center font-black">{item.rate}%</td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                                <tfoot className="font-black bg-slate-50 print:bg-transparent">
+                                    <tr>
+                                        <td colSpan={3} className="border border-black p-2 text-center">สรุปผลสถิติรวมระดับห้องเรียน</td>
+                                        <td className="border border-black p-2 text-center">{rangeStatsData.summary.totalPresent}</td>
+                                        <td className="border border-black p-2 text-center">{rangeStatsData.summary.totalLate}</td>
+                                        <td className="border border-black p-2 text-center">{rangeStatsData.summary.totalSick}</td>
+                                        <td className="border border-black p-2 text-center text-rose-600">{rangeStatsData.summary.totalAbsent}</td>
+                                        <td className="border border-black p-2 text-center text-indigo-700 print:text-black">{rangeStatsData.summary.averageRate}%</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+
+                        <div className="indent-16 mb-12 print:mb-6">
+                            <p className="font-black">จึงเรียนมาเพื่อโปรดทราบและพิจารณาให้ความคิดเห็นหรือข้อเสนอแนะต่อไป</p>
+                        </div>
+
+                        {/* Signatures Sections */}
+                        <div className="grid grid-cols-2 gap-8 print:gap-4 mt-8">
+                            <div className="flex flex-col items-center text-center">
+                                <p className="mb-12 print:mb-8 font-black">ความเห็นของคณะกรรมการ / ผู้สรุปรายงาน</p>
+                                <p className="mb-2">ลงชื่อ............................................................</p>
+                                <p className="font-black">( {currentUser.name} )</p>
+                                <p className="text-sm">คุณครูประจำชั้น / ที่ปรึกษา {selectedClass}</p>
+                            </div>
+                            <div className="flex flex-col items-center text-center">
+                                <p className="mb-12 print:mb-8 font-black">ความเห็น / ข้อเสนอแนะของผู้อำนวยการโรงเรียน</p>
+                                <p className="mb-2">ลงชื่อ............................................................</p>
+                                <p className="font-black">( {directorName || '................................................'} )</p>
+                                <p className="text-sm">ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................................'}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Absence Details Modal */}
             <AnimatePresence>
                 {selectedStudentForAbsenceDetails && (
@@ -2031,6 +2297,185 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                     <button 
                                         onClick={() => setSelectedStudentForAbsenceDetails(null)}
                                         className="w-full mt-4 py-3 bg-slate-100 text-slate-600 rounded-2xl font-black text-sm hover:bg-slate-200 transition-all"
+                                    >
+                                        ปิดหน้าต่าง
+                                    </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+
+                {selectedDateForDetails && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden"
+                        >
+                            <div className="p-8">
+                                <div className="flex justify-between items-start mb-6">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
+                                            <Calendar size={24} />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-black text-xl text-slate-800">รายละเอียดการมาเรียนรายวัน</h3>
+                                            <p className="text-sm font-bold text-slate-400">
+                                                ประจำวันที่ {formatToThaiDate(selectedDateForDetails)} • ชั้น {selectedClass}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setSelectedDateForDetails(null)}
+                                        className="p-2 hover:bg-slate-50 rounded-xl text-slate-400 transition-all"
+                                    >
+                                        <Plus className="rotate-45" size={24} />
+                                    </button>
+                                </div>
+
+                                {/* Stats Badge Bar */}
+                                <div className="grid grid-cols-5 gap-3 mb-6">
+                                    <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl text-center">
+                                        <p className="text-[10px] font-black text-slate-400 uppercase">ทั้งหมด</p>
+                                        <p className="font-black text-slate-700 text-lg">{modalDetailsData.stats.total} คน</p>
+                                    </div>
+                                    <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-2xl text-center">
+                                        <p className="text-[10px] font-black text-emerald-600 uppercase">มาเรียน</p>
+                                        <p className="font-black text-emerald-700 text-lg">{modalDetailsData.stats.present} คน</p>
+                                    </div>
+                                    <div className="bg-amber-50 border border-amber-100 p-3 rounded-2xl text-center">
+                                        <p className="text-[10px] font-black text-amber-600 uppercase">สาย</p>
+                                        <p className="font-black text-amber-700 text-lg">{modalDetailsData.stats.late} คน</p>
+                                    </div>
+                                    <div className="bg-blue-50 border border-blue-100 p-3 rounded-2xl text-center">
+                                        <p className="text-[10px] font-black text-blue-600 uppercase">ลา</p>
+                                        <p className="font-black text-blue-700 text-lg">{modalDetailsData.stats.sick} คน</p>
+                                    </div>
+                                    <div className="bg-rose-50 border border-rose-100 p-3 rounded-2xl text-center">
+                                        <p className="text-[10px] font-black text-rose-600 uppercase">ขาด</p>
+                                        <p className="font-black text-rose-700 text-lg">{modalDetailsData.stats.absent} คน</p>
+                                    </div>
+                                </div>
+
+                                {/* Filter & Search Controls */}
+                                <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                                    <div className="relative flex-1">
+                                        <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-400">
+                                            <Search size={16} />
+                                        </span>
+                                        <input 
+                                            type="text" 
+                                            placeholder="ค้นหาชื่อ หรือรหัสนักเรียน..." 
+                                            value={searchQueryForDetails}
+                                            onChange={(e) => setSearchQueryForDetails(e.target.value)}
+                                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-none text-slate-700 text-sm font-bold rounded-2xl focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all outline-none"
+                                        />
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5 items-center bg-slate-50 p-1 rounded-2xl">
+                                        {(['All', 'Present', 'Late', 'Sick', 'Absent'] as const).map((filterOpt) => {
+                                            const labelMap: Record<string, string> = {
+                                                All: 'ทั้งหมด',
+                                                Present: 'มาเรียน',
+                                                Late: 'สาย',
+                                                Sick: 'ลา',
+                                                Absent: 'ขาด'
+                                            };
+                                            const activeColorMap: Record<string, string> = {
+                                                All: 'bg-indigo-600 text-white shadow-sm',
+                                                Present: 'bg-emerald-600 text-white shadow-sm',
+                                                Late: 'bg-amber-600 text-white shadow-sm',
+                                                Sick: 'bg-blue-600 text-white shadow-sm',
+                                                Absent: 'bg-rose-600 text-white shadow-sm'
+                                            };
+                                            const isSelected = statusFilterForDetails === filterOpt;
+                                            return (
+                                                <button
+                                                    key={filterOpt}
+                                                    onClick={() => setStatusFilterForDetails(filterOpt)}
+                                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                                        isSelected 
+                                                            ? activeColorMap[filterOpt] 
+                                                            : 'text-slate-500 hover:text-slate-800'
+                                                    }`}
+                                                >
+                                                    {labelMap[filterOpt]}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* Student List Area */}
+                                <div className="space-y-2.5 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
+                                    {modalDetailsData.students.length === 0 ? (
+                                        <div className="text-center py-12 text-slate-400 italic">
+                                            ไม่พบข้อมูลตามเงื่อนไขที่เลือก
+                                        </div>
+                                    ) : (
+                                        modalDetailsData.students.map(({ student, status }, idx) => (
+                                            <div key={student.id} className="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-xs font-black text-slate-300 w-5 text-center">{idx + 1}</span>
+                                                    <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center font-black text-indigo-500 shadow-sm border border-slate-100 overflow-hidden">
+                                                        {student.photoUrl ? (
+                                                            <img 
+                                                                src={getDirectDriveUrl(student.photoUrl)} 
+                                                                className="w-full h-full object-cover" 
+                                                                alt={student.name} 
+                                                                referrerPolicy="no-referrer" 
+                                                            />
+                                                        ) : (
+                                                            student.name[0]
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-black text-slate-700 text-sm">{student.name}</p>
+                                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">ID: {student.id.slice(0, 8)}</p>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    {status ? (
+                                                        <div className={`px-3.5 py-1 rounded-full text-[10px] font-black border flex items-center gap-1 ${
+                                                            status === 'Present' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                                                            status === 'Late' ? 'bg-amber-50 text-amber-700 border-amber-100' :
+                                                            status === 'Sick' ? 'bg-blue-50 text-blue-700 border-blue-100' :
+                                                            'bg-rose-50 text-rose-700 border-rose-100'
+                                                        }`}>
+                                                            {status === 'Present' && <CheckCircle2 size={12} />}
+                                                            {status === 'Late' && <Clock size={12} />}
+                                                            {status === 'Sick' && <Activity size={12} />}
+                                                            {status === 'Absent' && <XCircle size={12} />}
+                                                            {status === 'Present' ? 'มาเรียน' :
+                                                             status === 'Late' ? 'สาย' :
+                                                             status === 'Sick' ? 'ลา' :
+                                                             'ขาดเรียน'}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-[10px] font-bold text-slate-300 italic">ไม่พบข้อมูลการมาเรียน</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+
+                                <div className="mt-6 pt-5 border-t border-slate-100 flex gap-3">
+                                    <button 
+                                        onClick={() => {
+                                            setSelectedDate(selectedDateForDetails);
+                                            fetchAttendance(selectedDateForDetails);
+                                            setSelectedDateForDetails(null);
+                                            setViewMode('CLASS_REPORT');
+                                        }}
+                                        className="flex-1 py-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <Printer size={16} /> ดูรายงานทางการในระบบ
+                                    </button>
+                                    <button 
+                                        onClick={() => setSelectedDateForDetails(null)}
+                                        className="py-3 px-8 bg-slate-100 text-slate-600 rounded-2xl font-black text-sm hover:bg-slate-200 transition-all"
                                     >
                                         ปิดหน้าต่าง
                                     </button>
