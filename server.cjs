@@ -627,17 +627,39 @@ async function startServer() {
       const filterKeys = Object.keys(filters).filter(k => k !== 'order' && k !== 'limit');
       if (filterKeys.length > 0) {
         sql += ` WHERE ` + filterKeys.map(k => {
-          if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
+          const valStr = String(filters[k]);
+          if (valStr.startsWith('in.(')) {
             return `?? IN (?)`;
+          } else if (valStr.startsWith('gte.')) {
+            return `?? >= ?`;
+          } else if (valStr.startsWith('lte.')) {
+            return `?? <= ?`;
+          } else if (valStr.startsWith('gt.')) {
+            return `?? > ?`;
+          } else if (valStr.startsWith('lt.')) {
+            return `?? < ?`;
+          } else if (valStr.startsWith('neq.')) {
+            return `?? != ?`;
           }
           return `?? = ?`;
         }).join(' AND ');
         
         filterKeys.forEach(k => {
           params.push(k);
-          if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
-            const values = filters[k].substring(4, filters[k].length - 1).split(',');
+          const valStr = String(filters[k]);
+          if (valStr.startsWith('in.(')) {
+            const values = valStr.substring(4, valStr.length - 1).split(',');
             params.push(values);
+          } else if (valStr.startsWith('gte.')) {
+            params.push(valStr.substring(4));
+          } else if (valStr.startsWith('lte.')) {
+            params.push(valStr.substring(4));
+          } else if (valStr.startsWith('gt.')) {
+            params.push(valStr.substring(3));
+          } else if (valStr.startsWith('lt.')) {
+            params.push(valStr.substring(3));
+          } else if (valStr.startsWith('neq.')) {
+            params.push(valStr.substring(4));
           } else {
             params.push(filters[k]);
           }
