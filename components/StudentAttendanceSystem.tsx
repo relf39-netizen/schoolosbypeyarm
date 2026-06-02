@@ -390,6 +390,59 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         }
     };
 
+    const getDutyReportNumberText = (dateString: string, id?: string) => {
+        if (!dateString) return '';
+        const targetYear = new Date(dateString).getFullYear();
+        const thaiYear = targetYear + 543;
+        
+        // Filter reports in the same calendar year, sorted from oldest to newest (ascending)
+        const yearReports = [...dutyReports]
+            .filter(r => {
+                const rYear = new Date(r.date).getFullYear();
+                return rYear === targetYear;
+            })
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            
+        let seqNo = 1;
+        if (id) {
+            const index = yearReports.findIndex(r => r.id === id);
+            if (index !== -1) {
+                seqNo = index + 1;
+            } else {
+                seqNo = yearReports.length + 1;
+            }
+        } else {
+            // It's a new draft or we're matching by date if id doesn't exist
+            const index = yearReports.findIndex(r => r.date === dateString);
+            if (index !== -1) {
+                seqNo = index + 1;
+            } else {
+                seqNo = yearReports.length + 1;
+            }
+        }
+        
+        return `${seqNo}/${thaiYear}`;
+    };
+
+    const deleteDutyReport = async (reportId: string) => {
+        if (!supabase) return;
+        if (!window.confirm('คุณต้องการลบรายงานตัวนี้ใช่หรือไม่? การดำเนินการนี้ไม่สามารถย้อนกลับได้')) return;
+        try {
+            const { error } = await supabase
+                .from('teacher_duty_reports')
+                .delete()
+                .eq('id', reportId);
+            if (error) throw error;
+            alert('ลบรายงานเวรประจำวันเรียบร้อยแล้ว!');
+            fetchDutyReports();
+            if (selectedDutyReport?.id === reportId) {
+                setSelectedDutyReport(null);
+            }
+        } catch (e: any) {
+            alert('เกิดข้อผิดพลาดในการลบรายงานเวร: ' + e.message);
+        }
+    };
+
     const handleDutyDateChange = async (dateString: string) => {
         setDutyDate(dateString);
         
@@ -3083,10 +3136,10 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
                                                 {/* Previews attached indicators */}
                                                 <div className="flex gap-1.5 pt-3 border-t border-slate-100">
-                                                    {report.pic1Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีสัญลักษณ์รูปหน้าประตูรวม">1</span>}
-                                                    {report.pic2Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปเคารพกิจกรรมหน้าเสาธง">2</span>}
-                                                    {report.pic3Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปทานอาหารเสิร์ฟความปลอดภัย">3</span>}
-                                                    {report.pic4Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปจัดส่งเดินทางเดินรถความเรียบร้อย">4</span>}
+                                                    {report.pic1Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปหน้าโรงเรียนช่วงเช้า">1</span>}
+                                                    {report.pic2Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปกิจกรรมหน้าเสาธง">2</span>}
+                                                    {report.pic3Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปอาหารกลางวันของนักเรียน">3</span>}
+                                                    {report.pic4Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปการดูแลความปลอดภัยหลังเลิกเรียน">4</span>}
                                                 </div>
                                             </div>
 
@@ -3112,6 +3165,15 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                                 >
                                                     <Edit size={12} />
                                                 </button>
+                                                {(isAdmin || isDirector) && (
+                                                    <button 
+                                                        onClick={() => deleteDutyReport(report.id)}
+                                                        className="py-1.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold text-xs transition-all flex items-center justify-center cursor-pointer"
+                                                        title="ลบรายงานฉบับนี้"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
@@ -3125,8 +3187,8 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                             <div className="lg:col-span-7 bg-white p-6 sm:p-8 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-6">
                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-150 pb-5 gap-3">
                                     <div>
-                                        <h4 className="font-black text-slate-800 text-base">ลงรายละเอียดรายงานเวรปฏิบัติหน้าที่</h4>
-                                        <p className="text-slate-400 text-xs font-semibold">ป้อนรายงานรายละเอียดความปลอดภัยและแนบรูปหลักฐานการตรวจเวร</p>
+                                        <h4 className="font-black text-slate-800 text-base">ลงรายละเอียดรายงานเวรประจำวัน</h4>
+                                        <p className="text-slate-400 text-xs font-semibold">ป้อนรายละเอียดผลการปฏิบัติหน้าที่ครูเวรประจำวันและแนบรูปภาพหลักฐานประกอบรายงาน</p>
                                     </div>
                                     <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-150">
                                         <span className="text-xs font-black text-slate-500">วันที่เวร:</span>
@@ -3141,23 +3203,23 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
                                 <div className="space-y-4">
                                     <div>
-                                        <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-2">๑. รายงานเวรดูแลความเรียบร้อยช่วงเช้า (ก่อนและเตรียมเข้าเรียน)</label>
+                                        <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-2">๑. รายงานปฏิบัติหน้าที่ครูเวรประจำวันช่วงเช้า (การต้อนรับนักเรียนและการทำกิจกรรมหน้าเสาธง)</label>
                                         <textarea 
                                             value={morningReport}
                                             onChange={(e) => setMorningReport(e.target.value)}
                                             rows={3}
-                                            placeholder="ตัวอย่างเช่น: ตรวจนับความปลอดภัยก่อนรุ่ง อบต. ร่วมอำนวยการหน้าป้ายโรงเรียน ชี้แจงระเบียบหน้าเสาธงกิจกรรมรวมสมาธิ..."
+                                            placeholder="ตัวอย่างเช่น: ปฏิบัติหน้าที่ต้อนรับนักเรียนบริเวณประตูทางเข้าโรงเรียน ดูแลความเรียบร้อยการทำกิจกรรมหน้าเสาธงและการอบรมระเบียบวินัย..."
                                             className="w-full rounded-2xl border-slate-200 focus:border-rose-500 focus:ring-rose-500 text-slate-700 text-sm placeholder-slate-350"
                                         />
                                     </div>
 
                                     <div>
-                                        <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-2">๒. รายงานเวรดูแลความเรียบร้อยช่วงบ่าย (ควบคุมเที่ยวเดินทางส่งนักเรียนและจราจร)</label>
+                                        <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-2">๒. รายงานปฏิบัติหน้าที่ครูเวรประจำวันช่วงกลางวันและเย็น (การดูแลความเรียบร้อยทั่วไปและการส่งนักเรียนกลับบ้าน)</label>
                                         <textarea 
                                             value={afternoonReport}
                                             onChange={(e) => setAfternoonReport(e.target.value)}
                                             rows={3}
-                                            placeholder="ตัวอย่างเช่น: ตรวจและอภิบาลระเบียบพฤติกรรมในคาบรับโภชนาการ ควบคุมการทำความสะอาด ตรวจกิริยาระหว่างเดินทางปล่อยกลับส่งมอบญาติจราจรอย่างปลอดภัย..."
+                                            placeholder="ตัวอย่างเช่น: ดูแลความเป็นระเบียบเรียบร้อยของนักเรียนระหว่างรับประทานอาหารกลางวัน และอำนวยความสะดวกส่งนักเรียนเดินทางกลับบ้านอย่างปลอดภัยหลังเลิกเรียน..."
                                             className="w-full rounded-2xl border-slate-200 focus:border-rose-500 focus:ring-rose-500 text-slate-700 text-sm placeholder-slate-350"
                                         />
                                     </div>
@@ -3165,7 +3227,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
                                 {/* Picture grid 4 placeholders */}
                                 <div className="pt-4 border-t border-slate-100">
-                                    <h5 className="text-[11px] font-black text-slate-500 uppercase tracking-wider mb-4">๓. ภาพถ่ายแนบรายงานการปฏิบัติงานเวรราชการ (แนวนอน 4 รูป)</h5>
+                                    <h5 className="text-[11px] font-black text-slate-500 uppercase tracking-wider mb-4">๓. ภาพถ่ายประกอบการปฏิบัติงานครูเวรประจำวัน (แนวนอน 4 รูป)</h5>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                         {/* Picture 1 */}
                                         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 flex flex-col justify-between">
@@ -3194,7 +3256,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                             ) : (
                                                 <div className="border border-dashed border-slate-300 rounded-xl py-6 flex flex-col items-center justify-center text-slate-400 hover:bg-white cursor-pointer transition-all relative">
                                                     <Camera size={20} className="mb-1 text-slate-350" />
-                                                    <span className="text-[10px] font-black">อัปโหลดภาพหน้าเสายานพาหนะ</span>
+                                                    <span className="text-[10px] font-black">อัปโหลดภาพบริเวณหน้าโรงเรียนช่วงเช้า</span>
                                                     <input 
                                                         type="file" 
                                                         accept="image/*"
@@ -3276,7 +3338,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                             ) : (
                                                 <div className="border border-dashed border-slate-300 rounded-xl py-6 flex flex-col items-center justify-center text-slate-400 hover:bg-white cursor-pointer transition-all relative">
                                                     <Camera size={20} className="mb-1 text-slate-350" />
-                                                    <span className="text-[10px] font-black">อัปโหลดภาพทานข้าวโรงโภชนาการ</span>
+                                                    <span className="text-[10px] font-black">อัปโหลดภาพอาหารกลางวันของนักเรียน</span>
                                                     <input 
                                                         type="file" 
                                                         accept="image/*"
@@ -3317,7 +3379,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                             ) : (
                                                 <div className="border border-dashed border-slate-300 rounded-xl py-6 flex flex-col items-center justify-center text-slate-400 hover:bg-white cursor-pointer transition-all relative">
                                                     <Camera size={20} className="mb-1 text-slate-350" />
-                                                    <span className="text-[10px] font-black">อัปโหลดภาพจัดส่งส่งมอบจราจร</span>
+                                                    <span className="text-[10px] font-black">อัปโหลดภาพหลังเลิกเรียนและการเดินทางกลับ</span>
                                                     <input 
                                                         type="file" 
                                                         accept="image/*"
@@ -3390,7 +3452,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                         <div className="flex">
                                             <div className="w-1/2 flex items-end">
                                                 <span className="font-extrabold w-6 shrink-0">ที่</span>
-                                                <span className="border-b border-dotted border-slate-350 flex-1 pl-2 text-slate-800">เวรดูแลรักษาความปลอดภัย /{new Date(dutyDate).getFullYear() + 543}</span>
+                                                <span className="border-b border-dotted border-slate-350 flex-1 pl-2 text-slate-800 font-bold">{getDutyReportNumberText(dutyDate)}</span>
                                             </div>
                                             <div className="w-1/2 flex items-end">
                                                 <span className="font-extrabold shrink-0 pl-3 w-10 text-right">วันที่</span>
@@ -3402,7 +3464,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                         <div className="flex items-end">
                                             <span className="font-extrabold w-10 shrink-0">เรื่อง</span>
                                             <span className="border-b border-dotted border-slate-350 flex-1 pl-2 font-bold text-slate-900">
-                                                รายงานผลการปฏิบัติเวรดูแลความปลอดภัยและความสงบเรียบร้อยเสร็จสิ้น ประจำวันที่ {formatToThaiDate(dutyDate)}
+                                                รายงานเวรประจำวันที่ {formatToThaiDate(dutyDate)}
                                             </span>
                                         </div>
                                     </div>
@@ -3411,15 +3473,15 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                         <p className="font-extrabold mb-2 text-[11px]">เรียน ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................................'}</p>
                                         
                                         <p className="indent-8 text-slate-800 leading-relaxed text-[10.5px] mb-3">
-                                            ตามที่ ข้าพเจ้า <span className="font-bold text-black">{currentUser.name}</span> ตำแหน่งปฏิบัติการ ได้รับประสานมอบหมายดูแลจัดการรักษาความปลอดภัยประจำจุดสังเกตการณ์ที่สถาบันกำหนด ประจำงวดวันที่ <span className="font-bold text-black">{formatToThaiDate(dutyDate)}</span> นั้น
+                                            ตามที่ ข้าพเจ้า <span className="font-bold text-black">{currentUser.name}</span> ตำแหน่ง <span className="font-bold text-black">{currentUser.position || 'ครู'}</span> ได้รับมอบหมายให้ปฏิบัติหน้าที่ครูเวรประจำวัน ประจำวันที่ <span className="font-bold text-black">{formatToThaiDate(dutyDate)}</span> นั้น
                                         </p>
                                         <p className="indent-8 text-slate-800 leading-relaxed text-[10.5px] mb-4">
-                                            บัดนี้หน้างานดูแลเสร็จเสร็จสมบูรณ์เรียบร้อยถูกต้องตามระเบียบดีแล้ว จึงขอส่งรายงานสรุปรวมผลรายงานความพฤติกรรม ตลอดจนนำเสนอข้อเสนอแนะต่างๆ ตามสาระพิจารณาดังด้านล่างนี้:
+                                            บัดนี้การปฏิบัติหน้าที่ครูเวรประจำวันเสร็จสิ้นเรียบร้อยแล้ว จึงขอส่งรายงานสรุปผลการปฏิบัติหน้าที่ ตลอดจนข้อมูลเข้าเรียนของนักเรียน ดังมีรายละเอียดต่อไปนี้:
                                         </p>
 
                                         {/* Statistics board in memo preview */}
                                         <p className="font-extrabold mb-1.5 text-[10px] text-slate-800">
-                                            ๑. อัตราความสถิติการมาเรียนของโรงเรียนโดยประมวลผลรวมสโมสร:
+                                            ๑. ข้อมูลนักเรียนที่มาเรียนแยกตามทุกระดับชั้น:
                                         </p>
                                         <div className="overflow-hidden mb-3">
                                             <table className="w-full border-collapse border border-black text-center text-[9px] text-slate-800">
@@ -3429,7 +3491,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                                         <th className="border border-black p-1 text-emerald-800 font-bold">มาเรียน (คน)</th>
                                                         <th className="border border-black p-1 text-amber-700 font-bold">เข้าเรียนสาย (คน)</th>
                                                         <th className="border border-black p-1 text-blue-800 font-bold">ลาป่วย (คน)</th>
-                                                        <th className="border border-black p-1 text-rose-800 font-bold">ขาดงานเรียน (คน)</th>
+                                                        <th className="border border-black p-1 text-rose-800 font-bold">ขาดเรียน (คน)</th>
                                                         <th className="border border-black p-1 font-bold">คิดเป็นอัตราส่วน</th>
                                                     </tr>
                                                 </thead>
@@ -3452,14 +3514,14 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                         </div>
 
                                         {/* Detailed Morning / Afternoon notes */}
-                                        <p className="font-extrabold mb-1.5 text-[10px] text-slate-800">๒. การเฝ้าระวังพฤติกรรมดูแลความสงบเรียบร้อย:</p>
+                                        <p className="font-extrabold mb-1.5 text-[10px] text-slate-800">๒. รายละเอียดการปฏิบัติหน้าที่ครูเวรประจำวัน:</p>
                                         <div className="space-y-1 text-slate-800 text-[10px] mb-4 lh-tight">
-                                            <p className="indent-4"><span className="font-bold underline text-black">รายงานเวรช่วงเช้า:</span> {morningReport || '(ยังคงเว้นว่างไว้ในแบบบันทึกร่าง)'}</p>
-                                            <p className="indent-4"><span className="font-bold underline text-black">รายงานเวรช่วงบ่าย:</span> {afternoonReport || '(ยังคงเว้นว่างไว้ในแบบบันทึกร่าง)'}</p>
+                                            <p className="indent-4"><span className="font-bold underline text-black">ช่วงเช้า:</span> {morningReport || '(ยังคงเว้นว่างไว้ในแบบบันทึกร่าง)'}</p>
+                                            <p className="indent-4"><span className="font-bold underline text-black">ช่วงกลางวันและเย็น:</span> {afternoonReport || '(ยังคงเว้นว่างไว้ในแบบบันทึกร่าง)'}</p>
                                         </div>
 
                                         {/* Visual photos preview sheet */}
-                                        <p className="font-extrabold mb-2.5 text-[10px] text-slate-800">๓. ภาพถ่ายแนบท้ายพฤติกรรมการลงตรวจหน้าที่เวรขบวน (แสดงด้านแนวนอนคำบรรยายภาพด้านบน):</p>
+                                        <p className="font-extrabold mb-2.5 text-[10px] text-slate-800">๓. รูปภาพประกอบการรายงานเวร:</p>
                                         <div className="grid grid-cols-2 gap-3 mb-2">
                                             {pic1Url ? (
                                                 <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
@@ -3467,7 +3529,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                                     <img src={getDirectDriveUrl(pic1Url)} alt="ภาพเช้า" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
                                                 </div>
                                             ) : (
-                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">หน้าประตู/ช่วงเช้า (ยังไม่แนบ)</div>
+                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">ทางเข้าโรงเรียนช่วงเช้า (ยังไม่แนบ)</div>
                                             )}
 
                                             {pic2Url ? (
@@ -3476,7 +3538,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                                     <img src={getDirectDriveUrl(pic2Url)} alt="ภาพธง" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
                                                 </div>
                                             ) : (
-                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">เสาธงเคารพ (ยังไม่แนบ)</div>
+                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">กิจกรรมหน้าเสาธง (ยังไม่แนบ)</div>
                                             )}
 
                                             {pic3Url ? (
@@ -3485,7 +3547,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                                     <img src={getDirectDriveUrl(pic3Url)} alt="ภาพข้าว" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
                                                 </div>
                                             ) : (
-                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">จัดส่งอาหาร/วัน (ยังไม่แนบ)</div>
+                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">อาหารกลางวันนักเรียน (ยังไม่แนบ)</div>
                                             )}
 
                                             {pic4Url ? (
@@ -3494,7 +3556,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                                     <img src={getDirectDriveUrl(pic4Url)} alt="ภาพกลับบ้าน" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
                                                 </div>
                                             ) : (
-                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">การกลับรถโรงเรียน (ยังไม่แนบ)</div>
+                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">หลังเลิกเรียนและเดินทางกลับ (ยังไม่แนบ)</div>
                                             )}
                                         </div>
                                     </div>
@@ -3502,16 +3564,16 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                     {/* Sign block inside preview */}
                                     <div className="grid grid-cols-2 gap-2 mt-6 text-center text-[10px]">
                                         <div className="flex flex-col items-center">
-                                            <p className="mb-6 font-bold">ลงลายลักษณ์ผู้รายงาน</p>
+                                            <p className="mb-6 font-bold">ลงชื่อครูเวรประจำวัน</p>
                                             <p className="mb-0.5">ลงชื่อ............................................................</p>
                                             <p className="font-extrabold text-black">( {currentUser.name} )</p>
-                                            <p className="text-[8px] text-slate-500">คุณครูรับรักษาการเวรประจำวัน</p>
+                                            <p className="text-[8px] text-slate-500">ครูเวรประจำวัน</p>
                                         </div>
                                         <div className="flex flex-col items-center">
-                                            <p className="mb-6 font-bold">ผู้อำนวยการโรงเรียนเสนอข้อเสนอแนะ</p>
+                                            <p className="mb-6 font-bold">รับทราบ</p>
                                             <p className="mb-0.5">ลงชื่อ............................................................</p>
                                             <p className="font-extrabold text-black">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
-                                            <p className="text-[8px] text-slate-500">ผู้อำนวยการระดับโรงเรียน</p>
+                                            <p className="text-[8px] text-slate-500">ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................'}</p>
                                         </div>
                                     </div>
                                 </div>
@@ -3533,10 +3595,18 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                         >
                             <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4 print:hidden">
                                 <div className="flex items-center gap-2">
-                                    <Shield className="text-rose-500" size={20} />
-                                    <h4 className="font-black text-slate-800 text-sm">ร่างรายงานเวรทางราชการแบบทางการ (ตราครุฑ)</h4>
+                                    <Printer className="text-rose-500" size={20} />
+                                    <h4 className="font-black text-slate-800 text-sm">รายงานบันทึกข้อความครูเวรประจำวัน (ตราครุฑ)</h4>
                                 </div>
                                 <div className="flex items-center gap-2">
+                                    {(isAdmin || isDirector) && (
+                                        <button 
+                                            onClick={() => deleteDutyReport(selectedDutyReport.id)}
+                                            className="px-4 py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-black rounded-xl transition-all flex items-center gap-1 shadow-sm border border-rose-200 cursor-pointer"
+                                        >
+                                            <Trash2 size={12} /> ลบรายงานเวร
+                                        </button>
+                                    )}
                                     {selectedDutyReport.pdfUrl && (
                                         <a 
                                             href={selectedDutyReport.pdfUrl}
@@ -3588,7 +3658,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                     <div className="flex gap-4">
                                         <div className="w-1/2 flex items-end">
                                             <span className="font-extrabold w-8 shrink-0">ที่</span>
-                                            <span className="border-b border-dotted border-slate-300 flex-1 pl-2 text-slate-800">เวรปฏิบัติหน้าที่ทั่วไป /{new Date(selectedDutyReport.date).getFullYear() + 543}</span>
+                                            <span className="border-b border-dotted border-slate-300 flex-1 pl-2 text-slate-800 font-bold">{getDutyReportNumberText(selectedDutyReport.date, selectedDutyReport.id)}</span>
                                         </div>
                                         <div className="w-1/2 flex items-end">
                                             <span className="font-extrabold shrink-0 pl-4 w-12 text-right">วันที่</span>
@@ -3644,10 +3714,10 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                         </table>
 
                                         {/* Morning/Afternoon details */}
-                                        <p className="font-bold mt-4 text-slate-900">๒. การเฝ้าระวังพฤติกรรมดูแลความสงบเรียบร้อย:</p>
+                                        <p className="font-bold mt-4 text-slate-900">๒. รายละเอียดการปฏิบัติหน้าที่ครูเวรประจำวัน:</p>
                                         <div className="space-y-2 pl-4 text-slate-800 text-[10.5px]">
-                                            <p><span className="font-bold underline text-black">รายงานเวรช่วงเช้า:</span> {selectedDutyReport.morningReport || 'ไม่มีบันทึกข้อมูลอื่นเป็นอันตรายทั่วไป'}</p>
-                                            <p><span className="font-bold underline text-black">รายงานเวรช่วงบ่าย:</span> {selectedDutyReport.afternoonReport || 'ไม่มีบันทึกข้อมูลอื่นเป็นอันตรายทั่วไป'}</p>
+                                            <p><span className="font-bold underline text-black">ช่วงเช้า:</span> {selectedDutyReport.morningReport || 'ไม่มีบันทึกข้อมูลอื่นเพิ่มเติม'}</p>
+                                            <p><span className="font-bold underline text-black">ช่วงกลางวันและเย็น:</span> {selectedDutyReport.afternoonReport || 'ไม่มีบันทึกข้อมูลอื่นเพิ่มเติม'}</p>
                                         </div>
 
                                         {/* Photos array matching requirements layout */}
@@ -3656,25 +3726,25 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                             {selectedDutyReport.pic1Url && (
                                                 <div className="border border-slate-205 p-1.5 rounded bg-white flex flex-col items-center">
                                                     <p className="text-[9px] font-bold text-center text-slate-700 mb-1 truncate max-w-full">{selectedDutyReport.pic1Desc}</p>
-                                                    <img src={getDirectDriveUrl(selectedDutyReport.pic1Url)} alt="ประตูเลนขวา" className="h-[95px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                    <img src={getDirectDriveUrl(selectedDutyReport.pic1Url)} alt="ภาพช่วงเช้า" className="h-[95px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
                                                 </div>
                                             )}
                                             {selectedDutyReport.pic2Url && (
                                                 <div className="border border-slate-205 p-1.5 rounded bg-white flex flex-col items-center">
                                                     <p className="text-[9px] font-bold text-center text-slate-700 mb-1 truncate max-w-full">{selectedDutyReport.pic2Desc}</p>
-                                                    <img src={getDirectDriveUrl(selectedDutyReport.pic2Url)} alt="เสาเคารพ" className="h-[95px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                    <img src={getDirectDriveUrl(selectedDutyReport.pic2Url)} alt="ภาพกิจกรรมหน้าเสาธง" className="h-[95px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
                                                 </div>
                                             )}
                                             {selectedDutyReport.pic3Url && (
                                                 <div className="border border-slate-205 p-1.5 rounded bg-white flex flex-col items-center">
                                                     <p className="text-[9px] font-bold text-center text-slate-700 mb-1 truncate max-w-full">{selectedDutyReport.pic3Desc}</p>
-                                                    <img src={getDirectDriveUrl(selectedDutyReport.pic3Url)} alt="อาหารเที่ยง" className="h-[95px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                    <img src={getDirectDriveUrl(selectedDutyReport.pic3Url)} alt="ภาพอาหารกลางวัน" className="h-[95px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
                                                 </div>
                                             )}
                                             {selectedDutyReport.pic4Url && (
                                                 <div className="border border-slate-205 p-1.5 rounded bg-white flex flex-col items-center">
                                                     <p className="text-[9px] font-bold text-center text-slate-700 mb-1 truncate max-w-full">{selectedDutyReport.pic4Desc}</p>
-                                                    <img src={getDirectDriveUrl(selectedDutyReport.pic4Url)} alt="เดินทางรถส่ง" className="h-[95px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                    <img src={getDirectDriveUrl(selectedDutyReport.pic4Url)} alt="ภาพหลังเลิกเรียน" className="h-[95px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
                                                 </div>
                                             )}
                                         </div>
@@ -3687,13 +3757,13 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
                                 <div className="grid grid-cols-2 gap-8 mt-10 text-center text-[10.5px]">
                                     <div className="flex flex-col items-center">
-                                        <p className="mb-8 font-bold text-slate-800">ส่งสลักผลครูผู้รับเวรช่วง</p>
+                                        <p className="mb-8 font-bold text-slate-800">ลงชื่อครูเวรประจำวัน</p>
                                         <p className="mb-1 text-slate-500">ลงชื่อ............................................................</p>
                                         <p className="font-extrabold text-slate-900">( {selectedDutyReport.teacherName} )</p>
-                                        <p className="text-[9.5px] text-slate-500">คุณครูตรวจรักษาประจำสถาบัน</p>
+                                        <p className="text-[9.5px] text-slate-500">ครูเวรประจำวัน</p>
                                     </div>
                                     <div className="flex flex-col items-center">
-                                        <p className="mb-8 font-bold text-slate-800">ผู้รับความเห็นและลงชื่อพิจารณา</p>
+                                        <p className="mb-8 font-bold text-slate-800">รับทราบ</p>
                                         <p className="mb-1 text-slate-500">ลงชื่อ............................................................</p>
                                         <p className="font-extrabold text-slate-900">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
                                         <p className="text-[9.5px] text-slate-500">ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................'}</p>
