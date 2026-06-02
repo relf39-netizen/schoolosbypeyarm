@@ -126,6 +126,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     const [isSavingHealth, setIsSavingHealth] = useState(false);
     const [schoolConfig, setSchoolConfig] = useState<any>(null);
     const [directorName, setDirectorName] = useState<string>('');
+    const [allSchoolTeachers, setAllSchoolTeachers] = useState<any[]>([]);
 
     const chartData = useMemo(() => {
         return [...healthRecords].reverse().map(r => ({
@@ -164,6 +165,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                 .eq('school_id', currentUser.schoolId);
             
             if (teachers && teachers.length > 0) {
+                setAllSchoolTeachers(teachers);
                 const director = 
                     teachers.find((t: any) => t.roles?.includes('DIRECTOR')) || 
                     teachers.find((t: any) => t.is_acting_director === true) ||
@@ -263,11 +265,11 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     }, [viewMode, currentUser.schoolId]);
 
     const fetchFullSchoolStatsForDate = async (targetDate: string) => {
-        if (!supabase) return { total: 0, present: 0, late: 0, sick: 0, absent: 0 };
+        if (!supabase) return { total: 0, present: 0, late: 0, sick: 0, absent: 0, classDetails: [] };
         try {
             const { data: allStuds, error: studsErr } = await supabase
                 .from('students')
-                .select('id')
+                .select('id, current_class')
                 .eq('school_id', currentUser.schoolId)
                 .eq('is_active', true)
                 .eq('is_alumni', false);
@@ -295,29 +297,57 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             let sick = 0;
             let absent = 0;
 
+            const classStatsMap: Record<string, { total: number, present: number, late: number, sick: number, absent: number }> = {};
+
             if (allStuds) {
                 allStuds.forEach((s: any) => {
+                    const cName = s.current_class || 'ไม่ระบุชั้น';
+                    if (!classStatsMap[cName]) {
+                        classStatsMap[cName] = { total: 0, present: 0, late: 0, sick: 0, absent: 0 };
+                    }
+                    classStatsMap[cName].total++;
+
                     const status = attendedMap.get(s.id);
-                    if (status === 'Present') present++;
-                    else if (status === 'Late') late++;
-                    else if (status === 'Sick') sick++;
-                    else if (status === 'Absent') absent++;
-                    else {
-                        absent++; // Unrecorded students default to absent for daily stats
+                    if (status === 'Present') {
+                        present++;
+                        classStatsMap[cName].present++;
+                    } else if (status === 'Late') {
+                        late++;
+                        classStatsMap[cName].late++;
+                    } else if (status === 'Sick') {
+                        sick++;
+                        classStatsMap[cName].sick++;
+                    } else if (status === 'Absent') {
+                        absent++;
+                        classStatsMap[cName].absent++;
+                    } else {
+                        absent++;
+                        classStatsMap[cName].absent++;
                     }
                 });
             }
+
+            const classDetailsList = Object.entries(classStatsMap).map(([className, st]) => ({
+                className,
+                total: st.total,
+                present: st.present,
+                late: st.late,
+                sick: st.sick,
+                absent: st.absent,
+                rate: st.total > 0 ? ((st.present / st.total) * 100).toFixed(2) : '0.00'
+            })).sort((a, b) => a.className.localeCompare(b.className, 'th'));
 
             return {
                 total: totalCount,
                 present,
                 late,
                 sick,
-                absent
+                absent,
+                classDetails: classDetailsList
             };
         } catch (e) {
             console.error("Error fetching full school stats:", e);
-            return { total: 0, present: 0, late: 0, sick: 0, absent: 0 };
+            return { total: 0, present: 0, late: 0, sick: 0, absent: 0, classDetails: [] };
         }
     };
 
@@ -408,6 +438,47 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         }
     };
 
+    const compressImage = (file: File, maxWidth: number = 1000, maxHeight: number = 800, quality: number = 0.8): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target?.result as string;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > maxWidth) {
+                            height = Math.round((height * maxWidth) / width);
+                            width = maxWidth;
+                        }
+                    } else {
+                        if (height > maxHeight) {
+                            width = Math.round((width * maxHeight) / height);
+                            height = maxHeight;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        reject(new Error("Canvas context is not supported"));
+                        return;
+                    }
+                    ctx.drawImage(img, 0, 0, width, height);
+                    const base64Data = canvas.toDataURL('image/jpeg', quality);
+                    resolve(base64Data.split(',')[1]);
+                };
+                img.onerror = (err) => reject(err);
+            };
+            reader.onerror = (err) => reject(err);
+        });
+    };
+
     const handleDutyPicUpload = async (file: File, picIndex: number) => {
         if (!schoolConfig?.script_url || !schoolConfig?.drive_folder_id) {
             alert("กรุณาให้ผู้ดูแลระบบตั้งค่า Google Drive ในหน้าตั้งค่าก่อน");
@@ -416,17 +487,33 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
         setUploadingPicIndex(picIndex);
         try {
-            const reader = new FileReader();
-            const base64Promise = new Promise<string>((resolve) => {
-                reader.onload = (e) => resolve((e.target?.result as string).split(',')[1]);
-                reader.readAsDataURL(file);
-            });
+            let base64Data = '';
+            try {
+                if (file.type.startsWith('image/')) {
+                    // Compress image automatically
+                    base64Data = await compressImage(file, 1000, 800, 0.82);
+                } else {
+                    const reader = new FileReader();
+                    const base64Promise = new Promise<string>((resolve) => {
+                        reader.onload = (e) => resolve((e.target?.result as string).split(',')[1]);
+                        reader.readAsDataURL(file);
+                    });
+                    base64Data = await base64Promise;
+                }
+            } catch (err) {
+                console.warn("Failed to compress, uploading original", err);
+                const reader = new FileReader();
+                const base64Promise = new Promise<string>((resolve) => {
+                    reader.onload = (e) => resolve((e.target?.result as string).split(',')[1]);
+                    reader.readAsDataURL(file);
+                });
+                base64Data = await base64Promise;
+            }
 
-            const base64Data = await base64Promise;
             const payload = {
                 folderId: schoolConfig.drive_folder_id,
-                fileName: `duty_${picIndex}_${Date.now()}_${file.name}`,
-                mimeType: file.type,
+                fileName: `duty_${picIndex}_${Date.now()}_${file.name.split('.')[0]}.jpg`,
+                mimeType: 'image/jpeg',
                 fileData: base64Data
             };
 
@@ -510,35 +597,87 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
             // Step 2: Capture element and generate PDF, upload it of course!
             if (schoolConfig?.script_url && schoolConfig?.drive_folder_id) {
-                const printElement = document.getElementById('official-duty-memo-print');
-                if (printElement) {
-                    // Set temporary styles to make sure it's fully visible and crisp
-                    const originalStyle = printElement.style.cssText;
-                    printElement.style.cssText = "background: white; color: black; display: block; position: relative; z-index: 1000;";
-                    
-                    const canvas = await html2canvas(printElement, { 
-                        scale: 1.8, 
+                const pdfDoc = await PDFDocument.create();
+                let hasPages = false;
+
+                const p1Element = document.getElementById('official-duty-memo-print-p1');
+                const p2Element = document.getElementById('official-duty-memo-print-p2');
+
+                if (p1Element && p2Element) {
+                    // Page 1
+                    const origStyle1 = p1Element.style.cssText;
+                    p1Element.style.cssText = "background: white; color: black; display: block; position: relative; z-index: 1000; width: 595.28px; min-height: 841.89px;";
+                    const canvas1 = await html2canvas(p1Element, { 
+                        scale: 2.0, 
                         useCORS: true,
                         allowTaint: true,
                         logging: false
                     });
-                    
-                    printElement.style.cssText = originalStyle;
-                    
-                    const imgData = canvas.toDataURL('image/jpeg', 0.90);
-                    const pdfDoc = await PDFDocument.create();
-                    // A4 standard aspect ratio: 595.28 x 841.89
-                    const page = pdfDoc.addPage([595.28, 841.89]);
-                    const img = await pdfDoc.embedJpg(imgData);
-                    page.drawImage(img, {
-                        x: 0,
-                        y: 0,
-                        width: 595.28,
-                        height: 841.89
+                    p1Element.style.cssText = origStyle1;
+                    const imgData1 = canvas1.toDataURL('image/jpeg', 0.90);
+                    const page1 = pdfDoc.addPage([595.28, 841.89]);
+                    const img1 = await pdfDoc.embedJpg(imgData1);
+                    page1.drawImage(img1, { x: 0, y: 0, width: 595.28, height: 841.89 });
+
+                    // Page 2
+                    const origStyle2 = p2Element.style.cssText;
+                    p2Element.style.cssText = "background: white; color: black; display: block; position: relative; z-index: 1000; width: 595.28px; min-height: 841.89px;";
+                    const canvas2 = await html2canvas(p2Element, { 
+                        scale: 2.0, 
+                        useCORS: true,
+                        allowTaint: true,
+                        logging: false
+                    });
+                    p2Element.style.cssText = origStyle2;
+                    const imgData2 = canvas2.toDataURL('image/jpeg', 0.90);
+                    const page2 = pdfDoc.addPage([595.28, 841.89]);
+                    const img2 = await pdfDoc.embedJpg(imgData2);
+                    page2.drawImage(img2, { x: 0, y: 0, width: 595.28, height: 841.89 });
+
+                    hasPages = true;
+                } else {
+                    // Fallback to single page capture if separate elements aren't found
+                    const printElement = document.getElementById('official-duty-memo-print');
+                    if (printElement) {
+                        const originalStyle = printElement.style.cssText;
+                        printElement.style.cssText = "background: white; color: black; display: block; position: relative; z-index: 1000; width: 595.28px;";
+                        
+                        const canvas = await html2canvas(printElement, { 
+                            scale: 2.0, 
+                            useCORS: true,
+                            allowTaint: true,
+                            logging: false
+                        });
+                        
+                        printElement.style.cssText = originalStyle;
+                        
+                        const imgData = canvas.toDataURL('image/jpeg', 0.90);
+                        const page = pdfDoc.addPage([595.28, 841.89]);
+                        const img = await pdfDoc.embedJpg(imgData);
+                        page.drawImage(img, {
+                            x: 0,
+                            y: 0,
+                            width: 595.28,
+                            height: 841.89
+                        });
+                        hasPages = true;
+                    }
+                }
+
+                if (hasPages) {
+                    const pdfBytes = await pdfDoc.save();
+                    const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
+                    const base64Pdf = await new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            const dataUrl = reader.result as string;
+                            const base64 = dataUrl.split(',')[1];
+                            resolve(base64);
+                        };
+                        reader.onerror = reject;
+                        reader.readAsDataURL(blob);
                     });
 
-                    const pdfBytes = await pdfDoc.save();
-                    const base64Pdf = btoa(String.fromCharCode(...new Uint8Array(pdfBytes)));
                     const uploadPayload = {
                         folderId: schoolConfig.drive_folder_id,
                         fileName: `Duty_Report_${dutyDate}_${currentUser.name.replace(/\s+/g, '_')}.pdf`,
@@ -3224,13 +3363,9 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
                             {/* Live Draft A4 Preview column */}
                             <div className="lg:col-span-5 bg-slate-100 rounded-[2.5rem] p-4 font-sarabun max-h-[85vh] overflow-y-auto shadow-inner border border-slate-205">
-                                <p className="text-[10px] uppercase font-black text-center text-slate-400 mb-2">แสดงแบบตัวอย่างสลักหลังกระดาษคำร้องบันทึกจริง</p>
+                                <p className="text-[10px] uppercase font-black text-center text-slate-400 mb-2">แสดงแบบจำลองบันทึกข้อความจริง 2 หน้า (ขนาด A4)</p>
                                 
-                                <div 
-                                    id="official-duty-memo-print" 
-                                    className="bg-white p-8 text-black border shadow-md font-sarabun leading-relaxed mx-auto select-none print:shadow-none print:border-none print:w-full print:m-0 print:p-0"
-                                    style={{ width: '100%', minHeight: '740px', maxWidth: '595px', pageBreakAfter: 'always', fontSize: '11px' }}
-                                >
+                                <div id="official-duty-memo-print" className="space-y-4">
                                     {/* Logo header */}
                                     <div className="flex justify-start mb-1">
                                         <img 
@@ -3465,7 +3600,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                     <div className="flex items-end">
                                         <span className="font-extrabold w-12 shrink-0">เรื่อง</span>
                                         <span className="border-b border-dotted border-slate-300 flex-1 pl-2 font-bold text-slate-900 col-span-3">
-                                            รายงานเวรการรักษาความปลอดภัยและความสงบเรียบร้อยเสร็จสิ้น ประจำวันที่ {formatToThaiDate(selectedDutyReport.date)}
+                                            รายงานเวรประจำวันที่ {formatToThaiDate(selectedDutyReport.date)}
                                         </span>
                                     </div>
                                 </div>
@@ -3475,21 +3610,18 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                     
                                     <div className="space-y-4 text-justify">
                                         <p className="indent-12 text-slate-800 leading-relaxed">
-                                            ตามที่ ข้าพเจ้า <span className="font-bold text-black">{selectedDutyReport.teacherName}</span> ตำแหน่ง ครูสังกัดดูแลเวร ได้รับมอบหมายปฏิบัติหน้าที่รักษาและดูแลความต้อนรับดูแลสุขอนามัยนักเรียน ประจำงวดวันที่ {formatToThaiDate(selectedDutyReport.date)} นั้น
-                                        </p>
-                                        <p className="indent-12 text-slate-800 leading-relaxed">
-                                            บัดนี้ ครูเวรผู้รับรักษาภารกิจดูแลเรียบร้อยดี สมบูรณ์ขอยื่นส่งบันทึกความรายงานพฤติกรรมในวันดังกล่าวให้ทางวิชาการร่วมกับฝ่ายบริหารทั่วไป โดยมีรายละเอียดสรุปภาพรวมทั้งหมดดังประมวลผลนี้:
+                                            ตามที่ ข้าพเจ้า <span className="font-bold text-black">{selectedDutyReport.teacherName}</span> ตำแหน่ง <span className="font-bold text-black">{selectedDutyReport.teacherPosition || 'ครู'}</span> ได้รับมอบหน้าที่เป็นครูเวรประจำวันที่ <span className="font-bold text-black">{formatToThaiDate(selectedDutyReport.date)}</span> นั้น จึงขอรายงานเวร ดังนี้
                                         </p>
 
                                         {/* Dynamic statistics table block */}
-                                        <p className="font-bold mt-4 mb-2">๑. ข้อมูลสารสนเทศสถิติการมาเรียนของโรงเรียนขบวนรวม:</p>
+                                        <p className="font-bold mt-4 mb-2 font-sarabun text-slate-900">๑. ข้อมูลนักเรียนที่มาโรงเรียนแยกตามทุกระดับชั้น:</p>
                                         <table className="w-full border-collapse border border-black text-center text-[10px] text-slate-850">
                                             <thead>
                                                 <tr className="bg-slate-50 font-bold">
                                                     <th className="border border-black p-1.5">จำนวนนักเรียนทั้งหมด (คน)</th>
-                                                    <th className="border border-black p-1.5 text-emerald-800">มาวันปกติ (คน)</th>
+                                                    <th className="border border-black p-1.5 text-emerald-800">มาเรียน (คน)</th>
                                                     <th className="border border-black p-1.5 text-amber-700">เข้าเรียนสาย (คน)</th>
-                                                    <th className="border border-black p-1.5 text-blue-800">ลาป่วย/กิจ (คน)</th>
+                                                    <th className="border border-black p-1.5 text-blue-800">ลาป่วย (คน)</th>
                                                     <th className="border border-black p-1.5 text-rose-700 font-bold">ขาดเรียน (คน)</th>
                                                     <th className="border border-black p-1.5">ร้อยละเข้าเรียนสะสม</th>
                                                 </tr>
@@ -3497,11 +3629,11 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                             <tbody>
                                                 <tr className="font-bold">
                                                     <td className="border border-black p-1 font-mono">{activeDutyStats?.total || 0}</td>
-                                                    <td className="border border-black p-1 font-mono text-emerald-805 text-emerald-800">{activeDutyStats?.present || 0}</td>
+                                                    <td className="border border-black p-1 font-mono text-emerald-800">{activeDutyStats?.present || 0}</td>
                                                     <td className="border border-black p-1 font-mono text-amber-700">{activeDutyStats?.late || 0}</td>
                                                     <td className="border border-black p-1 font-mono text-blue-800">{activeDutyStats?.sick || 0}</td>
                                                     <td className="border border-black p-1 font-mono text-rose-700 font-extrabold">{activeDutyStats?.absent || 0}</td>
-                                                    <td className="border border-black p-1 font-mono text-indigo-805 text-indigo-800">
+                                                    <td className="border border-black p-1 font-mono text-indigo-700">
                                                         {activeDutyStats?.total > 0 
                                                           ? ((activeDutyStats.present / activeDutyStats.total) * 100).toFixed(2) 
                                                           : '0.00'
@@ -3512,14 +3644,14 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                         </table>
 
                                         {/* Morning/Afternoon details */}
-                                        <p className="font-bold mt-4">๒. สรุปรายละเอียดผลเชิงลึกการเฝ้าระวังความเรียบร้อยภัยคุกคามสวัสดิภาพ:</p>
+                                        <p className="font-bold mt-4 text-slate-900">๒. การเฝ้าระวังพฤติกรรมดูแลความสงบเรียบร้อย:</p>
                                         <div className="space-y-2 pl-4 text-slate-800 text-[10.5px]">
                                             <p><span className="font-bold underline text-black">รายงานเวรช่วงเช้า:</span> {selectedDutyReport.morningReport || 'ไม่มีบันทึกข้อมูลอื่นเป็นอันตรายทั่วไป'}</p>
                                             <p><span className="font-bold underline text-black">รายงานเวรช่วงบ่าย:</span> {selectedDutyReport.afternoonReport || 'ไม่มีบันทึกข้อมูลอื่นเป็นอันตรายทั่วไป'}</p>
                                         </div>
 
                                         {/* Photos array matching requirements layout */}
-                                        <p className="font-bold mt-4 mb-2">๓. พฤติกรรมภาพถ่ายแนบทรายแนบการปฏิบัติงานเวรราชการ (เรียงขวางแสดงรายละเอียดบนภาพ):</p>
+                                        <p className="font-bold mt-4 mb-2 text-slate-900">๓. รูปภาพประกอบการรายงานเวร:</p>
                                         <div className="grid grid-cols-2 gap-4 bg-slate-50/80 p-3 rounded-2xl border border-slate-150">
                                             {selectedDutyReport.pic1Url && (
                                                 <div className="border border-slate-205 p-1.5 rounded bg-white flex flex-col items-center">
