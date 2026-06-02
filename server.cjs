@@ -323,6 +323,25 @@ async function startServer() {
         amount FLOAT NOT NULL,
         type VARCHAR(255) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS teacher_duty_reports (
+        id VARCHAR(100) PRIMARY KEY,
+        school_id VARCHAR(255) NOT NULL,
+        date DATE NOT NULL,
+        teacher_id VARCHAR(255) NOT NULL,
+        teacher_name VARCHAR(255) NOT NULL,
+        morning_report TEXT,
+        afternoon_report TEXT,
+        pic1_url TEXT,
+        pic1_desc VARCHAR(255),
+        pic2_url TEXT,
+        pic2_desc VARCHAR(255),
+        pic3_url TEXT,
+        pic3_desc VARCHAR(255),
+        pic4_url TEXT,
+        pic4_desc VARCHAR(255),
+        pdf_url TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`
     ];
 
@@ -865,7 +884,7 @@ async function startServer() {
     const data = req.body;
     console.log(`[${new Date().toISOString()}] POST request for ${tableName}. Data type: ${Array.isArray(data) ? 'Array' : typeof data}`);
     
-    const uuidTables = ['students', 'class_rooms', 'student_savings', 'student_attendance', 'student_health_records', 'academic_years', 'director_events', 'profiles', 'schools', 'documents', 'finance_accounts', 'finance_transactions', 'plan_project_expenses'];
+    const uuidTables = ['students', 'class_rooms', 'student_savings', 'student_attendance', 'student_health_records', 'academic_years', 'director_events', 'profiles', 'schools', 'documents', 'finance_accounts', 'finance_transactions', 'plan_project_expenses', 'teacher_duty_reports'];
 
     if (!data || (typeof data !== 'object' && !Array.isArray(data))) {
       console.error(`[POST /api/table/${tableName}] Invalid data format:`, typeof data);

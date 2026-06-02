@@ -343,6 +343,26 @@ export interface StudentAttendance {
   createdAt: string;
 }
 
+export interface TeacherDutyReport {
+  id: string;
+  schoolId: string;
+  date: string; // YYYY-MM-DD
+  teacherId: string;
+  teacherName: string;
+  morningReport?: string;
+  afternoonReport?: string;
+  pic1Url?: string;
+  pic1Desc?: string;
+  pic2Url?: string;
+  pic2Desc?: string;
+  pic3Url?: string;
+  pic3Desc?: string;
+  pic4Url?: string;
+  pic4Desc?: string;
+  pdfUrl?: string;
+  createdAt?: string;
+}
+
 export interface StudentHealthRecord {
   id: string;
   studentId: string;

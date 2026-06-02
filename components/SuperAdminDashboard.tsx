@@ -44,6 +44,10 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     const [selectedSchoolId, setSelectedSchoolId] = useState<string | null>(null);
     const [isUpdatingTeacher, setIsUpdatingTeacher] = useState<string | null>(null);
 
+    // Automated MySQL Database Initialization State
+    const [dbAutoInitStatus, setDbAutoInitStatus] = useState<'pending' | 'success' | 'failed'>('pending');
+    const [dbInitMessage, setDbInitMessage] = useState<string>('กำลังตรวจสอบและอัปเดตโครงสร้างฐานข้อมูล MySQL อัตโนมัติ...');
+
     useEffect(() => {
         const fetchSuperAdmin = async () => {
             const client = supabase;
@@ -55,7 +59,26 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 }
             }
         };
+
+        const autoInitDb = async () => {
+            try {
+                const res = await fetch('/api/init-db', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    setDbAutoInitStatus('success');
+                    setDbInitMessage('ตารางข้อมูลและคอลัมน์ทั้งหมดใน MySQL ได้รับการตรวจสอบและปรับปรุงเรียบร้อยโดยอัตโนมัติแล้ว!');
+                } else {
+                    setDbAutoInitStatus('failed');
+                    setDbInitMessage('เกิดข้อผิดพลาดในการรัน SQL ตารางอัตโนมัติ: ' + (data.error || 'Unknown error'));
+                }
+            } catch (e: any) {
+                setDbAutoInitStatus('failed');
+                setDbInitMessage('ไม่สามารถเชื่อมต่อ Express/MySQL API: ' + e.message);
+            }
+        };
+
         fetchSuperAdmin();
+        autoInitDb();
     }, []);
 
     const filteredSchools = schools.filter(s => 
@@ -183,6 +206,64 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                     </button>
                 </div>
             </header>
+
+            {/* Auto Database Init Notification Bar */}
+            <div className="max-w-7xl mx-auto px-6 pt-6">
+                {dbAutoInitStatus === 'pending' && (
+                    <div className="bg-amber-50 text-amber-800 border border-amber-200 rounded-2xl p-4 flex items-center justify-between shadow-sm animate-pulse">
+                        <div className="flex items-center gap-3">
+                            <Loader2 className="animate-spin text-amber-600 shrink-0" size={18} />
+                            <span className="text-xs font-black">{dbInitMessage}</span>
+                        </div>
+                    </div>
+                )}
+                {dbAutoInitStatus === 'success' && (
+                    <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-[1.5rem] p-4 flex items-center justify-between shadow-sm">
+                        <div className="flex items-center gap-3">
+                            <ShieldCheck className="text-emerald-600 shrink-0" size={20} />
+                            <div>
+                                <span className="text-xs font-black block leading-none">เชื่อมต่อฐานข้อมูล MySQL สำเร็จ</span>
+                                <span className="text-[10px] text-emerald-600 font-bold mt-1.5 block">{dbInitMessage}</span>
+                            </div>
+                        </div>
+                        <span className="text-[9px] bg-emerald-100 text-emerald-800 px-2 py-1 font-mono font-black uppercase rounded-lg hidden sm:inline">MySQL Core Active</span>
+                    </div>
+                )}
+                {dbAutoInitStatus === 'failed' && (
+                    <div className="bg-rose-50 text-rose-800 border border-rose-250 rounded-[1.5rem] p-4 flex items-center justify-between shadow-sm">
+                        <div className="flex items-center gap-3">
+                            <Shield className="text-rose-600 shrink-0" size={20} />
+                            <div>
+                                <span className="text-xs font-black block leading-none">ไม่สามารถอัปเดตโครงสร้างฐานข้อมูล MySQL อัตโนมัติ</span>
+                                <span className="text-[10px] text-rose-600 font-bold mt-1.5 block">{dbInitMessage}</span>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={async () => {
+                                setDbAutoInitStatus('pending');
+                                setDbInitMessage('กำลังลองอัปเดตโครงสร้างตารางข้อมูลในระบบ MySQL อีกครั้ง...');
+                                try {
+                                    const res = await fetch('/api/init-db', { method: 'POST' });
+                                    const data = await res.json();
+                                    if (data.success) {
+                                        setDbAutoInitStatus('success');
+                                        setDbInitMessage('ตารางข้อมูลและคอลัมน์ทั้งหมดใน MySQL ได้รับการตรวจสอบและปรับปรุงเรียบร้อยโดยอัตโนมัติแล้ว!');
+                                    } else {
+                                        setDbAutoInitStatus('failed');
+                                        setDbInitMessage('เกิดข้อผิดพลาดในการรันตาราง: ' + (data.error || 'Unknown error'));
+                                    }
+                                } catch (err: any) {
+                                    setDbAutoInitStatus('failed');
+                                    setDbInitMessage('เกิดข้อขัดข้องทางการเชื่อมต่อ: ' + err.message);
+                                }
+                            }}
+                            className="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-xl font-bold font-sans text-[10px] transition-all flex items-center gap-1 shrink-0 cursor-pointer"
+                        >
+                            <RefreshCw size={12} /> ลองใหม่
+                        </button>
+                    </div>
+                )}
+            </div>
 
             <div className="max-w-7xl mx-auto p-6">
                 {activeTab === 'SCHOOLS' && !selectedSchoolId && (

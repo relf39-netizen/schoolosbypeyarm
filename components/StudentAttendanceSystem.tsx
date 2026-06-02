@@ -6,8 +6,11 @@ import {
     Printer, ChevronRight, GraduationCap, Save, 
     ArrowLeft, LayoutDashboard, History, UserCheck,
     Camera, MapPin, Phone, Home, Heart, User, Plus, Trash2,
-    Scale, Ruler, Loader, BarChart3, Activity, Edit
+    Scale, Ruler, Loader, BarChart3, Activity, Edit,
+    Shield, FileText, Check, Upload, Eye, Trash
 } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { PDFDocument } from 'pdf-lib';
 import { supabase } from '../supabaseClient';
 import { Teacher, Student, StudentAttendance, StudentAttendanceStatus, ClassRoom, AcademicYear, StudentHealthRecord } from '../types';
 import { getDirectDriveUrl } from '../utils/drive';
@@ -65,7 +68,27 @@ interface StudentAttendanceSystemProps {
 }
 
 const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ currentUser }) => {
-    const [viewMode, setViewMode] = useState<'DASHBOARD' | 'RECORD' | 'HISTORY' | 'STUDENT_INFO' | 'OVERALL_REPORT' | 'CLASS_REPORT' | 'RANGE_REPORT'>('DASHBOARD');
+    const [viewMode, setViewMode] = useState<'DASHBOARD' | 'RECORD' | 'HISTORY' | 'STUDENT_INFO' | 'OVERALL_REPORT' | 'CLASS_REPORT' | 'RANGE_REPORT' | 'DUTY_REPORT'>('DASHBOARD');
+    
+    // Duty Report States
+    const [dutyReports, setDutyReports] = useState<any[]>([]);
+    const [selectedDutyReport, setSelectedDutyReport] = useState<any | null>(null);
+    const [activeDutyTab, setActiveDutyTab] = useState<'LIST' | 'FORM'>('LIST');
+    const [dutyDate, setDutyDate] = useState<string>(formatToISODate(new Date()));
+    const [morningReport, setMorningReport] = useState<string>('');
+    const [afternoonReport, setAfternoonReport] = useState<string>('');
+    const [pic1Url, setPic1Url] = useState<string>('');
+    const [pic1Desc, setPic1Desc] = useState<string>('ครูเวรประจำวันตรวจความเรียบร้อยบริเวณประตูทางเข้าโรงเรียนในช่วงเช้าก่อนเข้าเรียน');
+    const [pic2Url, setPic2Url] = useState<string>('');
+    const [pic2Desc, setPic2Desc] = useState<string>('กิจกรรมการเคารพธงชาติและอบรมความมีระเบียบวินัยนักเรียนบริเวณหน้าเสาธง');
+    const [pic3Url, setPic3Url] = useState<string>('');
+    const [pic3Desc, setPic3Desc] = useState<string>('ดูแลความเรียบร้อยและสุขอนามัยของนักเรียนระหว่างการรับประทานอาหารกลางวัน');
+    const [pic4Url, setPic4Url] = useState<string>('');
+    const [pic4Desc, setPic4Desc] = useState<string>('ครูเวรประจำวันส่งนักเรียนและอำนวยความสะดวกการจราจรขณะเดินทางกลับบ้านอย่างปลอดภัย');
+    const [isSavingDuty, setIsSavingDuty] = useState<boolean>(false);
+    const [loadingDutyList, setLoadingDutyList] = useState<boolean>(false);
+    const [uploadingPicIndex, setUploadingPicIndex] = useState<number | null>(null);
+    const [activeDutyStats, setActiveDutyStats] = useState<any>({ total: 0, present: 0, late: 0, sick: 0, absent: 0 });
     const [students, setStudents] = useState<Student[]>([]);
     const [attendance, setAttendance] = useState<StudentAttendance[]>([]);
     const [historyAttendance, setHistoryAttendance] = useState<StudentAttendance[]>([]);
@@ -236,6 +259,346 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     useEffect(() => {
         if (viewMode === 'DASHBOARD') {
             fetchAbsenceStats();
+        }
+    }, [viewMode, currentUser.schoolId]);
+
+    const fetchFullSchoolStatsForDate = async (targetDate: string) => {
+        if (!supabase) return { total: 0, present: 0, late: 0, sick: 0, absent: 0 };
+        try {
+            const { data: allStuds, error: studsErr } = await supabase
+                .from('students')
+                .select('id')
+                .eq('school_id', currentUser.schoolId)
+                .eq('is_active', true)
+                .eq('is_alumni', false);
+            
+            if (studsErr) throw studsErr;
+            const totalCount = allStuds ? allStuds.length : 0;
+
+            const { data: allAtt, error: attErr } = await supabase
+                .from('student_attendance')
+                .select('student_id, status')
+                .eq('school_id', currentUser.schoolId)
+                .eq('date', targetDate);
+
+            if (attErr) throw attErr;
+
+            const attendedMap = new Map<string, string>();
+            if (allAtt) {
+                allAtt.forEach((a: any) => {
+                    attendedMap.set(a.student_id, a.status);
+                });
+            }
+
+            let present = 0;
+            let late = 0;
+            let sick = 0;
+            let absent = 0;
+
+            if (allStuds) {
+                allStuds.forEach((s: any) => {
+                    const status = attendedMap.get(s.id);
+                    if (status === 'Present') present++;
+                    else if (status === 'Late') late++;
+                    else if (status === 'Sick') sick++;
+                    else if (status === 'Absent') absent++;
+                    else {
+                        absent++; // Unrecorded students default to absent for daily stats
+                    }
+                });
+            }
+
+            return {
+                total: totalCount,
+                present,
+                late,
+                sick,
+                absent
+            };
+        } catch (e) {
+            console.error("Error fetching full school stats:", e);
+            return { total: 0, present: 0, late: 0, sick: 0, absent: 0 };
+        }
+    };
+
+    const fetchDutyReports = async () => {
+        if (!supabase) return;
+        setLoadingDutyList(true);
+        try {
+            const { data, error } = await supabase
+                .from('teacher_duty_reports')
+                .select('*')
+                .eq('school_id', currentUser.schoolId)
+                .order('date', { ascending: false });
+            if (error) throw error;
+            if (data) {
+                const mapped = data.map((d: any) => ({
+                    id: d.id,
+                    schoolId: d.school_id,
+                    date: typeof d.date === 'string' ? d.date.split('T')[0] : d.date,
+                    teacherId: d.teacher_id,
+                    teacherName: d.teacher_name,
+                    morningReport: d.morning_report || '',
+                    afternoonReport: d.afternoon_report || '',
+                    pic1Url: d.pic1_url || '',
+                    pic1Desc: d.pic1_desc || '',
+                    pic2Url: d.pic2_url || '',
+                    pic2Desc: d.pic2_desc || '',
+                    pic3Url: d.pic3_url || '',
+                    pic3Desc: d.pic3_desc || '',
+                    pic4Url: d.pic4_url || '',
+                    pic4Desc: d.pic4_desc || '',
+                    pdfUrl: d.pdf_url || '',
+                    createdAt: d.created_at
+                }));
+                setDutyReports(mapped);
+            }
+        } catch (e) {
+            console.error("Error fetching duty reports:", e);
+        } finally {
+            setLoadingDutyList(false);
+        }
+    };
+
+    const handleDutyDateChange = async (dateString: string) => {
+        setDutyDate(dateString);
+        
+        // Load stats
+        const stats = await fetchFullSchoolStatsForDate(dateString);
+        setActiveDutyStats(stats);
+
+        // Load existing
+        if (!supabase) return;
+        try {
+            const { data, error } = await supabase
+                .from('teacher_duty_reports')
+                .select('*')
+                .eq('school_id', currentUser.schoolId)
+                .eq('date', dateString)
+                .limit(1);
+            
+            if (error) throw error;
+            
+            if (data && data.length > 0) {
+                const report = data[0];
+                setMorningReport(report.morning_report || '');
+                setAfternoonReport(report.afternoon_report || '');
+                setPic1Url(report.pic1_url || '');
+                setPic2Url(report.pic2_url || '');
+                setPic3Url(report.pic3_url || '');
+                setPic4Url(report.pic4_url || '');
+                setPic1Desc(report.pic1_desc || 'ครูเวรประจำวันตรวจความเรียบร้อยบริเวณประตูทางเข้าโรงเรียนในช่วงเช้าก่อนเข้าเรียน');
+                setPic2Desc(report.pic2_desc || 'กิจกรรมการเคารพธงชาติและอบรมความมีระเบียบวินัยนักเรียนบริเวณหน้าเสาธง');
+                setPic3Desc(report.pic3_desc || 'ดูแลความเรียบร้อยและสุขอนามัยของนักเรียนระหว่างการรับประทานอาหารกลางวัน');
+                setPic4Desc(report.pic4_desc || 'ครูเวรประจำวันส่งนักเรียนและอำนวยความสะดวกการจราจรขณะเดินทางกลับบ้านอย่างปลอดภัย');
+            } else {
+                setMorningReport('');
+                setAfternoonReport('');
+                setPic1Url('');
+                setPic2Url('');
+                setPic3Url('');
+                setPic4Url('');
+                setPic1Desc('ครูเวรประจำวันตรวจความเรียบร้อยบริเวณประตูทางเข้าโรงเรียนในช่วงเช้าก่อนเข้าเรียน');
+                setPic2Desc('กิจกรรมการเคารพธงชาติและอบรมความมีระเบียบวินัยนักเรียนบริเวณหน้าเสาธง');
+                setPic3Desc('ดูแลความเรียบร้อยและสุขอนามัยของนักเรียนระหว่างการรับประทานอาหารกลางวัน');
+                setPic4Desc('ครูเวรประจำวันส่งนักเรียนและอำนวยความสะดวกการจราจรขณะเดินทางกลับบ้านอย่างปลอดภัย');
+            }
+        } catch (e) {
+            console.error("Error reading existing report for date:", e);
+        }
+    };
+
+    const handleDutyPicUpload = async (file: File, picIndex: number) => {
+        if (!schoolConfig?.script_url || !schoolConfig?.drive_folder_id) {
+            alert("กรุณาให้ผู้ดูแลระบบตั้งค่า Google Drive ในหน้าตั้งค่าก่อน");
+            return;
+        }
+
+        setUploadingPicIndex(picIndex);
+        try {
+            const reader = new FileReader();
+            const base64Promise = new Promise<string>((resolve) => {
+                reader.onload = (e) => resolve((e.target?.result as string).split(',')[1]);
+                reader.readAsDataURL(file);
+            });
+
+            const base64Data = await base64Promise;
+            const payload = {
+                folderId: schoolConfig.drive_folder_id,
+                fileName: `duty_${picIndex}_${Date.now()}_${file.name}`,
+                mimeType: file.type,
+                fileData: base64Data
+            };
+
+            const response = await fetch(schoolConfig.script_url, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+            });
+
+            const responseText = await response.text();
+            let result;
+            try {
+                result = JSON.parse(responseText);
+            } catch (e) {
+                if (responseText.trim().startsWith('error:')) {
+                    throw new Error(responseText.trim().replace('error:', '').trim());
+                }
+                throw new Error("Server returned invalid JSON response");
+            }
+            if (result.status === 'success') {
+                if (picIndex === 1) setPic1Url(result.viewUrl);
+                else if (picIndex === 2) setPic2Url(result.viewUrl);
+                else if (picIndex === 3) setPic3Url(result.viewUrl);
+                else if (picIndex === 4) setPic4Url(result.viewUrl);
+                alert("อัปโหลดรูปภาพสำเร็จ");
+            } else {
+                throw new Error(result.message || "Upload failed");
+            }
+        } catch (err: any) {
+            alert("เกิดข้อผิดพลาดในการอัปโหลดรูปภาพไปยัง Google Drive: " + err.message);
+        } finally {
+            setUploadingPicIndex(null);
+        }
+    };
+
+    const saveDutyReport = async () => {
+        if (!supabase) return;
+        setIsSavingDuty(true);
+        try {
+            // Find existing id or let POST generate uuid
+            const { data: existingData } = await supabase
+                .from('teacher_duty_reports')
+                .select('id')
+                .eq('school_id', currentUser.schoolId)
+                .eq('date', dutyDate)
+                .limit(1);
+
+            const reportId = existingData && existingData.length > 0 ? existingData[0].id : undefined;
+
+            // Step 1: Save textual and image data to table
+            const reportPayload: any = {
+                school_id: currentUser.schoolId,
+                date: dutyDate,
+                teacher_id: currentUser.id,
+                teacher_name: currentUser.name,
+                morning_report: morningReport,
+                afternoon_report: afternoonReport,
+                pic1_url: pic1Url,
+                pic1_desc: pic1Desc,
+                pic2_url: pic2Url,
+                pic2_desc: pic2Desc,
+                pic3_url: pic3Url,
+                pic3_desc: pic3Desc,
+                pic4_url: pic4Url,
+                pic4_desc: pic4Desc
+            };
+
+            if (reportId) {
+                reportPayload.id = reportId;
+                const { error: saveErr } = await supabase
+                    .from('teacher_duty_reports')
+                    .update(reportPayload)
+                    .eq('id', reportId);
+                if (saveErr) throw saveErr;
+            } else {
+                const { error: saveErr } = await supabase
+                    .from('teacher_duty_reports')
+                    .insert([reportPayload]);
+                if (saveErr) throw saveErr;
+            }
+
+            // Step 2: Capture element and generate PDF, upload it of course!
+            if (schoolConfig?.script_url && schoolConfig?.drive_folder_id) {
+                const printElement = document.getElementById('official-duty-memo-print');
+                if (printElement) {
+                    // Set temporary styles to make sure it's fully visible and crisp
+                    const originalStyle = printElement.style.cssText;
+                    printElement.style.cssText = "background: white; color: black; display: block; position: relative; z-index: 1000;";
+                    
+                    const canvas = await html2canvas(printElement, { 
+                        scale: 1.8, 
+                        useCORS: true,
+                        allowTaint: true,
+                        logging: false
+                    });
+                    
+                    printElement.style.cssText = originalStyle;
+                    
+                    const imgData = canvas.toDataURL('image/jpeg', 0.90);
+                    const pdfDoc = await PDFDocument.create();
+                    // A4 standard aspect ratio: 595.28 x 841.89
+                    const page = pdfDoc.addPage([595.28, 841.89]);
+                    const img = await pdfDoc.embedJpg(imgData);
+                    page.drawImage(img, {
+                        x: 0,
+                        y: 0,
+                        width: 595.28,
+                        height: 841.89
+                    });
+
+                    const pdfBytes = await pdfDoc.save();
+                    const base64Pdf = btoa(String.fromCharCode(...new Uint8Array(pdfBytes)));
+                    const uploadPayload = {
+                        folderId: schoolConfig.drive_folder_id,
+                        fileName: `Duty_Report_${dutyDate}_${currentUser.name.replace(/\s+/g, '_')}.pdf`,
+                        mimeType: 'application/pdf',
+                        fileData: base64Pdf
+                    };
+
+                    const response = await fetch(schoolConfig.script_url, {
+                        method: 'POST',
+                        body: JSON.stringify(uploadPayload),
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+                    });
+
+                    const responseText = await response.text();
+                    let resJSON;
+                    try {
+                        resJSON = JSON.parse(responseText);
+                    } catch (e) {
+                        console.error("Invalid GAS PDF response", responseText);
+                    }
+
+                    if (resJSON?.status === 'success' && resJSON?.viewUrl) {
+                        // Resave with pdf_url
+                        let finalId = reportId;
+                        if (!finalId) {
+                            const { data: freshRec } = await supabase
+                                .from('teacher_duty_reports')
+                                .select('id')
+                                .eq('school_id', currentUser.schoolId)
+                                .eq('date', dutyDate)
+                                .limit(1);
+                            if (freshRec && freshRec.length > 0) {
+                                finalId = freshRec[0].id;
+                            }
+                        }
+                        
+                        if (finalId) {
+                            await supabase
+                                .from('teacher_duty_reports')
+                                .update({ pdf_url: resJSON.viewUrl })
+                                .eq('id', finalId);
+                        }
+                    }
+                }
+            }
+
+            alert("บันทึกข้อมูลรายงานเวรและอัปโหลด PDF ไปยัง Google Drive สำเร็จเรียบร้อยแล้ว!");
+            await fetchDutyReports();
+            setActiveDutyTab('LIST');
+        } catch (e: any) {
+            alert("ขัดข้อง: " + e.message);
+        } finally {
+            setIsSavingDuty(false);
+        }
+    };
+
+    useEffect(() => {
+        if (viewMode === 'DUTY_REPORT') {
+            fetchDutyReports();
+            handleDutyDateChange(formatToISODate(new Date()));
         }
     }, [viewMode, currentUser.schoolId]);
 
@@ -1134,6 +1497,18 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                             <div className="text-left">
                                 <p className="font-black text-slate-700 text-sm">ประวัติการมาเรียน</p>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase">Attendance History</p>
+                            </div>
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('DUTY_REPORT')}
+                            className="bg-white border border-slate-200 p-4 rounded-2xl flex items-center gap-3 hover:bg-slate-50 transition-all shadow-sm group"
+                        >
+                            <div className="p-2 bg-rose-50 text-rose-600 rounded-xl group-hover:bg-rose-600 group-hover:text-white transition-all">
+                                <Shield size={20} />
+                            </div>
+                            <div className="text-left">
+                                <p className="font-black text-slate-700 text-sm">รายงานเวรประจำวัน</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">Daily Duty Report</p>
                             </div>
                         </button>
                     </div>
@@ -2479,6 +2854,718 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                     >
                                         ปิดหน้าต่าง
                                     </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {viewMode === 'DUTY_REPORT' && (
+                <div className="space-y-6 animate-fade-in print:m-0 print:p-0">
+                    {/* Header bar */}
+                    <div className="flex justify-between items-center print:hidden">
+                        <div className="flex items-center gap-4">
+                            <button 
+                                onClick={() => {
+                                    setViewMode('DASHBOARD');
+                                }}
+                                className="p-3 bg-white text-slate-600 rounded-2xl shadow-sm border border-slate-100 hover:bg-slate-50 transition-all cursor-pointer"
+                            >
+                                <ArrowLeft size={20} />
+                            </button>
+                            <div>
+                                <h3 className="text-xl font-black text-slate-800">ระบบรายงานเวรดูแลความปลอดภัยประจำวันคุณครู</h3>
+                                <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest">Daily Teacher Duty Security Report</p>
+                            </div>
+                        </div>
+
+                        {activeDutyTab === 'LIST' && (
+                            <button 
+                                onClick={() => {
+                                    handleDutyDateChange(formatToISODate(new Date()));
+                                    setActiveDutyTab('FORM');
+                                }}
+                                className="px-6 py-2.5 bg-rose-650 bg-rose-600 text-white rounded-xl font-black text-xs hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 flex items-center gap-2 cursor-pointer"
+                            >
+                                <Plus size={16} /> เขียนรายงานเวรสำหรับวันนี้
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Sub View Toggle */}
+                    {activeDutyTab === 'LIST' ? (
+                        <div className="bg-white p-6 sm:p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
+                            <div className="flex justify-between items-center mb-6">
+                                <h4 className="font-black text-slate-700 text-md flex items-center gap-2">
+                                    <FileText size={20} className="text-rose-500" /> ประวัติการบันทึกรายงานเวรทั้งหมดของโรงเรียน
+                                </h4>
+                            </div>
+
+                            {loadingDutyList ? (
+                                <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                                    <Loader className="animate-spin mb-4 text-rose-550" size={32} />
+                                    <p className="font-black text-sm">กำลังสรุปตรวจสอบรายการรายงานเวร...</p>
+                                </div>
+                            ) : dutyReports.length === 0 ? (
+                                <div className="text-center py-16 bg-slate-50 rounded-[2rem] border border-dashed border-slate-200">
+                                    <Shield size={48} className="mx-auto text-slate-300 mb-3" />
+                                    <p className="font-black text-slate-600 text-base">ยังตรวจสอบไม่พบบันทึกการรายงานเวรใดๆ</p>
+                                    <p className="text-slate-400 text-xs mt-1">กรุณากดปุ่มเพิ่มเพื่อเริ่มสร้างบันทึกข้อความราชการรายงานเวรการดูแลความเรียบร้อย</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {dutyReports.map((report) => (
+                                        <div key={report.id} className="bg-slate-50 hover:bg-white rounded-3xl p-5 border border-slate-100 shadow-sm hover:shadow-lg transition-all relative overflow-hidden flex flex-col justify-between group">
+                                            <div>
+                                                <div className="flex justify-between items-start mb-3">
+                                                    <span className="px-3.5 py-1 bg-rose-50 text-rose-700 border border-rose-100 rounded-full text-[11px] font-black">
+                                                        {formatToThaiDate(report.date)}
+                                                    </span>
+                                                    {report.pdfUrl && (
+                                                        <a 
+                                                            href={report.pdfUrl} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer"
+                                                            className="p-1.5 bg-indigo-50 border border-indigo-100 rounded-lg text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
+                                                            title="เปิด PDF ใน Google Drive"
+                                                        >
+                                                            <Download size={14} />
+                                                        </a>
+                                                    )}
+                                                </div>
+                                                <p className="font-black text-slate-800 text-sm mb-1 mt-2">ผู้ส่งงาน: {report.teacherName}</p>
+                                                <p className="text-slate-500 text-xs line-clamp-2 mb-3">
+                                                    <span className="font-bold text-slate-600 underline">ช่วงเช้า:</span> {report.morningReport || 'ไม่มีส่วนใดประเมินเพิ่มเติม'}
+                                                </p>
+                                                <p className="text-slate-500 text-xs line-clamp-2 mb-4">
+                                                    <span className="font-bold text-slate-600 underline">ช่วงบ่าย:</span> {report.afternoonReport || 'ไม่มีส่วนใดประเมินเพิ่มเติม'}
+                                                </p>
+
+                                                {/* Previews attached indicators */}
+                                                <div className="flex gap-1.5 pt-3 border-t border-slate-100">
+                                                    {report.pic1Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีสัญลักษณ์รูปหน้าประตูรวม">1</span>}
+                                                    {report.pic2Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปเคารพกิจกรรมหน้าเสาธง">2</span>}
+                                                    {report.pic3Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปทานอาหารเสิร์ฟความปลอดภัย">3</span>}
+                                                    {report.pic4Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปจัดส่งเดินทางเดินรถความเรียบร้อย">4</span>}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-5 pt-4 border-t border-slate-100 flex gap-2">
+                                                <button 
+                                                    onClick={() => {
+                                                        setSelectedDutyReport(report);
+                                                        fetchFullSchoolStatsForDate(report.date).then(stats => {
+                                                            setActiveDutyStats(stats);
+                                                        });
+                                                    }}
+                                                    className="flex-1 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                                >
+                                                    <Eye size={12} /> ตรวจสอบรายงาน
+                                                </button>
+                                                <button 
+                                                    onClick={() => {
+                                                        handleDutyDateChange(report.date);
+                                                        setActiveDutyTab('FORM');
+                                                    }}
+                                                    className="py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-xs transition-all flex items-center justify-center cursor-pointer"
+                                                    title="แก้ไขข้อมูลฉบับนี้"
+                                                >
+                                                    <Edit size={12} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        /* Compose / Edit Duty Report Form */
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                            {/* Editor Form Columns (takes 7 columns) */}
+                            <div className="lg:col-span-7 bg-white p-6 sm:p-8 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-6">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-150 pb-5 gap-3">
+                                    <div>
+                                        <h4 className="font-black text-slate-800 text-base">ลงรายละเอียดรายงานเวรปฏิบัติหน้าที่</h4>
+                                        <p className="text-slate-400 text-xs font-semibold">ป้อนรายงานรายละเอียดความปลอดภัยและแนบรูปหลักฐานการตรวจเวร</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-150">
+                                        <span className="text-xs font-black text-slate-500">วันที่เวร:</span>
+                                        <input 
+                                            type="date"
+                                            value={dutyDate}
+                                            onChange={(e) => handleDutyDateChange(e.target.value)}
+                                            className="bg-transparent border-none focus:ring-0 text-xs font-black text-slate-755 p-0 cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-2">๑. รายงานเวรดูแลความเรียบร้อยช่วงเช้า (ก่อนและเตรียมเข้าเรียน)</label>
+                                        <textarea 
+                                            value={morningReport}
+                                            onChange={(e) => setMorningReport(e.target.value)}
+                                            rows={3}
+                                            placeholder="ตัวอย่างเช่น: ตรวจนับความปลอดภัยก่อนรุ่ง อบต. ร่วมอำนวยการหน้าป้ายโรงเรียน ชี้แจงระเบียบหน้าเสาธงกิจกรรมรวมสมาธิ..."
+                                            className="w-full rounded-2xl border-slate-200 focus:border-rose-500 focus:ring-rose-500 text-slate-700 text-sm placeholder-slate-350"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-2">๒. รายงานเวรดูแลความเรียบร้อยช่วงบ่าย (ควบคุมเที่ยวเดินทางส่งนักเรียนและจราจร)</label>
+                                        <textarea 
+                                            value={afternoonReport}
+                                            onChange={(e) => setAfternoonReport(e.target.value)}
+                                            rows={3}
+                                            placeholder="ตัวอย่างเช่น: ตรวจและอภิบาลระเบียบพฤติกรรมในคาบรับโภชนาการ ควบคุมการทำความสะอาด ตรวจกิริยาระหว่างเดินทางปล่อยกลับส่งมอบญาติจราจรอย่างปลอดภัย..."
+                                            className="w-full rounded-2xl border-slate-200 focus:border-rose-500 focus:ring-rose-500 text-slate-700 text-sm placeholder-slate-350"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Picture grid 4 placeholders */}
+                                <div className="pt-4 border-t border-slate-100">
+                                    <h5 className="text-[11px] font-black text-slate-500 uppercase tracking-wider mb-4">๓. ภาพถ่ายแนบรายงานการปฏิบัติงานเวรราชการ (แนวนอน 4 รูป)</h5>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                        {/* Picture 1 */}
+                                        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 flex flex-col justify-between">
+                                            <div>
+                                                <p className="text-xs font-black text-slate-700 mb-1.5">ภาพที่ 1: บริเวณหน้าโรงเรียนช่วงเช้า</p>
+                                                <input 
+                                                    type="text"
+                                                    value={pic1Desc}
+                                                    onChange={(e) => setPic1Desc(e.target.value)}
+                                                    className="w-full text-[10px] bg-white border border-slate-200 rounded-lg p-1.5 focus:outline-none mb-3 font-semibold text-slate-600 focus:ring-1 focus:ring-rose-500"
+                                                    placeholder="พิมพ์คำอธิบายภาพนี้..."
+                                                />
+                                            </div>
+                                            {uploadingPicIndex === 1 ? (
+                                                <div className="py-8 text-center text-rose-600">
+                                                    <Loader className="animate-spin mx-auto mb-2" size={24} />
+                                                    <span className="text-[10px] font-bold">อัปโหลดสื่อประมวลผลอยู่...</span>
+                                                </div>
+                                            ) : pic1Url ? (
+                                                <div className="relative">
+                                                    <img src={getDirectDriveUrl(pic1Url)} alt="พรีวิว 1" className="h-28 w-full object-cover rounded-xl border border-slate-200" referrerPolicy="no-referrer" />
+                                                    <button onClick={() => setPic1Url('')} className="absolute top-2 right-2 p-1.5 bg-rose-600 text-white rounded-full shadow-md hover:bg-rose-700 transition-all cursor-pointer">
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div className="border border-dashed border-slate-300 rounded-xl py-6 flex flex-col items-center justify-center text-slate-400 hover:bg-white cursor-pointer transition-all relative">
+                                                    <Camera size={20} className="mb-1 text-slate-350" />
+                                                    <span className="text-[10px] font-black">อัปโหลดภาพหน้าเสายานพาหนะ</span>
+                                                    <input 
+                                                        type="file" 
+                                                        accept="image/*"
+                                                        className="absolute inset-0 opacity-0 cursor-pointer"
+                                                        onChange={(e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (file) handleDutyPicUpload(file, 1);
+                                                        }}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Picture 2 */}
+                                        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 flex flex-col justify-between">
+                                            <div>
+                                                <p className="text-xs font-black text-slate-700 mb-1.5">ภาพที่ 2: กิจกรรมหน้าเสาธง</p>
+                                                <input 
+                                                    type="text"
+                                                    value={pic2Desc}
+                                                    onChange={(e) => setPic2Desc(e.target.value)}
+                                                    className="w-full text-[10px] bg-white border border-slate-200 rounded-lg p-1.5 focus:outline-none mb-3 font-semibold text-slate-600 focus:ring-1 focus:ring-rose-500"
+                                                    placeholder="พิมพ์คำอธิบายภาพนี้..."
+                                                />
+                                            </div>
+                                            {uploadingPicIndex === 2 ? (
+                                                <div className="py-8 text-center text-rose-600">
+                                                    <Loader className="animate-spin mx-auto mb-2" size={24} />
+                                                    <span className="text-[10px] font-bold">อัปโหลดสื่อประมวลผลอยู่...</span>
+                                                </div>
+                                            ) : pic2Url ? (
+                                                <div className="relative">
+                                                    <img src={getDirectDriveUrl(pic2Url)} alt="พรีวิว 2" className="h-28 w-full object-cover rounded-xl border border-slate-200" referrerPolicy="no-referrer" />
+                                                    <button onClick={() => setPic2Url('')} className="absolute top-2 right-2 p-1.5 bg-rose-600 text-white rounded-full shadow-md hover:bg-rose-700 transition-all cursor-pointer">
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div className="border border-dashed border-slate-300 rounded-xl py-6 flex flex-col items-center justify-center text-slate-400 hover:bg-white cursor-pointer transition-all relative">
+                                                    <Camera size={20} className="mb-1 text-slate-350" />
+                                                    <span className="text-[10px] font-black">อัปโหลดภาพกิจกรรมหน้าเสาธง</span>
+                                                    <input 
+                                                        type="file" 
+                                                        accept="image/*"
+                                                        className="absolute inset-0 opacity-0 cursor-pointer"
+                                                        onChange={(e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (file) handleDutyPicUpload(file, 2);
+                                                        }}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Picture 3 */}
+                                        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 flex flex-col justify-between">
+                                            <div>
+                                                <p className="text-xs font-black text-slate-700 mb-1.5">ภาพที่ 3: อาหารกลางวันของนักเรียน</p>
+                                                <input 
+                                                    type="text"
+                                                    value={pic3Desc}
+                                                    onChange={(e) => setPic3Desc(e.target.value)}
+                                                    className="w-full text-[10px] bg-white border border-slate-200 rounded-lg p-1.5 focus:outline-none mb-3 font-semibold text-slate-600 focus:ring-1 focus:ring-rose-500"
+                                                    placeholder="พิมพ์คำอธิบายภาพนี้..."
+                                                />
+                                            </div>
+                                            {uploadingPicIndex === 3 ? (
+                                                <div className="py-8 text-center text-rose-600">
+                                                    <Loader className="animate-spin mx-auto mb-2" size={24} />
+                                                    <span className="text-[10px] font-bold">อัปโหลดสื่อประมวลผลอยู่...</span>
+                                                </div>
+                                            ) : pic3Url ? (
+                                                <div className="relative">
+                                                    <img src={getDirectDriveUrl(pic3Url)} alt="พรีวิว 3" className="h-28 w-full object-cover rounded-xl border border-slate-200" referrerPolicy="no-referrer" />
+                                                    <button onClick={() => setPic3Url('')} className="absolute top-2 right-2 p-1.5 bg-rose-600 text-white rounded-full shadow-md hover:bg-rose-700 transition-all cursor-pointer">
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div className="border border-dashed border-slate-300 rounded-xl py-6 flex flex-col items-center justify-center text-slate-400 hover:bg-white cursor-pointer transition-all relative">
+                                                    <Camera size={20} className="mb-1 text-slate-350" />
+                                                    <span className="text-[10px] font-black">อัปโหลดภาพทานข้าวโรงโภชนาการ</span>
+                                                    <input 
+                                                        type="file" 
+                                                        accept="image/*"
+                                                        className="absolute inset-0 opacity-0 cursor-pointer"
+                                                        onChange={(e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (file) handleDutyPicUpload(file, 3);
+                                                        }}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Picture 4 */}
+                                        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 flex flex-col justify-between">
+                                            <div>
+                                                <p className="text-xs font-black text-slate-700 mb-1.5">ภาพที่ 4: การเดินทางกลับบ้านเสร็จสิ้น</p>
+                                                <input 
+                                                    type="text"
+                                                    value={pic4Desc}
+                                                    onChange={(e) => setPic4Desc(e.target.value)}
+                                                    className="w-full text-[10px] bg-white border border-slate-200 rounded-lg p-1.5 focus:outline-none mb-3 font-semibold text-slate-600 focus:ring-1 focus:ring-rose-500"
+                                                    placeholder="พิมพ์คำอธิบายภาพนี้..."
+                                                />
+                                            </div>
+                                            {uploadingPicIndex === 4 ? (
+                                                <div className="py-8 text-center text-rose-600">
+                                                    <Loader className="animate-spin mx-auto mb-2" size={24} />
+                                                    <span className="text-[10px] font-bold">อัปโหลดสื่อประมวลผลอยู่...</span>
+                                                </div>
+                                            ) : pic4Url ? (
+                                                <div className="relative">
+                                                    <img src={getDirectDriveUrl(pic4Url)} alt="พรีวิว 4" className="h-28 w-full object-cover rounded-xl border border-slate-200" referrerPolicy="no-referrer" />
+                                                    <button onClick={() => setPic4Url('')} className="absolute top-2 right-2 p-1.5 bg-rose-600 text-white rounded-full shadow-md hover:bg-rose-700 transition-all cursor-pointer">
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div className="border border-dashed border-slate-300 rounded-xl py-6 flex flex-col items-center justify-center text-slate-400 hover:bg-white cursor-pointer transition-all relative">
+                                                    <Camera size={20} className="mb-1 text-slate-350" />
+                                                    <span className="text-[10px] font-black">อัปโหลดภาพจัดส่งส่งมอบจราจร</span>
+                                                    <input 
+                                                        type="file" 
+                                                        accept="image/*"
+                                                        className="absolute inset-0 opacity-0 cursor-pointer"
+                                                        onChange={(e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (file) handleDutyPicUpload(file, 4);
+                                                        }}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Actions Block */}
+                                <div className="mt-8 pt-5 border-t border-slate-100 flex flex-col sm:flex-row gap-3">
+                                    <button 
+                                        disabled={isSavingDuty}
+                                        onClick={saveDutyReport}
+                                        className="flex-1 py-3 bg-rose-600 disabled:bg-rose-300 hover:bg-rose-700 text-white rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-rose-100 cursor-pointer"
+                                    >
+                                        {isSavingDuty ? (
+                                            <>
+                                                <Loader className="animate-spin" size={14} /> นำส่งเอกสารและพิมพ์ PDF สู่ Google Drive...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Save size={14} /> บันทึกและพิมพ์ PDF ลงทะเบียน Google Drive
+                                            </>
+                                        )}
+                                    </button>
+                                    <button 
+                                        onClick={() => {
+                                            setActiveDutyTab('LIST');
+                                        }}
+                                        className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-2xl transition-all cursor-pointer"
+                                    >
+                                        กลับหน้าสรุปประวัติ
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Live Draft A4 Preview column */}
+                            <div className="lg:col-span-5 bg-slate-100 rounded-[2.5rem] p-4 font-sarabun max-h-[85vh] overflow-y-auto shadow-inner border border-slate-205">
+                                <p className="text-[10px] uppercase font-black text-center text-slate-400 mb-2">แสดงแบบตัวอย่างสลักหลังกระดาษคำร้องบันทึกจริง</p>
+                                
+                                <div 
+                                    id="official-duty-memo-print" 
+                                    className="bg-white p-8 text-black border shadow-md font-sarabun leading-relaxed mx-auto select-none print:shadow-none print:border-none print:w-full print:m-0 print:p-0"
+                                    style={{ width: '100%', minHeight: '740px', maxWidth: '595px', pageBreakAfter: 'always', fontSize: '11px' }}
+                                >
+                                    {/* Logo header */}
+                                    <div className="flex justify-start mb-1">
+                                        <img 
+                                            src={schoolConfig?.official_garuda_base_64 ? (schoolConfig.official_garuda_base_64.startsWith('data:') ? schoolConfig.official_garuda_base_64 : `data:image/png;base64,${schoolConfig.official_garuda_base_64}`) : "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/Garuda_Emb_of_Thailand.svg/1200px-Garuda_Emb_of_Thailand.svg.png"} 
+                                            alt="Garuda" 
+                                            className="h-14 w-auto object-contain"
+                                            referrerPolicy="no-referrer"
+                                        />
+                                    </div>
+                                    <div className="text-center mb-3">
+                                        <p className="text-base font-extrabold text-black">บันทึกข้อความ</p>
+                                    </div>
+
+                                    {/* Memo details */}
+                                    <div className="space-y-1.5 text-[10.5px] mb-4 border-b border-double border-slate-300 pb-2.5">
+                                        <div className="flex items-end">
+                                            <span className="font-extrabold w-20 shrink-0">ส่วนราชการ</span>
+                                            <span className="border-b border-dotted border-slate-350 flex-1 pl-2 text-slate-800">
+                                                {schoolConfig?.school_name || 'โรงเรียนของท่าน'}
+                                            </span>
+                                        </div>
+                                        <div className="flex">
+                                            <div className="w-1/2 flex items-end">
+                                                <span className="font-extrabold w-6 shrink-0">ที่</span>
+                                                <span className="border-b border-dotted border-slate-350 flex-1 pl-2 text-slate-800">เวรดูแลรักษาความปลอดภัย /{new Date(dutyDate).getFullYear() + 543}</span>
+                                            </div>
+                                            <div className="w-1/2 flex items-end">
+                                                <span className="font-extrabold shrink-0 pl-3 w-10 text-right">วันที่</span>
+                                                <span className="border-b border-dotted border-slate-350 flex-1 text-center font-bold text-slate-900">
+                                                    {formatToThaiDate(dutyDate)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-end">
+                                            <span className="font-extrabold w-10 shrink-0">เรื่อง</span>
+                                            <span className="border-b border-dotted border-slate-350 flex-1 pl-2 font-bold text-slate-900">
+                                                รายงานผลการปฏิบัติเวรดูแลความปลอดภัยและความสงบเรียบร้อยเสร็จสิ้น ประจำวันที่ {formatToThaiDate(dutyDate)}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="mb-4">
+                                        <p className="font-extrabold mb-2 text-[11px]">เรียน ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................................'}</p>
+                                        
+                                        <p className="indent-8 text-slate-800 leading-relaxed text-[10.5px] mb-3">
+                                            ตามที่ ข้าพเจ้า <span className="font-bold text-black">{currentUser.name}</span> ตำแหน่งปฏิบัติการ ได้รับประสานมอบหมายดูแลจัดการรักษาความปลอดภัยประจำจุดสังเกตการณ์ที่สถาบันกำหนด ประจำงวดวันที่ <span className="font-bold text-black">{formatToThaiDate(dutyDate)}</span> นั้น
+                                        </p>
+                                        <p className="indent-8 text-slate-800 leading-relaxed text-[10.5px] mb-4">
+                                            บัดนี้หน้างานดูแลเสร็จเสร็จสมบูรณ์เรียบร้อยถูกต้องตามระเบียบดีแล้ว จึงขอส่งรายงานสรุปรวมผลรายงานความพฤติกรรม ตลอดจนนำเสนอข้อเสนอแนะต่างๆ ตามสาระพิจารณาดังด้านล่างนี้:
+                                        </p>
+
+                                        {/* Statistics board in memo preview */}
+                                        <p className="font-extrabold mb-1.5 text-[10px] text-slate-800">
+                                            ๑. อัตราความสถิติการมาเรียนของโรงเรียนโดยประมวลผลรวมสโมสร:
+                                        </p>
+                                        <div className="overflow-hidden mb-3">
+                                            <table className="w-full border-collapse border border-black text-center text-[9px] text-slate-800">
+                                                <thead>
+                                                    <tr className="bg-slate-50 font-bold">
+                                                        <th className="border border-black p-1">จำนวนนักเรียนทั้งหมด</th>
+                                                        <th className="border border-black p-1 text-emerald-800 font-bold">มาเรียน (คน)</th>
+                                                        <th className="border border-black p-1 text-amber-700 font-bold">เข้าเรียนสาย (คน)</th>
+                                                        <th className="border border-black p-1 text-blue-800 font-bold">ลาป่วย (คน)</th>
+                                                        <th className="border border-black p-1 text-rose-800 font-bold">ขาดงานเรียน (คน)</th>
+                                                        <th className="border border-black p-1 font-bold">คิดเป็นอัตราส่วน</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr className="font-bold">
+                                                        <td className="border border-black p-1">{activeDutyStats?.total || 0}</td>
+                                                        <td className="border border-black p-1 text-emerald-800">{activeDutyStats?.present || 0}</td>
+                                                        <td className="border border-black p-1 text-amber-700">{activeDutyStats?.late || 0}</td>
+                                                        <td className="border border-black p-1 text-blue-800">{activeDutyStats?.sick || 0}</td>
+                                                        <td className="border border-black p-1 text-rose-800 font-extrabold">{activeDutyStats?.absent || 0}</td>
+                                                        <td className="border border-black p-1 text-indigo-700">
+                                                            {activeDutyStats?.total > 0 
+                                                              ? ((activeDutyStats.present / activeDutyStats.total) * 100).toFixed(2) 
+                                                              : '0.00'
+                                                            }%
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        {/* Detailed Morning / Afternoon notes */}
+                                        <p className="font-extrabold mb-1.5 text-[10px] text-slate-800">๒. การเฝ้าระวังพฤติกรรมดูแลความสงบเรียบร้อย:</p>
+                                        <div className="space-y-1 text-slate-800 text-[10px] mb-4 lh-tight">
+                                            <p className="indent-4"><span className="font-bold underline text-black">รายงานเวรช่วงเช้า:</span> {morningReport || '(ยังคงเว้นว่างไว้ในแบบบันทึกร่าง)'}</p>
+                                            <p className="indent-4"><span className="font-bold underline text-black">รายงานเวรช่วงบ่าย:</span> {afternoonReport || '(ยังคงเว้นว่างไว้ในแบบบันทึกร่าง)'}</p>
+                                        </div>
+
+                                        {/* Visual photos preview sheet */}
+                                        <p className="font-extrabold mb-2.5 text-[10px] text-slate-800">๓. ภาพถ่ายแนบท้ายพฤติกรรมการลงตรวจหน้าที่เวรขบวน (แสดงด้านแนวนอนคำบรรยายภาพด้านบน):</p>
+                                        <div className="grid grid-cols-2 gap-3 mb-2">
+                                            {pic1Url ? (
+                                                <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
+                                                    <p className="text-[8px] font-bold text-center text-slate-600 mb-0.5 line-clamp-1">{pic1Desc}</p>
+                                                    <img src={getDirectDriveUrl(pic1Url)} alt="ภาพเช้า" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                </div>
+                                            ) : (
+                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">หน้าประตู/ช่วงเช้า (ยังไม่แนบ)</div>
+                                            )}
+
+                                            {pic2Url ? (
+                                                <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
+                                                    <p className="text-[8px] font-bold text-center text-slate-600 mb-0.5 line-clamp-1">{pic2Desc}</p>
+                                                    <img src={getDirectDriveUrl(pic2Url)} alt="ภาพธง" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                </div>
+                                            ) : (
+                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">เสาธงเคารพ (ยังไม่แนบ)</div>
+                                            )}
+
+                                            {pic3Url ? (
+                                                <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
+                                                    <p className="text-[8px] font-bold text-center text-slate-600 mb-0.5 line-clamp-1">{pic3Desc}</p>
+                                                    <img src={getDirectDriveUrl(pic3Url)} alt="ภาพข้าว" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                </div>
+                                            ) : (
+                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">จัดส่งอาหาร/วัน (ยังไม่แนบ)</div>
+                                            )}
+
+                                            {pic4Url ? (
+                                                <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
+                                                    <p className="text-[8px] font-bold text-center text-slate-600 mb-0.5 line-clamp-1">{pic4Desc}</p>
+                                                    <img src={getDirectDriveUrl(pic4Url)} alt="ภาพกลับบ้าน" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                </div>
+                                            ) : (
+                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">การกลับรถโรงเรียน (ยังไม่แนบ)</div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Sign block inside preview */}
+                                    <div className="grid grid-cols-2 gap-2 mt-6 text-center text-[10px]">
+                                        <div className="flex flex-col items-center">
+                                            <p className="mb-6 font-bold">ลงลายลักษณ์ผู้รายงาน</p>
+                                            <p className="mb-0.5">ลงชื่อ............................................................</p>
+                                            <p className="font-extrabold text-black">( {currentUser.name} )</p>
+                                            <p className="text-[8px] text-slate-500">คุณครูรับรักษาการเวรประจำวัน</p>
+                                        </div>
+                                        <div className="flex flex-col items-center">
+                                            <p className="mb-6 font-bold">ผู้อำนวยการโรงเรียนเสนอข้อเสนอแนะ</p>
+                                            <p className="mb-0.5">ลงชื่อ............................................................</p>
+                                            <p className="font-extrabold text-black">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
+                                            <p className="text-[8px] text-slate-500">ผู้อำนวยการระดับโรงเรียน</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Duty Report Detail Modal (Officially formatted memorandum card view) */}
+            <AnimatePresence>
+                {selectedDutyReport && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto print:p-0 print:bg-white">
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-white p-6 sm:p-10 rounded-[2.5rem] shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto relative text-slate-900 font-sarabun print:shadow-none print:border-none print:p-0 print:max-h-full print:overflow-hidden"
+                        >
+                            <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4 print:hidden">
+                                <div className="flex items-center gap-2">
+                                    <Shield className="text-rose-500" size={20} />
+                                    <h4 className="font-black text-slate-800 text-sm">ร่างรายงานเวรทางราชการแบบทางการ (ตราครุฑ)</h4>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {selectedDutyReport.pdfUrl && (
+                                        <a 
+                                            href={selectedDutyReport.pdfUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-black rounded-xl transition-all flex items-center gap-1 shadow-sm border border-indigo-100 cursor-pointer"
+                                        >
+                                            <Download size={12} /> เปิดเอกสาร Google Drive
+                                        </a>
+                                    )}
+                                    <button 
+                                        onClick={() => window.print()}
+                                        className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-xl transition-all flex items-center gap-1 shadow-md cursor-pointer"
+                                    >
+                                        <Printer size={12} /> พิมพ์รายงานทางเบราว์เซอร์
+                                    </button>
+                                    <button 
+                                        onClick={() => {
+                                            setSelectedDutyReport(null);
+                                        }}
+                                        className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl transition-all cursor-pointer"
+                                    >
+                                        ปิดหน้าต่าง
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Standard Administrative Memo Paper Sheet */}
+                            <div className="p-8 sm:p-12 border border-slate-205 rounded-3xl bg-slate-55/50 bg-white print:border-none print:p-0 font-sarabun text-[11.5px] leading-relaxed select-text max-w-[595px] mx-auto min-h-[780px]">
+                                <div className="flex justify-start mb-2">
+                                    <img 
+                                        src={schoolConfig?.official_garuda_base_64 ? (schoolConfig.official_garuda_base_64.startsWith('data:') ? schoolConfig.official_garuda_base_64 : `data:image/png;base64,${schoolConfig.official_garuda_base_64}`) : "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/Garuda_Emb_of_Thailand.svg/1200px-Garuda_Emb_of_Thailand.svg.png"} 
+                                        alt="Garuda" 
+                                        className="h-20 w-auto object-contain"
+                                        referrerPolicy="no-referrer"
+                                    />
+                                </div>
+                                <div className="text-center mb-5">
+                                    <h1 className="text-xl font-extrabold text-black">บันทึกข้อความ</h1>
+                                </div>
+
+                                <div className="space-y-1.5 mb-5 border-b border-double border-slate-300 pb-2 text-[11px]">
+                                    <div className="flex items-end">
+                                        <span className="font-extrabold w-24 shrink-0">ส่วนราชการ</span>
+                                        <span className="border-b border-dotted border-slate-300 flex-1 pl-2 text-slate-800">
+                                            {schoolConfig?.school_name || 'โรงเรียนของท่าน'}
+                                        </span>
+                                    </div>
+                                    <div className="flex gap-4">
+                                        <div className="w-1/2 flex items-end">
+                                            <span className="font-extrabold w-8 shrink-0">ที่</span>
+                                            <span className="border-b border-dotted border-slate-300 flex-1 pl-2 text-slate-800">เวรปฏิบัติหน้าที่ทั่วไป /{new Date(selectedDutyReport.date).getFullYear() + 543}</span>
+                                        </div>
+                                        <div className="w-1/2 flex items-end">
+                                            <span className="font-extrabold shrink-0 pl-4 w-12 text-right">วันที่</span>
+                                            <span className="border-b border-dotted border-slate-300 flex-1 text-center font-bold text-slate-850">
+                                                {formatToThaiDate(selectedDutyReport.date)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-end">
+                                        <span className="font-extrabold w-12 shrink-0">เรื่อง</span>
+                                        <span className="border-b border-dotted border-slate-300 flex-1 pl-2 font-bold text-slate-900 col-span-3">
+                                            รายงานเวรการรักษาความปลอดภัยและความสงบเรียบร้อยเสร็จสิ้น ประจำวันที่ {formatToThaiDate(selectedDutyReport.date)}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="mb-6 text-[11px]">
+                                    <p className="font-bold mb-3">เรียน ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................................'}</p>
+                                    
+                                    <div className="space-y-4 text-justify">
+                                        <p className="indent-12 text-slate-800 leading-relaxed">
+                                            ตามที่ ข้าพเจ้า <span className="font-bold text-black">{selectedDutyReport.teacherName}</span> ตำแหน่ง ครูสังกัดดูแลเวร ได้รับมอบหมายปฏิบัติหน้าที่รักษาและดูแลความต้อนรับดูแลสุขอนามัยนักเรียน ประจำงวดวันที่ {formatToThaiDate(selectedDutyReport.date)} นั้น
+                                        </p>
+                                        <p className="indent-12 text-slate-800 leading-relaxed">
+                                            บัดนี้ ครูเวรผู้รับรักษาภารกิจดูแลเรียบร้อยดี สมบูรณ์ขอยื่นส่งบันทึกความรายงานพฤติกรรมในวันดังกล่าวให้ทางวิชาการร่วมกับฝ่ายบริหารทั่วไป โดยมีรายละเอียดสรุปภาพรวมทั้งหมดดังประมวลผลนี้:
+                                        </p>
+
+                                        {/* Dynamic statistics table block */}
+                                        <p className="font-bold mt-4 mb-2">๑. ข้อมูลสารสนเทศสถิติการมาเรียนของโรงเรียนขบวนรวม:</p>
+                                        <table className="w-full border-collapse border border-black text-center text-[10px] text-slate-850">
+                                            <thead>
+                                                <tr className="bg-slate-50 font-bold">
+                                                    <th className="border border-black p-1.5">จำนวนนักเรียนทั้งหมด (คน)</th>
+                                                    <th className="border border-black p-1.5 text-emerald-800">มาวันปกติ (คน)</th>
+                                                    <th className="border border-black p-1.5 text-amber-700">เข้าเรียนสาย (คน)</th>
+                                                    <th className="border border-black p-1.5 text-blue-800">ลาป่วย/กิจ (คน)</th>
+                                                    <th className="border border-black p-1.5 text-rose-700 font-bold">ขาดเรียน (คน)</th>
+                                                    <th className="border border-black p-1.5">ร้อยละเข้าเรียนสะสม</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr className="font-bold">
+                                                    <td className="border border-black p-1 font-mono">{activeDutyStats?.total || 0}</td>
+                                                    <td className="border border-black p-1 font-mono text-emerald-805 text-emerald-800">{activeDutyStats?.present || 0}</td>
+                                                    <td className="border border-black p-1 font-mono text-amber-700">{activeDutyStats?.late || 0}</td>
+                                                    <td className="border border-black p-1 font-mono text-blue-800">{activeDutyStats?.sick || 0}</td>
+                                                    <td className="border border-black p-1 font-mono text-rose-700 font-extrabold">{activeDutyStats?.absent || 0}</td>
+                                                    <td className="border border-black p-1 font-mono text-indigo-805 text-indigo-800">
+                                                        {activeDutyStats?.total > 0 
+                                                          ? ((activeDutyStats.present / activeDutyStats.total) * 100).toFixed(2) 
+                                                          : '0.00'
+                                                        }%
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+
+                                        {/* Morning/Afternoon details */}
+                                        <p className="font-bold mt-4">๒. สรุปรายละเอียดผลเชิงลึกการเฝ้าระวังความเรียบร้อยภัยคุกคามสวัสดิภาพ:</p>
+                                        <div className="space-y-2 pl-4 text-slate-800 text-[10.5px]">
+                                            <p><span className="font-bold underline text-black">รายงานเวรช่วงเช้า:</span> {selectedDutyReport.morningReport || 'ไม่มีบันทึกข้อมูลอื่นเป็นอันตรายทั่วไป'}</p>
+                                            <p><span className="font-bold underline text-black">รายงานเวรช่วงบ่าย:</span> {selectedDutyReport.afternoonReport || 'ไม่มีบันทึกข้อมูลอื่นเป็นอันตรายทั่วไป'}</p>
+                                        </div>
+
+                                        {/* Photos array matching requirements layout */}
+                                        <p className="font-bold mt-4 mb-2">๓. พฤติกรรมภาพถ่ายแนบทรายแนบการปฏิบัติงานเวรราชการ (เรียงขวางแสดงรายละเอียดบนภาพ):</p>
+                                        <div className="grid grid-cols-2 gap-4 bg-slate-50/80 p-3 rounded-2xl border border-slate-150">
+                                            {selectedDutyReport.pic1Url && (
+                                                <div className="border border-slate-205 p-1.5 rounded bg-white flex flex-col items-center">
+                                                    <p className="text-[9px] font-bold text-center text-slate-700 mb-1 truncate max-w-full">{selectedDutyReport.pic1Desc}</p>
+                                                    <img src={getDirectDriveUrl(selectedDutyReport.pic1Url)} alt="ประตูเลนขวา" className="h-[95px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                </div>
+                                            )}
+                                            {selectedDutyReport.pic2Url && (
+                                                <div className="border border-slate-205 p-1.5 rounded bg-white flex flex-col items-center">
+                                                    <p className="text-[9px] font-bold text-center text-slate-700 mb-1 truncate max-w-full">{selectedDutyReport.pic2Desc}</p>
+                                                    <img src={getDirectDriveUrl(selectedDutyReport.pic2Url)} alt="เสาเคารพ" className="h-[95px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                </div>
+                                            )}
+                                            {selectedDutyReport.pic3Url && (
+                                                <div className="border border-slate-205 p-1.5 rounded bg-white flex flex-col items-center">
+                                                    <p className="text-[9px] font-bold text-center text-slate-700 mb-1 truncate max-w-full">{selectedDutyReport.pic3Desc}</p>
+                                                    <img src={getDirectDriveUrl(selectedDutyReport.pic3Url)} alt="อาหารเที่ยง" className="h-[95px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                </div>
+                                            )}
+                                            {selectedDutyReport.pic4Url && (
+                                                <div className="border border-slate-205 p-1.5 rounded bg-white flex flex-col items-center">
+                                                    <p className="text-[9px] font-bold text-center text-slate-700 mb-1 truncate max-w-full">{selectedDutyReport.pic4Desc}</p>
+                                                    <img src={getDirectDriveUrl(selectedDutyReport.pic4Url)} alt="เดินทางรถส่ง" className="h-[95px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="indent-12 mt-6 text-[11px]">
+                                    <p className="font-bold">จึงเรียนมาเพื่อโปรดทราบและพิจารณา</p>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-8 mt-10 text-center text-[10.5px]">
+                                    <div className="flex flex-col items-center">
+                                        <p className="mb-8 font-bold text-slate-800">ส่งสลักผลครูผู้รับเวรช่วง</p>
+                                        <p className="mb-1 text-slate-500">ลงชื่อ............................................................</p>
+                                        <p className="font-extrabold text-slate-900">( {selectedDutyReport.teacherName} )</p>
+                                        <p className="text-[9.5px] text-slate-500">คุณครูตรวจรักษาประจำสถาบัน</p>
+                                    </div>
+                                    <div className="flex flex-col items-center">
+                                        <p className="mb-8 font-bold text-slate-800">ผู้รับความเห็นและลงชื่อพิจารณา</p>
+                                        <p className="mb-1 text-slate-500">ลงชื่อ............................................................</p>
+                                        <p className="font-extrabold text-slate-900">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
+                                        <p className="text-[9.5px] text-slate-500">ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................'}</p>
+                                    </div>
                                 </div>
                             </div>
                         </motion.div>
