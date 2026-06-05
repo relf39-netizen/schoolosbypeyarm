@@ -54,6 +54,24 @@ const formatToMySQLDateTime = (date: Date) => {
 
 const formatToThaiDate = (dateString: string) => {
     if (!dateString) return '';
+    
+    // Support YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS format without timezone distortion
+    const cleanDateStr = dateString.split('T')[0];
+    const parts = cleanDateStr.split('-');
+    if (parts.length === 3) {
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1; // 0-based index
+        const day = parseInt(parts[2], 10);
+        
+        // Force the date to local non-midnight (e.g., 12:00:00) so timezone cannot shift the calendar day
+        const date = new Date(year, month, day, 12, 0, 0);
+        return date.toLocaleDateString('th-TH', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    }
+    
     const date = new Date(dateString);
     return date.toLocaleDateString('th-TH', {
         year: 'numeric',

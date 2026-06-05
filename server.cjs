@@ -51,7 +51,8 @@ async function startServer() {
     port: parseInt(process.env.MYSQL_PORT || '3306'),
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
+    dateStrings: true
   });
 
   // Helper to handle SQL queries
