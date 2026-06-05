@@ -91,6 +91,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
     const rolesList = Array.isArray(currentUser.roles) ? currentUser.roles : [];
     const isAdmin = rolesList.includes('SYSTEM_ADMIN') || rolesList.includes('ADMIN') || rolesList.includes('DIRECTOR') || rolesList.includes('VICE_DIRECTOR') || currentUser.isActingDirector;
     const isDirector = rolesList.includes('DIRECTOR') || rolesList.includes('VICE_DIRECTOR') || currentUser.isActingDirector;
+    const canDeleteDutyReport = rolesList.includes('SYSTEM_ADMIN') || rolesList.includes('ADMIN') || rolesList.includes('DIRECTOR') || currentUser.isActingDirector;
 
     useEffect(() => {
         fetchDutyReports();
@@ -731,13 +732,13 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                     /* Print layout with exact standard margins */
                     .print-page-layout {
                         width: 210mm !important;
-                        height: 295mm !important;
+                        height: 286mm !important;
                         page-break-after: always !important;
                         page-break-inside: avoid !important;
                         break-after: page !important;
                         break-inside: avoid !important;
                         box-sizing: border-box !important;
-                        padding: 20mm 20mm 20mm 25mm !important; /* Standard Thai official margins: top 2cm, bottom 2cm, right 2cm, left 2.5cm */
+                        padding: 15mm 20mm 15mm 25mm !important; /* Standard Thai official margins optimized for absolute page-overflow safety */
                         background: white !important;
                         color: black !important;
                         position: relative !important;
@@ -1314,7 +1315,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                                 <div className="space-y-6 text-center text-[9px] mt-auto">
                                     <div className="flex flex-col items-end pr-4">
                                         <div className="flex flex-col items-center w-[180px]">
-                                            <p className="mb-0.5 text-slate-500">ลงชื่อ............................................................ผู้รายงาน</p>
+                                            <p className="mb-0.5 text-slate-500">ลงชื่อ</p>
                                             <p className="font-extrabold text-black">( {currentUser.name} )</p>
                                             <p className="text-[8px] text-slate-500">ตำแหน่ง {currentUser.position || 'ครูเวรประจำวัน'}</p>
                                         </div>
@@ -1322,7 +1323,8 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
 
                                     <div className="flex flex-col items-end pr-4">
                                         <div className="flex flex-col items-center w-[180px]">
-                                            <p className="mb-0.5 text-slate-500">ลงชื่อ............................................................ผู้รับทราบ/ผู้อนุมัติ</p>
+                                            <p className="text-[8px] font-bold text-left mb-1 pl-2 w-full">รับทราบ</p>
+                                            <p className="mb-0.5 text-slate-500">ลงชื่อ</p>
                                             <p className="font-extrabold text-black">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
                                             <p className="text-[8px] text-slate-500">ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................'}</p>
                                         </div>
@@ -1351,12 +1353,34 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                                     <h4 className="font-black text-slate-800 text-sm">รายงานบันทึกข้อความครูเวรประจำวัน (ตราครุฑ ๒ หน้า A4)</h4>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    {(isAdmin || isDirector) && (
+                                    {canDeleteDutyReport && (
                                         <button 
                                             onClick={() => deleteDutyReport(selectedDutyReport.id)}
                                             className="px-4 py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-black rounded-xl transition-all flex items-center gap-1 border border-rose-200 cursor-pointer"
                                         >
                                             ลบรายงานเวร
+                                        </button>
+                                    )}
+                                    {(isAdmin || isDirector || currentUser.id === selectedDutyReport.teacherId) && (
+                                        <button 
+                                            onClick={() => {
+                                                setDutyDate(selectedDutyReport.date);
+                                                setMorningReport(selectedDutyReport.morningReport || '');
+                                                setAfternoonReport(selectedDutyReport.afternoonReport || '');
+                                                setPic1Url(selectedDutyReport.pic1Url || '');
+                                                setPic1Desc(selectedDutyReport.pic1Desc || 'ครูเวรประจำวันตรวจความเรียบร้อยบริเวณประตูทางเข้าโรงเรียนในช่วงเช้าก่อนเข้าเรียน');
+                                                setPic2Url(selectedDutyReport.pic2Url || '');
+                                                setPic2Desc(selectedDutyReport.pic2Desc || 'กิจกรรมการเคารพธงชาติและอบรมความมีระเบียบวินัยนักเรียนบริเวณหน้าเสาธง');
+                                                setPic3Url(selectedDutyReport.pic3Url || '');
+                                                setPic3Desc(selectedDutyReport.pic3Desc || 'ดูแลความเรียบร้อยและสุขอนามัยของนักเรียนระหว่างการรับประทานอาหารกลางวัน');
+                                                setPic4Url(selectedDutyReport.pic4Url || '');
+                                                setPic4Desc(selectedDutyReport.pic4Desc || 'ครูเวรประจำวันส่งนักเรียนและอำนวยความสะดวกการจราจรขณะเดินทางกลับบ้านอย่างปลอดภัย');
+                                                setActiveDutyTab('FORM');
+                                                setSelectedDutyReport(null);
+                                            }}
+                                            className="px-4 py-2 bg-amber-550 hover:bg-amber-600 bg-amber-500 text-white text-xs font-black rounded-xl transition-all flex items-center gap-1 shadow-md cursor-pointer"
+                                        >
+                                            แก้ไขรายงานเวร
                                         </button>
                                     )}
                                     {selectedDutyReport.pdfUrl && (
@@ -1532,13 +1556,13 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                                         <div className="grid grid-cols-2 gap-4 text-center mt-4">
                                             <div className="flex flex-col items-center">
                                                 <p className="mb-8 font-black">ลงชื่อครูเวรประจำวัน</p>
-                                                <p className="mb-1 text-slate-400">ลงชื่อ............................................................</p>
+                                                <p className="mb-1 text-slate-400">ลงชื่อ</p>
                                                 <p className="font-extrabold text-black">( {selectedDutyReport.teacherName} )</p>
                                                 <p className="text-[8px] text-slate-500">ครูเวรประจำวัน</p>
                                             </div>
                                             <div className="flex flex-col items-center">
                                                 <p className="mb-8 font-black">รับทราบ</p>
-                                                <p className="mb-1 text-slate-400">ลงชื่อ............................................................</p>
+                                                <p className="mb-1 text-slate-400">ลงชื่อ</p>
                                                 <p className="font-extrabold text-black">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
                                                 <p className="text-[8px] text-slate-500">ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................'}</p>
                                             </div>
@@ -1705,15 +1729,15 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                             <div className="flex flex-col space-y-8 w-[320px]">
                                 {/* 1. Teacher Sign-off */}
                                 <div className="text-center">
-                                    <p className="mb-10 text-black">ลงชื่อ............................................................ผู้รายงาน</p>
+                                    <p className="mb-10 text-black">ลงชื่อ</p>
                                     <p className="font-extrabold text-black">( {selectedDutyReport.teacherName} )</p>
                                     <p className="text-[13px] text-slate-800">ตำแหน่ง {getTeacherPosition(selectedDutyReport)}</p>
                                 </div>
                                 
                                 {/* 2. Director Sign-off */}
                                 <div className="text-center pt-2">
-                                    <p className="text-[13px] font-bold text-left mb-2 pl-4">ความเห็น / ข้อสั่งการผู้อำนวยการ:</p>
-                                    <p className="mb-10 text-black">ลงชื่อ............................................................ผู้อนุมัติ/ผู้รับทราบ</p>
+                                    <p className="text-[13px] font-bold text-left mb-2 pl-4">รับทราบ</p>
+                                    <p className="mb-10 text-black">ลงชื่อ</p>
                                     <p className="font-extrabold text-black">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
                                     <p className="text-[13px] text-slate-800">ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................'}</p>
                                 </div>
