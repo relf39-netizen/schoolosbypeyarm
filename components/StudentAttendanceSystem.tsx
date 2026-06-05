@@ -1678,6 +1678,9 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
     return (
         <div className="space-y-6 pb-20 font-sarabun">
             <style dangerouslySetInnerHTML={{ __html: `
+                .page-break {
+                    display: none;
+                }
                 @media print {
                     @page {
                         size: A4 portrait;
@@ -1700,10 +1703,19 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                     .no-print {
                         display: none !important;
                     }
+                    .page-break {
+                        display: block !important;
+                        page-break-after: always !important;
+                        break-after: page !important;
+                        height: 0 !important;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                    }
                 }
             `}} />
-            {/* Header Section */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 print:hidden">
+            <div className={selectedDutyReport ? "print:hidden" : ""}>
+                {/* Header Section */}
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 print:hidden">
                 <div className="flex items-center gap-4">
                     <div className="p-4 bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-2xl shadow-lg shadow-indigo-100">
                         <UserCheck size={32} />
@@ -3724,152 +3736,163 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                 <p className="text-[10px] uppercase font-black text-center text-slate-400 mb-2">แสดงแบบจำลองบันทึกข้อความจริง 2 หน้า (ขนาด A4)</p>
                                 
                                 <div id="official-duty-memo-print" className="space-y-4">
-                                    {/* Logo header */}
-                                    <div className="flex justify-start mb-1">
-                                        <img 
-                                            src={schoolConfig?.official_garuda_base_64 ? (schoolConfig.official_garuda_base_64.startsWith('data:') ? schoolConfig.official_garuda_base_64 : `data:image/png;base64,${schoolConfig.official_garuda_base_64}`) : "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/Garuda_Emb_of_Thailand.svg/1200px-Garuda_Emb_of_Thailand.svg.png"} 
-                                            alt="Garuda" 
-                                            className="h-14 w-auto object-contain"
-                                            referrerPolicy="no-referrer"
-                                        />
-                                    </div>
-                                    <div className="text-center mb-3">
-                                        <p className="text-base font-extrabold text-black">บันทึกข้อความ</p>
-                                    </div>
-
-                                    {/* Memo details */}
-                                    <div className="space-y-1.5 text-[10.5px] mb-4 border-b border-double border-slate-300 pb-2.5">
-                                        <div className="flex items-end">
-                                            <span className="font-extrabold w-20 shrink-0">ส่วนราชการ</span>
-                                            <span className="border-b border-dotted border-slate-350 flex-1 pl-2 text-slate-800">
-                                                {schoolConfig?.school_name || 'โรงเรียนของท่าน'}
-                                            </span>
-                                        </div>
-                                        <div className="flex">
-                                            <div className="w-1/2 flex items-end">
-                                                <span className="font-extrabold w-6 shrink-0">ที่</span>
-                                                <span className="border-b border-dotted border-slate-350 flex-1 pl-2 text-slate-800 font-bold">{getDutyReportNumberText(dutyDate)}</span>
+                                    {/* Page 1 */}
+                                    <div id="official-duty-memo-print-p1" className="bg-white p-6 sm:p-8 border border-slate-202 rounded-3xl relative text-slate-900 text-[10.5px] leading-relaxed max-w-[595px] mx-auto min-h-[820px] shadow-sm flex flex-col justify-between">
+                                        <div>
+                                            {/* Logo header */}
+                                            <div className="flex justify-start mb-1">
+                                                <img 
+                                                    src={schoolConfig?.official_garuda_base_64 ? (schoolConfig.official_garuda_base_64.startsWith('data:') ? schoolConfig.official_garuda_base_64 : `data:image/png;base64,${schoolConfig.official_garuda_base_64}`) : "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/Garuda_Emb_of_Thailand.svg/1200px-Garuda_Emb_of_Thailand.svg.png"} 
+                                                    alt="Garuda" 
+                                                    className="h-14 w-auto object-contain"
+                                                    referrerPolicy="no-referrer"
+                                                />
                                             </div>
-                                            <div className="w-1/2 flex items-end">
-                                                <span className="font-extrabold shrink-0 pl-3 w-10 text-right">วันที่</span>
-                                                <span className="border-b border-dotted border-slate-350 flex-1 text-center font-bold text-slate-900">
-                                                    {formatToThaiDate(dutyDate)}
-                                                </span>
+                                            <div className="text-center mb-3">
+                                                <p className="text-base font-extrabold text-black">บันทึกข้อความ</p>
+                                            </div>
+
+                                            {/* Memo details */}
+                                            <div className="space-y-1.5 text-[10px] mb-4 border-b border-double border-slate-300 pb-2">
+                                                <div className="flex items-end">
+                                                    <span className="font-extrabold w-20 shrink-0">ส่วนราชการ</span>
+                                                    <span className="border-b border-dotted border-slate-350 flex-1 pl-2 text-slate-800">
+                                                        {schoolConfig?.school_name || 'โรงเรียนของท่าน'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex">
+                                                    <div className="w-1/2 flex items-end">
+                                                        <span className="font-extrabold w-6 shrink-0">ที่</span>
+                                                        <span className="border-b border-dotted border-slate-350 flex-1 pl-2 text-slate-800 font-bold">{getDutyReportNumberText(dutyDate)}</span>
+                                                    </div>
+                                                    <div className="w-1/2 flex items-end">
+                                                        <span className="font-extrabold shrink-0 pl-3 w-10 text-right">วันที่</span>
+                                                        <span className="border-b border-dotted border-slate-350 flex-1 text-center font-bold text-slate-900">
+                                                            {formatToThaiDate(dutyDate)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-end">
+                                                    <span className="font-extrabold w-10 shrink-0">เรื่อง</span>
+                                                    <span className="border-b border-dotted border-slate-350 flex-1 pl-2 font-bold text-slate-900">
+                                                        รายงานเวรประจำวันที่ {formatToThaiDate(dutyDate)}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <div className="mb-4">
+                                                <p className="font-extrabold mb-2 text-[11px]">เรียน ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................................'}</p>
+                                                
+                                                <p className="indent-8 text-slate-800 leading-relaxed text-[10.5px] mb-3">
+                                                    ตามที่ ข้าพเจ้า <span className="font-bold text-black">{currentUser.name}</span> ตำแหน่ง <span className="font-bold text-black">{currentUser.position || 'ครู'}</span> ได้รับมอบหมายให้ปฏิบัติหน้าที่ครูเวรประจำวัน ประจำวันที่ <span className="font-bold text-black">{formatToThaiDate(dutyDate)}</span> นั้น
+                                                </p>
+                                                <p className="indent-8 text-slate-800 leading-relaxed text-[10.5px] mb-4">
+                                                    บัดนี้การปฏิบัติหน้าที่ครูเวรประจำวันเสร็จสิ้นเรียบร้อยแล้ว จึงขอส่งรายงานสรุปผลการปฏิบัติหน้าที่ ตลอดจนข้อมูลเข้าเรียนของนักเรียน ดังมีรายละเอียดต่อไปนี้:
+                                                </p>
+
+                                                {/* Statistics table */}
+                                                <p className="font-extrabold mb-1.5 text-[10px] text-slate-800">
+                                                    ๑. ข้อมูลนักเรียนที่มาเรียนแยกตามทุกระดับชั้น:
+                                                </p>
+                                                <div className="overflow-hidden mb-3">
+                                                    <table className="w-full border-collapse border border-black text-center text-[9px] text-slate-800">
+                                                        <thead>
+                                                            <tr className="bg-slate-50 font-bold">
+                                                                <th className="border border-black p-1">จำนวนนักเรียนทั้งหมด</th>
+                                                                <th className="border border-black p-1 text-emerald-800 font-bold">มาเรียน (คน)</th>
+                                                                <th className="border border-black p-1 text-amber-700 font-bold">เข้าเรียนสาย (คน)</th>
+                                                                <th className="border border-black p-1 text-blue-800 font-bold">ลาป่วย (คน)</th>
+                                                                <th className="border border-black p-1 text-rose-800 font-bold">ขาดเรียน (คน)</th>
+                                                                <th className="border border-black p-1 font-bold">คิดเป็นอัตราส่วน</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <tr className="font-bold">
+                                                                <td className="border border-black p-1">{activeDutyStats?.total || 0}</td>
+                                                                <td className="border border-black p-1 text-emerald-800">{activeDutyStats?.present || 0}</td>
+                                                                <td className="border border-black p-1 text-amber-700">{activeDutyStats?.late || 0}</td>
+                                                                <td className="border border-black p-1 text-blue-800">{activeDutyStats?.sick || 0}</td>
+                                                                <td className="border border-black p-1 text-rose-800 font-extrabold">{activeDutyStats?.absent || 0}</td>
+                                                                <td className="border border-black p-1 text-indigo-700">
+                                                                    {activeDutyStats?.total > 0 
+                                                                      ? ((activeDutyStats.present / activeDutyStats.total) * 100).toFixed(2) 
+                                                                      : '0.00'
+                                                                    }%
+                                                                </td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+                                                {/* Details */}
+                                                <p className="font-extrabold mb-1.5 text-[10px] text-slate-800">๒. รายละเอียดการปฏิบัติหน้าที่ครูเวรประจำวัน:</p>
+                                                <div className="space-y-1 text-slate-800 text-[10px] mb-4 leading-relaxed whitespace-pre-line">
+                                                    <p className="indent-4"><span className="font-bold underline text-black">ช่วงเช้า:</span> {morningReport || '(ยังคงเว้นว่างไว้ในแบบบันทึกร่าง)'}</p>
+                                                    <p className="indent-4"><span className="font-bold underline text-black">ช่วงกลางวันและเย็น:</span> {afternoonReport || '(ยังคงเว้นว่างไว้ในแบบบันทึกร่าง)'}</p>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div className="flex items-end">
-                                            <span className="font-extrabold w-10 shrink-0">เรื่อง</span>
-                                            <span className="border-b border-dotted border-slate-350 flex-1 pl-2 font-bold text-slate-900">
-                                                รายงานเวรประจำวันที่ {formatToThaiDate(dutyDate)}
-                                            </span>
-                                        </div>
                                     </div>
 
-                                    <div className="mb-4">
-                                        <p className="font-extrabold mb-2 text-[11px]">เรียน ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................................'}</p>
-                                        
-                                        <p className="indent-8 text-slate-800 leading-relaxed text-[10.5px] mb-3">
-                                            ตามที่ ข้าพเจ้า <span className="font-bold text-black">{currentUser.name}</span> ตำแหน่ง <span className="font-bold text-black">{currentUser.position || 'ครู'}</span> ได้รับมอบหมายให้ปฏิบัติหน้าที่ครูเวรประจำวัน ประจำวันที่ <span className="font-bold text-black">{formatToThaiDate(dutyDate)}</span> นั้น
-                                        </p>
-                                        <p className="indent-8 text-slate-800 leading-relaxed text-[10.5px] mb-4">
-                                            บัดนี้การปฏิบัติหน้าที่ครูเวรประจำวันเสร็จสิ้นเรียบร้อยแล้ว จึงขอส่งรายงานสรุปผลการปฏิบัติหน้าที่ ตลอดจนข้อมูลเข้าเรียนของนักเรียน ดังมีรายละเอียดต่อไปนี้:
-                                        </p>
+                                    {/* Page 2 */}
+                                    <div id="official-duty-memo-print-p2" className="bg-white p-6 sm:p-8 border border-slate-202 rounded-3xl relative text-slate-900 text-[10.5px] leading-relaxed max-w-[595px] mx-auto min-h-[820px] shadow-sm flex flex-col justify-between">
+                                        <div>
+                                            <p className="font-extrabold mb-2.5 text-[10px] text-slate-800">๓. รูปภาพประกอบการรายงานเวร:</p>
+                                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                                {pic1Url ? (
+                                                    <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
+                                                        <p className="text-[8px] font-bold text-center text-slate-600 mb-0.5 line-clamp-1">{pic1Desc}</p>
+                                                        <img src={getDirectDriveUrl(pic1Url)} alt="ภาพเช้า" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                    </div>
+                                                ) : (
+                                                    <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">ทางเข้าโรงเรียนช่วงเช้า (ยังไม่แนบ)</div>
+                                                )}
 
-                                        {/* Statistics board in memo preview */}
-                                        <p className="font-extrabold mb-1.5 text-[10px] text-slate-800">
-                                            ๑. ข้อมูลนักเรียนที่มาเรียนแยกตามทุกระดับชั้น:
-                                        </p>
-                                        <div className="overflow-hidden mb-3">
-                                            <table className="w-full border-collapse border border-black text-center text-[9px] text-slate-800">
-                                                <thead>
-                                                    <tr className="bg-slate-50 font-bold">
-                                                        <th className="border border-black p-1">จำนวนนักเรียนทั้งหมด</th>
-                                                        <th className="border border-black p-1 text-emerald-800 font-bold">มาเรียน (คน)</th>
-                                                        <th className="border border-black p-1 text-amber-700 font-bold">เข้าเรียนสาย (คน)</th>
-                                                        <th className="border border-black p-1 text-blue-800 font-bold">ลาป่วย (คน)</th>
-                                                        <th className="border border-black p-1 text-rose-800 font-bold">ขาดเรียน (คน)</th>
-                                                        <th className="border border-black p-1 font-bold">คิดเป็นอัตราส่วน</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <tr className="font-bold">
-                                                        <td className="border border-black p-1">{activeDutyStats?.total || 0}</td>
-                                                        <td className="border border-black p-1 text-emerald-800">{activeDutyStats?.present || 0}</td>
-                                                        <td className="border border-black p-1 text-amber-700">{activeDutyStats?.late || 0}</td>
-                                                        <td className="border border-black p-1 text-blue-800">{activeDutyStats?.sick || 0}</td>
-                                                        <td className="border border-black p-1 text-rose-800 font-extrabold">{activeDutyStats?.absent || 0}</td>
-                                                        <td className="border border-black p-1 text-indigo-700">
-                                                            {activeDutyStats?.total > 0 
-                                                              ? ((activeDutyStats.present / activeDutyStats.total) * 100).toFixed(2) 
-                                                              : '0.00'
-                                                            }%
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
+                                                {pic2Url ? (
+                                                    <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
+                                                        <p className="text-[8px] font-bold text-center text-slate-600 mb-0.5 line-clamp-1">{pic2Desc}</p>
+                                                        <img src={getDirectDriveUrl(pic2Url)} alt="ภาพธง" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                    </div>
+                                                ) : (
+                                                    <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">กิจกรรมหน้าเสาธง (ยังไม่แนบ)</div>
+                                                )}
+
+                                                {pic3Url ? (
+                                                    <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
+                                                        <p className="text-[8px] font-bold text-center text-slate-600 mb-0.5 line-clamp-1">{pic3Desc}</p>
+                                                        <img src={getDirectDriveUrl(pic3Url)} alt="ภาพข้าว" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                    </div>
+                                                ) : (
+                                                    <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">อาหารกลางวันนักเรียน (ยังไม่แนบ)</div>
+                                                )}
+
+                                                {pic4Url ? (
+                                                    <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
+                                                        <p className="text-[8px] font-bold text-center text-slate-600 mb-0.5 line-clamp-1">{pic4Desc}</p>
+                                                        <img src={getDirectDriveUrl(pic4Url)} alt="ภาพกลับบ้าน" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
+                                                    </div>
+                                                ) : (
+                                                    <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">หลังเลิกเรียนและเดินทางกลับ (ยังไม่แนบ)</div>
+                                                )}
+                                            </div>
+
+                                            <div className="indent-12 mt-4 text-[10px] mb-6">
+                                                <p className="font-bold">จึงเรียนมาเพื่อโปรดทราบและพิจารณา</p>
+                                            </div>
                                         </div>
 
-                                        {/* Detailed Morning / Afternoon notes */}
-                                        <p className="font-extrabold mb-1.5 text-[10px] text-slate-800">๒. รายละเอียดการปฏิบัติหน้าที่ครูเวรประจำวัน:</p>
-                                        <div className="space-y-1 text-slate-800 text-[10px] mb-4 lh-tight">
-                                            <p className="indent-4"><span className="font-bold underline text-black">ช่วงเช้า:</span> {morningReport || '(ยังคงเว้นว่างไว้ในแบบบันทึกร่าง)'}</p>
-                                            <p className="indent-4"><span className="font-bold underline text-black">ช่วงกลางวันและเย็น:</span> {afternoonReport || '(ยังคงเว้นว่างไว้ในแบบบันทึกร่าง)'}</p>
-                                        </div>
+                                        <div className="flex flex-col items-end space-y-6 text-center text-[10px] pr-4 mt-auto">
+                                            <div className="flex flex-col items-center w-[220px]">
+                                                <p className="mb-0.5 text-slate-500">ลงชื่อ............................................................ผู้รายงาน</p>
+                                                <p className="font-extrabold text-black">( {currentUser.name} )</p>
+                                                <p className="text-[8px] text-slate-500">ตำแหน่ง {currentUser.position || 'ครูเวรประจำวัน'}</p>
+                                            </div>
 
-                                        {/* Visual photos preview sheet */}
-                                        <p className="font-extrabold mb-2.5 text-[10px] text-slate-800">๓. รูปภาพประกอบการรายงานเวร:</p>
-                                        <div className="grid grid-cols-2 gap-3 mb-2">
-                                            {pic1Url ? (
-                                                <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
-                                                    <p className="text-[8px] font-bold text-center text-slate-600 mb-0.5 line-clamp-1">{pic1Desc}</p>
-                                                    <img src={getDirectDriveUrl(pic1Url)} alt="ภาพเช้า" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
-                                                </div>
-                                            ) : (
-                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">ทางเข้าโรงเรียนช่วงเช้า (ยังไม่แนบ)</div>
-                                            )}
-
-                                            {pic2Url ? (
-                                                <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
-                                                    <p className="text-[8px] font-bold text-center text-slate-600 mb-0.5 line-clamp-1">{pic2Desc}</p>
-                                                    <img src={getDirectDriveUrl(pic2Url)} alt="ภาพธง" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
-                                                </div>
-                                            ) : (
-                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">กิจกรรมหน้าเสาธง (ยังไม่แนบ)</div>
-                                            )}
-
-                                            {pic3Url ? (
-                                                <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
-                                                    <p className="text-[8px] font-bold text-center text-slate-600 mb-0.5 line-clamp-1">{pic3Desc}</p>
-                                                    <img src={getDirectDriveUrl(pic3Url)} alt="ภาพข้าว" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
-                                                </div>
-                                            ) : (
-                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">อาหารกลางวันนักเรียน (ยังไม่แนบ)</div>
-                                            )}
-
-                                            {pic4Url ? (
-                                                <div className="border border-slate-300 p-1 rounded bg-slate-50 flex flex-col items-center">
-                                                    <p className="text-[8px] font-bold text-center text-slate-600 mb-0.5 line-clamp-1">{pic4Desc}</p>
-                                                    <img src={getDirectDriveUrl(pic4Url)} alt="ภาพกลับบ้าน" className="h-[70px] w-full object-cover rounded border border-slate-100" referrerPolicy="no-referrer" />
-                                                </div>
-                                            ) : (
-                                                <div className="h-[80px] border border-dashed border-slate-350 bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 italic rounded">หลังเลิกเรียนและเดินทางกลับ (ยังไม่แนบ)</div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Sign block inside preview */}
-                                    <div className="grid grid-cols-2 gap-2 mt-6 text-center text-[10px]">
-                                        <div className="flex flex-col items-center">
-                                            <p className="mb-6 font-bold">ลงชื่อครูเวรประจำวัน</p>
-                                            <p className="mb-0.5">ลงชื่อ............................................................</p>
-                                            <p className="font-extrabold text-black">( {currentUser.name} )</p>
-                                            <p className="text-[8px] text-slate-500">ครูเวรประจำวัน</p>
-                                        </div>
-                                        <div className="flex flex-col items-center">
-                                            <p className="mb-6 font-bold">รับทราบ</p>
-                                            <p className="mb-0.5">ลงชื่อ............................................................</p>
-                                            <p className="font-extrabold text-black">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
-                                            <p className="text-[8px] text-slate-500">ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................'}</p>
+                                            <div className="flex flex-col items-center w-[220px]">
+                                                <p className="mb-0.5 text-slate-500">ลงชื่อ............................................................ผู้รับทราบ/ผู้อนุมัติ</p>
+                                                <p className="font-extrabold text-black">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
+                                                <p className="text-[8px] text-slate-500">ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................'}</p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -3878,6 +3901,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                     )}
                 </div>
             )}
+            </div>
 
             {/* Duty Report Detail Modal (Officially formatted memorandum card view) */}
             <AnimatePresence>
