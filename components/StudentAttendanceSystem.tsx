@@ -3705,7 +3705,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                     
                                     <div className="space-y-4 text-justify">
                                         <p className="indent-12 text-slate-800 leading-relaxed">
-                                            ตามที่ ข้าพเจ้า <span className="font-bold text-black">{selectedDutyReport.teacherName}</span> ตำแหน่ง <span className="font-bold text-black">{selectedDutyReport.teacherPosition || 'ครู'}</span> ได้รับมอบหน้าที่เป็นครูเวรประจำวันที่ <span className="font-bold text-black">{formatToThaiDate(selectedDutyReport.date)}</span> นั้น จึงขอรายงานเวร ดังนี้
+                                            ตามที่ ข้าพเจ้า <span className="font-bold text-black">{selectedDutyReport.teacherName}</span> ตำแหน่ง <span className="font-bold text-black">{(allSchoolTeachers.find((t: any) => t.name === selectedDutyReport.teacherName)?.position) || selectedDutyReport.teacherPosition || 'ครู'}</span> ได้รับมอบหน้าที่เป็นครูเวรประจำวันที่ <span className="font-bold text-black">{formatToThaiDate(selectedDutyReport.date)}</span> นั้น จึงขอรายงานเวร ดังนี้
                                         </p>
 
                                         {/* Dynamic statistics table block */}

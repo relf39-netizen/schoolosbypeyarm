@@ -86,6 +86,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
     const [loadingDutyList, setLoadingDutyList] = useState<boolean>(false);
     const [uploadingPicIndex, setUploadingPicIndex] = useState<number | null>(null);
     const [activeDutyStats, setActiveDutyStats] = useState<any>({ total: 0, present: 0, late: 0, sick: 0, absent: 0 });
+    const [teachersProfiles, setTeachersProfiles] = useState<any[]>([]);
 
     const rolesList = Array.isArray(currentUser.roles) ? currentUser.roles : [];
     const isAdmin = rolesList.includes('SYSTEM_ADMIN') || rolesList.includes('ADMIN') || rolesList.includes('DIRECTOR') || rolesList.includes('VICE_DIRECTOR') || currentUser.isActingDirector;
@@ -94,6 +95,31 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
     useEffect(() => {
         fetchDutyReports();
     }, [currentUser.schoolId]);
+
+    useEffect(() => {
+        const fetchTeachersProfiles = async () => {
+            if (!supabase) return;
+            try {
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('id, name, position')
+                    .eq('school_id', currentUser.schoolId);
+                if (error) throw error;
+                if (data) {
+                    setTeachersProfiles(data);
+                }
+            } catch (err) {
+                console.error("Error fetching teachers profiles in TeacherDutySystem:", err);
+            }
+        };
+        fetchTeachersProfiles();
+    }, [currentUser.schoolId]);
+
+    const getTeacherPosition = (report: any) => {
+        if (!report) return 'ครู';
+        const profile = teachersProfiles.find(t => t.id === report.teacherId || t.name === report.teacherName);
+        return profile?.position || report.teacherPosition || 'ครู';
+    };
 
     const fetchFullSchoolStatsForDate = async (targetDate: string) => {
         if (!supabase) return { total: 0, present: 0, late: 0, sick: 0, absent: 0, classDetails: [] };
@@ -657,7 +683,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                     /* Force base tags to print cleanly without borders or scrolls */
                     html, body {
                         width: 210mm !important;
-                        height: 297mm !important;
+                        height: auto !important;
                         margin: 0 !important;
                         padding: 0 !important;
                         background: white !important;
@@ -681,9 +707,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                     #print-content-area, .print-only-area {
                         display: block !important;
                         visibility: visible !important;
-                        position: absolute !important;
-                        left: 0 !important;
-                        top: 0 !important;
+                        position: relative !important;
                         width: 210mm !important;
                         margin: 0 !important;
                         padding: 0 !important;
@@ -1411,7 +1435,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                                     <div className="mb-4 text-[10px]">
                                         <p className="font-extrabold mb-2">เรียน ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................................'}</p>
                                         <p className="indent-8 text-slate-800 leading-relaxed mb-3">
-                                            ตามที่ ข้าพเจ้า <span className="font-bold text-black">{selectedDutyReport.teacherName}</span> ตำแหน่ง <span className="font-bold text-black">{selectedDutyReport.teacherPosition || 'ครู'}</span> ได้รับมอบหน้าที่เป็นครูเวรประจำวันที่ <span className="font-bold text-black">{formatToThaiDate(selectedDutyReport.date)}</span> นั้น จึงขอรายงานเวร ดังนี้
+                                            ตามที่ ข้าพเจ้า <span className="font-bold text-black">{selectedDutyReport.teacherName}</span> ตำแหน่ง <span className="font-bold text-black">{getTeacherPosition(selectedDutyReport)}</span> ได้รับมอบหน้าที่เป็นครูเวรประจำวันที่ <span className="font-bold text-black">{formatToThaiDate(selectedDutyReport.date)}</span> นั้น จึงขอรายงานเวร ดังนี้
                                         </p>
 
                                         {/* Attendance table */}
@@ -1582,7 +1606,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                                 <p className="font-bold mb-4">เรียน ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................................'}</p>
                                 
                                 <p className="indent-12 text-justify mb-4">
-                                    ตามที่ ข้าพเจ้า <span className="font-bold text-black">{selectedDutyReport.teacherName}</span> ตำแหน่ง <span className="font-bold text-black">{selectedDutyReport.teacherPosition || 'ครู'}</span> ได้รับมอบหมายให้ปฏิบัติหน้าที่ครูเวรดูแลความปลอดภัยประจำวันที่ <span className="font-bold text-black">{formatToThaiDate(selectedDutyReport.date)}</span> นั้น บัดนี้การปฏิบัติหน้าที่ดังกล่าวเสร็จสิ้นเรียบร้อยแล้ว จึงขอรายงานผลปฏิบัติงานแยกตามหัวข้อต่อไปนี้หลักเกณฑ์
+                                    ตามที่ ข้าพเจ้า <span className="font-bold text-black">{selectedDutyReport.teacherName}</span> ตำแหน่ง <span className="font-bold text-black">{getTeacherPosition(selectedDutyReport)}</span> ได้รับมอบหมายให้ปฏิบัติหน้าที่ครูเวรดูแลความปลอดภัยประจำวันที่ <span className="font-bold text-black">{formatToThaiDate(selectedDutyReport.date)}</span> นั้น บัดนี้การปฏิบัติหน้าที่ดังกล่าวเสร็จสิ้นเรียบร้อยแล้ว จึงขอรายงานผลปฏิบัติงานแยกตามหัวข้อต่อไปนี้หลักเกณฑ์
                                 </p>
 
                                 <p className="font-bold mt-5 mb-2.5">๑. ข้อมูลนักเรียนที่มาเรียนทั้งหมดแยกตามรายประเภทเข้าเรียน:</p>
