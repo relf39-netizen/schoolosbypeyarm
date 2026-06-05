@@ -732,7 +732,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                     /* Print layout with exact standard margins */
                     .print-page-layout {
                         width: 210mm !important;
-                        height: 286mm !important;
+                        height: 270mm !important;
                         page-break-after: always !important;
                         page-break-inside: avoid !important;
                         break-after: page !important;
@@ -1687,37 +1687,37 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                                 {selectedDutyReport.pic1Url ? (
                                     <div className="border border-black p-2 rounded bg-white flex flex-col items-center">
                                         <p className="text-[11px] font-bold text-center text-black mb-1.5 line-clamp-1 h-4">{selectedDutyReport.pic1Desc}</p>
-                                        <img src={getDirectDriveUrl(selectedDutyReport.pic1Url)} alt="ภาพช่วงเช้า" className="h-[105px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
+                                        <img src={getDirectDriveUrl(selectedDutyReport.pic1Url)} alt="ภาพช่วงเช้า" className="h-[145px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
                                     </div>
                                 ) : (
-                                    <div className="h-[120px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">ช่วงเช้าหน้าโรงเรียน (เว้นว่างรูปแนบ)</div>
+                                    <div className="h-[160px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">ช่วงเช้าหน้าโรงเรียน (เว้นว่างรูปแนบ)</div>
                                 )}
 
                                 {selectedDutyReport.pic2Url ? (
                                     <div className="border border-black p-2 rounded bg-white flex flex-col items-center">
                                         <p className="text-[11px] font-bold text-center text-black mb-1.5 line-clamp-1 h-4">{selectedDutyReport.pic2Desc}</p>
-                                        <img src={getDirectDriveUrl(selectedDutyReport.pic2Url)} alt="กิจกรรมเสาธง" className="h-[105px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
+                                        <img src={getDirectDriveUrl(selectedDutyReport.pic2Url)} alt="กิจกรรมเสาธง" className="h-[145px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
                                     </div>
                                 ) : (
-                                    <div className="h-[120px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">กิจกรรมเสาธง (เว้นว่างรูปแนบ)</div>
+                                    <div className="h-[160px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">กิจกรรมเสาธง (เว้นว่างรูปแนบ)</div>
                                 )}
 
                                 {selectedDutyReport.pic3Url ? (
                                     <div className="border border-black p-2 rounded bg-white flex flex-col items-center">
                                         <p className="text-[11px] font-bold text-center text-black mb-1.5 line-clamp-1 h-4">{selectedDutyReport.pic3Desc}</p>
-                                        <img src={getDirectDriveUrl(selectedDutyReport.pic3Url)} alt="ภาพอาหาร" className="h-[105px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
+                                        <img src={getDirectDriveUrl(selectedDutyReport.pic3Url)} alt="ภาพอาหาร" className="h-[145px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
                                     </div>
                                 ) : (
-                                    <div className="h-[120px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">ดูแลอาหารกลางวัน (เว้นว่างรูปแนบ)</div>
+                                    <div className="h-[160px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">ดูแลอาหารกลางวัน (เว้นว่างรูปแนบ)</div>
                                 )}
 
                                 {selectedDutyReport.pic4Url ? (
                                     <div className="border border-black p-2 rounded bg-white flex flex-col items-center">
                                         <p className="text-[11px] font-bold text-center text-black mb-1.5 line-clamp-1 h-4">{selectedDutyReport.pic4Desc}</p>
-                                        <img src={getDirectDriveUrl(selectedDutyReport.pic4Url)} alt="ภาพเดินทางกลับ" className="h-[105px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
+                                        <img src={getDirectDriveUrl(selectedDutyReport.pic4Url)} alt="ภาพเดินทางกลับ" className="h-[145px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
                                     </div>
                                 ) : (
-                                    <div className="h-[120px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">ตอนเดินทางกลับเย็น (เว้นว่างรูปแนบ)</div>
+                                    <div className="h-[160px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">ตอนเดินทางกลับเย็น (เว้นว่างรูปแนบ)</div>
                                 )}
                             </div>
 
@@ -1728,16 +1728,20 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                         <div className="flex flex-col items-end w-full pr-12 pb-4 font-sarabun text-black" style={{ fontSize: '15px' }}>
                             <div className="flex flex-col space-y-8 w-[320px]">
                                 {/* 1. Teacher Sign-off */}
-                                <div className="text-center">
-                                    <p className="mb-10 text-black">ลงชื่อ</p>
+                                <div className="flex flex-col items-start pl-16 relative">
+                                    <div className="relative h-14 w-full">
+                                        <span className="absolute right-full mr-[-6px] bottom-1 text-black font-semibold">ลงชื่อ</span>
+                                    </div>
                                     <p className="font-extrabold text-black">( {selectedDutyReport.teacherName} )</p>
                                     <p className="text-[13px] text-slate-800">ตำแหน่ง {getTeacherPosition(selectedDutyReport)}</p>
                                 </div>
                                 
                                 {/* 2. Director Sign-off */}
-                                <div className="text-center pt-2">
-                                    <p className="text-[13px] font-bold text-left mb-2 pl-4">รับทราบ</p>
-                                    <p className="mb-10 text-black">ลงชื่อ</p>
+                                <div className="flex flex-col items-start pl-16 relative pt-2">
+                                    <p className="text-[13px] font-bold text-left mb-2 pl-[-16px]">- รับทราบ</p>
+                                    <div className="relative h-14 w-full">
+                                        <span className="absolute right-full mr-[-6px] bottom-1 text-black font-semibold">ลงชื่อ</span>
+                                    </div>
                                     <p className="font-extrabold text-black">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
                                     <p className="text-[13px] text-slate-800">ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................'}</p>
                                 </div>
