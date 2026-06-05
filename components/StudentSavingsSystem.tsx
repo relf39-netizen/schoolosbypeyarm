@@ -118,6 +118,10 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
     const [reportEndDate, setReportEndDate] = useState<string>(formatToISODate(new Date()));
 
     const [transactionDate, setTransactionDate] = useState<string>(formatToISODate(new Date()));
+    const [selectedReportMonth, setSelectedReportMonth] = useState<string>(() => {
+        const today = new Date();
+        return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    });
 
     const roles = Array.isArray(currentUser.roles) ? currentUser.roles : [];
     const isAdmin = roles.includes('SYSTEM_ADMIN') || roles.includes('ADMIN') || roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR') || currentUser.isActingDirector;
@@ -594,6 +598,147 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                             <p>(ลงชื่อ)............................................................</p>
                             <p>(${currentUser.name})</p>
                             <p>ผู้รายงาน</p>
+                        </div>
+                    </div>
+                    <script>window.onload = () => window.print();</script>
+                </body>
+            </html>
+        `;
+        printWindow.document.write(html);
+        printWindow.document.close();
+    };
+
+    const printClassMonthlySummary = (selectedMonth: string) => {
+        if (!selectedMonth) return;
+        const classStudents = students.filter(s => s.currentClass === selectedClass || selectedClass === 'All');
+        
+        // Parse selected Year & Month
+        const [yearStr, monthStr] = selectedMonth.split('-');
+        const selectedYear = parseInt(yearStr, 10);
+        const selectedMonthIdx = parseInt(monthStr, 10) - 1; // 0-based
+        const thaiMonths = [
+            'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+            'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+        ];
+        const thMonthName = thaiMonths[selectedMonthIdx] || monthStr;
+        const thYear = selectedYear + 543;
+        const formTitle = `รายงานสรุปการออมทรัพย์นักเรียนรายเดือน ประจำเดือน${thMonthName} พ.ศ. ${thYear}`;
+
+        const reportData = classStudents.map(student => {
+            const studentTransactions = savings.filter(s => s.studentId === student.id);
+            
+            let depositsInMonth = 0;
+            let withdrawalInMonth = 0;
+            let previousDeposits = 0;
+            let previousWithdrawals = 0;
+
+            studentTransactions.forEach(t => {
+                if (!t.createdAt) return;
+                const tDate = new Date(t.createdAt);
+                if (isNaN(tDate.getTime())) return;
+                
+                // Get transaction year & month (be careful to handle local timezone)
+                const ty = tDate.getFullYear();
+                const tm = tDate.getMonth(); // 0-based
+                
+                if (ty === selectedYear && tm === selectedMonthIdx) {
+                    if (t.type === 'DEPOSIT') {
+                        depositsInMonth += Number(t.amount || 0);
+                    } else if (t.type === 'WITHDRAWAL') {
+                        withdrawalInMonth += Number(t.amount || 0);
+                    }
+                } else {
+                    // Previous of selected month is before selectedYear or in selectedYear but before selectedMonthIdx
+                    if (ty < selectedYear || (ty === selectedYear && tm < selectedMonthIdx)) {
+                        if (t.type === 'DEPOSIT') {
+                            previousDeposits += Number(t.amount || 0);
+                        } else if (t.type === 'WITHDRAWAL') {
+                            previousWithdrawals += Number(t.amount || 0);
+                        }
+                    }
+                }
+            });
+
+            const monthSavings = depositsInMonth - withdrawalInMonth;
+            const previousBalance = previousDeposits - previousWithdrawals;
+            const totalBalance = previousBalance + monthSavings;
+
+            return {
+                ...student,
+                monthSavings,
+                previousBalance,
+                totalBalance
+            };
+        });
+
+        const totalMonthSavings = reportData.reduce((sum, s) => sum + s.monthSavings, 0);
+        const totalPreviousBalance = reportData.reduce((sum, s) => sum + s.previousBalance, 0);
+        const totalBalanceAll = reportData.reduce((sum, s) => sum + s.totalBalance, 0);
+
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) return;
+
+        const html = `
+            <html>
+                <head>
+                    <title>${formTitle} - ${selectedClass === 'All' ? 'ทุกชั้นเรียน' : selectedClass}</title>
+                    <style>
+                        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap');
+                        body { font-family: 'Sarabun', sans-serif; padding: 40px; color: #333; }
+                        .header { text-align: center; margin-bottom: 30px; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                        th, td { border: 1px solid #000; padding: 10px; text-align: left; font-size: 14px; }
+                        th { background-color: #f2f2f2; text-align: center; }
+                        .text-right { text-align: right; }
+                        .text-center { text-align: center; }
+                        .summary { margin-top: 30px; border-top: 2px solid #000; padding-top: 10px; }
+                        .signature-section { margin-top: 50px; display: flex; justify-content: flex-end; }
+                        .signature-box { text-align: center; width: 250px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <h2 style="margin: 0; font-size: 20px;">รายงานสรุปการออมทรัพย์นักเรียนรายเดือน</h2>
+                        <h3 style="margin: 5px 0; font-size: 18px;">ประจำเดือน${thMonthName} พ.ศ. ${thYear}</h3>
+                        <p style="margin: 5px 0; font-size: 14px;">ชั้นเรียน: ${selectedClass === 'All' ? 'ทุกชั้นเรียน' : selectedClass}</p>
+                        <p style="margin: 5px 0; font-size: 14px;">ปีการศึกษา: ${currentAcademicYear}</p>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 8%;">ลำดับ</th>
+                                <th style="width: 32%;">ชื่อ-นามสกุล</th>
+                                <th style="width: 15%;">ชั้นเรียน</th>
+                                <th style="width: 15%;">ยอดประจำเดือนที่พิมพ์ (บาท)</th>
+                                <th style="width: 15%;">ยอดเดือนล่าสุด (บาท)</th>
+                                <th style="width: 15%;">ผลรวมทั้งหมด (บาท)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${reportData.map((s, i) => `
+                                <tr>
+                                    <td class="text-center">${i + 1}</td>
+                                    <td>${s.name}</td>
+                                    <td class="text-center">${s.currentClass}</td>
+                                    <td class="text-right">${s.monthSavings.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                    <td class="text-right">${s.previousBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                    <td class="text-right">${s.totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                </tr>
+                            `).join('')}
+                            <tr style="font-weight: bold; background-color: #f9f9f9;">
+                                <td colspan="3" class="text-center">รวมทั้งสิ้น</td>
+                                <td class="text-right">${totalMonthSavings.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                <td class="text-right">${totalPreviousBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                <td class="text-right">${totalBalanceAll.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <div class="signature-section">
+                        <div class="signature-box">
+                            <p style="margin-bottom: 40px;">(ลงชื่อ)............................................................</p>
+                            <p>(${currentUser.name})</p>
+                            <p>ครูประจำชั้น</p>
                         </div>
                     </div>
                     <script>window.onload = () => window.print();</script>
@@ -1414,6 +1559,34 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                         </div>
 
                         <div className="p-8 space-y-4">
+                            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col gap-2 mb-2">
+                                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                                    <Calendar size={14} className="text-pink-500" /> เลือกเดือนสำหรับพิมพ์รายงานบันทึกรายเดือน
+                                </label>
+                                <input 
+                                    type="month" 
+                                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm cursor-pointer"
+                                    value={selectedReportMonth}
+                                    onChange={(e) => setSelectedReportMonth(e.target.value)}
+                                />
+                            </div>
+
+                            <button 
+                                onClick={() => {
+                                    printClassMonthlySummary(selectedReportMonth);
+                                    setIsPrintReportOpen(false);
+                                }}
+                                className="w-full p-4 bg-slate-50 hover:bg-pink-50 border border-slate-100 hover:border-pink-200 rounded-2xl flex items-center gap-4 transition-all group"
+                            >
+                                <div className="p-3 bg-white rounded-xl text-slate-400 group-hover:text-pink-500 transition-colors">
+                                    <Calendar size={20} />
+                                </div>
+                                <div className="text-left">
+                                    <p className="font-black text-slate-800">รายงานสรุปการออมทรัพย์นักเรียนรายเดือน</p>
+                                    <p className="text-xs font-bold text-slate-400">แสดงรายชื่อทั้งหมด 3 คอลัมน์: ยอดประจำเดือน, ยอดเดือนล่าสุด, ผลรวมทั้งหมด</p>
+                                </div>
+                            </button>
+
                             <button 
                                 onClick={() => {
                                     printClassReport();
