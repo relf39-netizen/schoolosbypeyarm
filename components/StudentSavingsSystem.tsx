@@ -122,6 +122,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
         const today = new Date();
         return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
     });
+    const [savingsViewType, setSavingsViewType] = useState<'LIST' | 'MONTHLY_SUMMARY'>('LIST');
 
     const roles = Array.isArray(currentUser.roles) ? currentUser.roles : [];
     const isAdmin = roles.includes('SYSTEM_ADMIN') || roles.includes('ADMIN') || roles.includes('DIRECTOR') || roles.includes('VICE_DIRECTOR') || currentUser.isActingDirector;
@@ -620,6 +621,16 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
             'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
         ];
+        const thaiShortMonths = [
+            'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+            'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+        ];
+        const currentMonthShort = thaiShortMonths[selectedMonthIdx] || monthStr;
+        
+        // Previous month calculation
+        const prevMonthIdx = (selectedMonthIdx - 1 + 12) % 12;
+        const prevMonthShort = thaiShortMonths[prevMonthIdx];
+
         const thMonthName = thaiMonths[selectedMonthIdx] || monthStr;
         const thYear = selectedYear + 543;
         const formTitle = `รายงานสรุปการออมทรัพย์นักเรียนรายเดือน ประจำเดือน${thMonthName} พ.ศ. ${thYear}`;
@@ -709,9 +720,9 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                                 <th style="width: 8%;">ลำดับ</th>
                                 <th style="width: 32%;">ชื่อ-นามสกุล</th>
                                 <th style="width: 15%;">ชั้นเรียน</th>
-                                <th style="width: 15%;">ยอดประจำเดือนที่พิมพ์ (บาท)</th>
-                                <th style="width: 15%;">ยอดเดือนล่าสุด (บาท)</th>
-                                <th style="width: 15%;">ผลรวมทั้งหมด (บาท)</th>
+                                <th style="width: 15%;">ยอดออม ${currentMonthShort} (บาท)</th>
+                                <th style="width: 15%;">ยอดสะสมถึง ${prevMonthShort} (บาท)</th>
+                                <th style="width: 15%;">ยอดเงินทั้งหมด (บาท)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1030,6 +1041,84 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
         }
     }, [isDirector, selectedClass, totalSchoolSavings, filteredStudents]);
 
+    const monthlySummaryData = useMemo(() => {
+        if (!selectedReportMonth) return { reportData: [], totalMonthSavings: 0, totalPreviousBalance: 0, totalBalanceAll: 0, currentMonthShort: '', prevMonthShort: '' };
+        
+        const [yearStr, monthStr] = selectedReportMonth.split('-');
+        const selectedYear = parseInt(yearStr, 10);
+        const selectedMonthIdx = parseInt(monthStr, 10) - 1; // 0-based
+        
+        const thaiShortMonths = [
+            'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+            'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+        ];
+        const currentMonthShort = thaiShortMonths[selectedMonthIdx] || monthStr;
+        const prevMonthIdx = (selectedMonthIdx - 1 + 12) % 12;
+        const prevMonthShort = thaiShortMonths[prevMonthIdx];
+
+        const classStudents = students.filter(s => s.currentClass === selectedClass || selectedClass === 'All');
+
+        const reportData = classStudents.map(student => {
+            const studentTransactions = savings.filter(s => s.studentId === student.id);
+            
+            let depositsInMonth = 0;
+            let withdrawalInMonth = 0;
+            let previousDeposits = 0;
+            let previousWithdrawals = 0;
+
+            studentTransactions.forEach(t => {
+                if (!t.createdAt) return;
+                const tDate = new Date(t.createdAt);
+                if (isNaN(tDate.getTime())) return;
+                
+                const ty = tDate.getFullYear();
+                const tm = tDate.getMonth(); // 0-based
+                
+                if (ty === selectedYear && tm === selectedMonthIdx) {
+                    if (t.type === 'DEPOSIT') {
+                        depositsInMonth += Number(t.amount || 0);
+                    } else if (t.type === 'WITHDRAWAL') {
+                        withdrawalInMonth += Number(t.amount || 0);
+                    }
+                } else {
+                    if (ty < selectedYear || (ty === selectedYear && tm < selectedMonthIdx)) {
+                        if (t.type === 'DEPOSIT') {
+                            previousDeposits += Number(t.amount || 0);
+                        } else if (t.type === 'WITHDRAWAL') {
+                            previousWithdrawals += Number(t.amount || 0);
+                        }
+                    }
+                }
+            });
+
+            const monthSavings = depositsInMonth - withdrawalInMonth;
+            const previousBalance = previousDeposits - previousWithdrawals;
+            const totalBalance = previousBalance + monthSavings;
+
+            return {
+                id: student.id,
+                name: student.name,
+                currentClass: student.currentClass,
+                monthSavings,
+                previousBalance,
+                totalBalance
+            };
+        });
+
+        const totalMonthSavings = reportData.reduce((sum, s) => sum + s.monthSavings, 0);
+        const totalPreviousBalance = reportData.reduce((sum, s) => sum + s.previousBalance, 0);
+        const totalBalanceAll = reportData.reduce((sum, s) => sum + s.totalBalance, 0);
+
+        return {
+            reportData,
+            totalMonthSavings,
+            totalPreviousBalance,
+            totalBalanceAll,
+            currentMonthShort,
+            prevMonthShort
+        };
+    }, [students, savings, selectedClass, selectedReportMonth]);
+
     if (isLoading) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -1081,6 +1170,22 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                         </div>
                     </div>
                 </div>
+            </div>
+
+            {/* View Tab Selector */}
+            <div className="flex gap-2 p-1.5 bg-slate-100 rounded-2xl w-full max-w-sm">
+                <button
+                    onClick={() => setSavingsViewType('LIST')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-black transition-all ${savingsViewType === 'LIST' ? 'bg-white text-pink-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    รายชื่อนักเรียน
+                </button>
+                <button
+                    onClick={() => setSavingsViewType('MONTHLY_SUMMARY')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-black transition-all ${savingsViewType === 'MONTHLY_SUMMARY' ? 'bg-white text-pink-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    สรุปออมทรัพย์รายเดือน (พรีวิว)
+                </button>
             </div>
 
             {/* Controls */}
@@ -1152,98 +1257,219 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             </div>
 
             {/* Student List */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <AnimatePresence mode="popLayout">
-                    {filteredStudents.map((student) => (
-                        <motion.div 
-                            layout
-                            initial={{ opacity: 0, scale: 0.9 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.9 }}
-                            key={student.id}
-                            className={`p-6 rounded-[2.5rem] shadow-sm border transition-all group relative overflow-hidden ${isSelectionMode && selectedIds.has(student.id) ? 'bg-pink-50 border-pink-500 ring-2 ring-pink-200' : 'bg-white border-slate-100 hover:shadow-xl hover:bg-gradient-to-br hover:from-white hover:to-slate-50'}`}
-                        >
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-pink-500/5 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700 pointer-events-none"></div>
-                            {isSelectionMode && (
-                                <div 
-                                    className="absolute top-4 right-4 z-10"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        toggleSelectStudent(student.id);
+            {savingsViewType === 'MONTHLY_SUMMARY' ? (
+                <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-6">
+                    <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-4 border-b border-slate-100 pb-6">
+                        <div className="flex items-center gap-3">
+                            <div className="p-3.5 bg-gradient-to-br from-pink-500 to-rose-500 text-white rounded-2xl shadow-md shadow-pink-100">
+                                <Calendar size={24} />
+                            </div>
+                            <div>
+                                <h3 className="font-black text-slate-800 text-lg">รายการออมทรัพย์นักเรียนรายเดือน</h3>
+                                <p className="text-xs font-bold text-slate-400">
+                                    ประจำเดือน {(() => {
+                                        const [y, m] = selectedReportMonth.split('-');
+                                        const tk = parseInt(m, 10) - 1;
+                                        const mNames = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+                                        return `${mNames[tk] || m} พ.ศ. ${parseInt(y, 10) + 543}`;
+                                    })()}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
+                                <button
+                                    onClick={() => {
+                                        const [y, m] = selectedReportMonth.split('-').map(Number);
+                                        const d = new Date(y, m - 2, 1);
+                                        setSelectedReportMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
                                     }}
+                                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-600 rounded-lg transition-all font-bold text-xs shadow-sm"
+                                    title="เดือนก่อนหน้า"
                                 >
-                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedIds.has(student.id) ? 'bg-pink-600 border-pink-600 text-white' : 'bg-white border-slate-300'}`}>
-                                        {selectedIds.has(student.id) && <CheckCircle2 size={14} />}
-                                    </div>
-                                </div>
-                            )}
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-2xl bg-pink-50 text-pink-600 flex items-center justify-center font-black text-xl">
-                                        {student.name[0]}
-                                    </div>
+                                    ← ย้อนหลัง
+                                </button>
+                                
+                                <input 
+                                    type="month" 
+                                    className="px-3 py-1.5 bg-transparent border-none rounded-xl font-bold text-slate-700 focus:outline-none text-xs cursor-pointer focus:ring-0"
+                                    value={selectedReportMonth}
+                                    onChange={(e) => setSelectedReportMonth(e.target.value)}
+                                />
+
+                                <button
+                                    onClick={() => {
+                                        const [y, m] = selectedReportMonth.split('-').map(Number);
+                                        const d = new Date(y, m, 1);
+                                        setSelectedReportMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+                                    }}
+                                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-600 rounded-lg transition-all font-bold text-xs shadow-sm"
+                                    title="เดือนถัดไป"
+                                >
+                                    ถัดไป →
+                                </button>
+                            </div>
+
+                            <button
+                                onClick={() => printClassMonthlySummary(selectedReportMonth)}
+                                className="flex items-center gap-2 bg-pink-600 hover:bg-pink-700 text-white px-5 py-3 rounded-xl font-black text-sm transition-all shadow-lg shadow-pink-100"
+                            >
+                                <Printer size={16} />
+                                พิมพ์สรุปรายเดือน
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-3xl border border-slate-100">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-slate-50/75 border-b border-slate-100">
+                                    <th className="py-4 px-4 font-black text-xs text-slate-400 text-center uppercase w-16">ลำดับ</th>
+                                    <th className="py-4 px-4 font-black text-xs text-slate-400 uppercase">ชื่อ-นามสกุล</th>
+                                    <th className="py-4 px-4 font-black text-xs text-slate-400 text-center uppercase w-28">ชั้นเรียน</th>
+                                    <th className="py-4 px-4 font-black text-xs text-slate-400 text-right uppercase">ยอดออม {monthlySummaryData.currentMonthShort} (บาท)</th>
+                                    <th className="py-4 px-4 font-black text-xs text-slate-400 text-right uppercase font-bold text-slate-500">ยอดสะสมถึง {monthlySummaryData.prevMonthShort} (บาท)</th>
+                                    <th className="py-4 px-4 font-black text-xs text-slate-400 text-right uppercase">ยอดเงินทั้งหมด (บาท)</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {monthlySummaryData.reportData
+                                    .filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                                    .map((row, index) => (
+                                        <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
+                                            <td className="py-4 px-4 font-bold text-slate-500 text-center text-sm">{index + 1}</td>
+                                            <td className="py-4 px-4 font-black text-slate-800 text-sm">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 rounded-full bg-pink-50 text-pink-600 flex items-center justify-center font-black text-xs">
+                                                        {row.name[0]}
+                                                    </div>
+                                                    <span>{row.name}</span>
+                                                </div>
+                                            </td>
+                                            <td className="py-4 px-4 font-bold text-slate-500 text-center text-sm">{row.currentClass}</td>
+                                            <td className="py-4 px-4 font-black text-emerald-600 text-right text-sm">
+                                                {row.monthSavings > 0 ? `฿${row.monthSavings.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : row.monthSavings < 0 ? `-฿${Math.abs(row.monthSavings).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '฿0.00'}
+                                            </td>
+                                            <td className="py-4 px-4 font-bold text-slate-600 text-right text-sm">
+                                                ฿{row.previousBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                            </td>
+                                            <td className="py-4 px-4 font-black text-slate-800 text-right text-sm">
+                                                ฿{row.totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                {monthlySummaryData.reportData.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
+                                    <tr>
+                                        <td colSpan={6} className="py-12 text-center text-slate-400 font-bold text-sm">ไม่พบข้อมูลสรุปออมทรัพย์รายเดือนสำหรับเงื่อนไขนี้</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                            <tfoot>
+                                <tr className="bg-slate-50/50 font-black border-t border-slate-100">
+                                    <td colSpan={3} className="py-5 px-4 text-center text-slate-700 text-sm">รวมทั้งสิ้น</td>
+                                    <td className="py-5 px-4 text-right text-emerald-600 text-sm">฿{monthlySummaryData.totalMonthSavings.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                    <td className="py-5 px-4 text-right text-slate-700 text-sm">฿{monthlySummaryData.totalPreviousBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                    <td className="py-5 px-4 text-right text-slate-900 text-sm">฿{monthlySummaryData.totalBalanceAll.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <AnimatePresence mode="popLayout">
+                        {filteredStudents.map((student) => (
+                            <motion.div 
+                                layout
+                                initial={{ opacity: 0, scale: 0.9 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.9 }}
+                                key={student.id}
+                                className={`p-6 rounded-[2.5rem] shadow-sm border transition-all group relative overflow-hidden ${isSelectionMode && selectedIds.has(student.id) ? 'bg-pink-50 border-pink-500 ring-2 ring-pink-200' : 'bg-white border-slate-100 hover:shadow-xl hover:bg-gradient-to-br hover:from-white hover:to-slate-50'}`}
+                            >
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-pink-500/5 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700 pointer-events-none"></div>
+                                {isSelectionMode && (
                                     <div 
-                                        className="cursor-pointer"
-                                        onClick={() => {
-                                            setSelectedStudent(student);
-                                            setIsDetailViewOpen(true);
+                                        className="absolute top-4 right-4 z-10"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleSelectStudent(student.id);
                                         }}
                                     >
-                                        <h3 className="font-black text-slate-800 group-hover:text-pink-600 transition-colors">{student.name}</h3>
-                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{student.currentClass}</p>
+                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedIds.has(student.id) ? 'bg-pink-600 border-pink-600 text-white' : 'bg-white border-slate-300'}`}>
+                                            {selectedIds.has(student.id) && <CheckCircle2 size={14} />}
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="flex flex-col items-end relative z-10">
-                                    <div className="flex items-center gap-1">
-                                        <button 
-                                            onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                printIndividualReport(student);
+                                )}
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-pink-50 text-pink-600 flex items-center justify-center font-black text-xl">
+                                            {student.name[0]}
+                                        </div>
+                                        <div 
+                                            className="cursor-pointer"
+                                            onClick={() => {
+                                                setSelectedStudent(student);
+                                                setIsDetailViewOpen(true);
                                             }}
-                                            className="p-2 text-slate-400 hover:text-pink-600 hover:bg-pink-50 rounded-xl transition-all"
-                                            title="พิมพ์รายงานรายบุคคล"
                                         >
-                                            <Printer size={18} />
-                                        </button>
+                                            <h3 className="font-black text-slate-800 group-hover:text-pink-600 transition-colors">{student.name}</h3>
+                                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{student.currentClass}</p>
+                                        </div>
                                     </div>
-                                    <div className="text-right mt-1">
-                                        <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">ยอดออมสะสม</p>
-                                        <p className="text-xl font-black text-slate-800">฿{student.totalSavings?.toLocaleString()}</p>
+                                    <div className="flex flex-col items-end relative z-10">
+                                        <div className="flex items-center gap-1">
+                                            <button 
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    printIndividualReport(student);
+                                                }}
+                                                className="p-2 text-slate-400 hover:text-pink-600 hover:bg-pink-50 rounded-xl transition-all"
+                                                title="พิมพ์รายงานรายบุคคล"
+                                            >
+                                                <Printer size={18} />
+                                            </button>
+                                        </div>
+                                        <div className="text-right mt-1">
+                                            <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">ยอดออมสะสม</p>
+                                            <p className="text-xl font-black text-slate-800">฿{student.totalSavings?.toLocaleString()}</p>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-3">
-                                <button 
-                                    onClick={() => {
-                                        setSelectedStudent(student);
-                                        setTransactionType('DEPOSIT');
-                                        setTransactionDate(new Date().toISOString().split('T')[0]);
-                                        setIsTransactionOpen(true);
-                                    }}
-                                    className="flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 py-3 rounded-2xl font-bold text-sm transition-all"
-                                >
-                                    <ArrowUpRight size={16} />
-                                    ฝากเงิน
-                                </button>
-                                <button 
-                                    onClick={() => {
-                                        setSelectedStudent(student);
-                                        setTransactionType('WITHDRAWAL');
-                                        setTransactionDate(new Date().toISOString().split('T')[0]);
-                                        setIsTransactionOpen(true);
-                                    }}
-                                    className="flex items-center justify-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-600 py-3 rounded-2xl font-bold text-sm transition-all"
-                                >
-                                    <ArrowDownRight size={16} />
-                                    ถอนเงิน
-                                </button>
-                            </div>
-                        </motion.div>
-                    ))}
-                </AnimatePresence>
-            </div>
+                                
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button 
+                                        onClick={() => {
+                                            setSelectedStudent(student);
+                                            setTransactionType('DEPOSIT');
+                                            setTransactionDate(new Date().toISOString().split('T')[0]);
+                                            setIsTransactionOpen(true);
+                                        }}
+                                        className="flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 py-3 rounded-2xl font-bold text-sm transition-all"
+                                    >
+                                        <ArrowUpRight size={16} />
+                                        ฝากเงิน
+                                    </button>
+                                    <button 
+                                        onClick={() => {
+                                            setSelectedStudent(student);
+                                            setTransactionType('WITHDRAWAL');
+                                            setTransactionDate(new Date().toISOString().split('T')[0]);
+                                            setIsTransactionOpen(true);
+                                        }}
+                                        className="flex items-center justify-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-600 py-3 rounded-2xl font-bold text-sm transition-all"
+                                    >
+                                        <ArrowDownRight size={16} />
+                                        ถอนเงิน
+                                    </button>
+                                </div>
+                            </motion.div>
+                        ))}
+                    </AnimatePresence>
+                </div>
+            )}
 
             {/* Student List */}
             {/* Transaction Modal */}
@@ -1583,7 +1809,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                                 </div>
                                 <div className="text-left">
                                     <p className="font-black text-slate-800">รายงานสรุปการออมทรัพย์นักเรียนรายเดือน</p>
-                                    <p className="text-xs font-bold text-slate-400">แสดงรายชื่อทั้งหมด 3 คอลัมน์: ยอดประจำเดือน, ยอดเดือนล่าสุด, ผลรวมทั้งหมด</p>
+                                    <p className="text-xs font-bold text-slate-400">แสดงรายชื่อทั้งหมด 3 คอลัมน์: ยอดออม (เดือนที่เลือก), ยอดสะสม (เดือนก่อนหน้า), ยอดเงินทั้งหมด</p>
                                 </div>
                             </button>
 
