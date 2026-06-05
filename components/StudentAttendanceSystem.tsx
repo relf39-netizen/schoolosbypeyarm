@@ -15,6 +15,7 @@ import { supabase } from '../supabaseClient';
 import { Teacher, Student, StudentAttendance, StudentAttendanceStatus, ClassRoom, AcademicYear, StudentHealthRecord } from '../types';
 import { getDirectDriveUrl } from '../utils/drive';
 import { motion, AnimatePresence } from 'framer-motion';
+import { TeacherDutySystem } from './TeacherDutySystem';
 import { 
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
 } from 'recharts';
@@ -3149,6 +3150,15 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             </AnimatePresence>
 
             {viewMode === 'DUTY_REPORT' && (
+                <TeacherDutySystem 
+                    currentUser={currentUser}
+                    schoolConfig={schoolConfig}
+                    directorName={directorName}
+                    onBack={() => setViewMode('DASHBOARD')}
+                />
+            )}
+
+            {(viewMode as string) === 'OLD_DUTY_REPORT_REDUN' && (
                 <div className="space-y-6 animate-fade-in print:m-0 print:p-0">
                     {/* Header bar */}
                     <div className="flex justify-between items-center print:hidden">
@@ -3182,312 +3192,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
                     {/* Sub View Toggle */}
                     {activeDutyTab === 'LIST' ? (
-                        <div className="bg-white p-6 sm:p-8 rounded-[2.5rem] shadow-sm border border-slate-100 animate-fade-in">
-                            {/* Title & View Format Toggles */}
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5 mb-6">
-                                <h4 className="font-black text-slate-700 text-md flex items-center gap-2">
-                                    <FileText size={20} className="text-rose-500" /> ประวัติการบันทึกรายงานเวรทั้งหมดของโรงเรียน
-                                </h4>
-                                
-                                {/* View Toggle Buttons as an elegant pill switch */}
-                                <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-150 inline-flex self-start md:self-auto">
-                                    <button
-                                        onClick={() => setDutyViewType('ROW')}
-                                        className={`px-4 py-1.5 rounded-xl font-black text-xs transition-all flex items-center gap-1.5 cursor-pointer ${
-                                            dutyViewType === 'ROW'
-                                                ? 'bg-white text-slate-800 shadow-sm'
-                                                : 'text-slate-400 hover:text-slate-600'
-                                        }`}
-                                    >
-                                        <Filter size={12} /> แสดงแบบแถวเดี่ยว
-                                    </button>
-                                    <button
-                                        onClick={() => setDutyViewType('CARD')}
-                                        className={`px-4 py-1.5 rounded-xl font-black text-xs transition-all flex items-center gap-1.5 cursor-pointer ${
-                                            dutyViewType === 'CARD'
-                                                ? 'bg-white text-slate-800 shadow-sm'
-                                                : 'text-slate-400 hover:text-slate-600'
-                                        }`}
-                                    >
-                                        <BarChart3 size={12} /> แสดงแบบ 5 การ์ด
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Search, Filter Area */}
-                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 mb-6 bg-slate-50 p-4 rounded-3xl border border-slate-150">
-                                <div className="sm:col-span-7 relative">
-                                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                                    <input
-                                        type="text"
-                                        placeholder="ค้นหาชื่อครู, หรือรายละเอียดในรายงาน..."
-                                        value={dutySearchQuery}
-                                        onChange={(e) => {
-                                            setDutySearchQuery(e.target.value);
-                                            setDutyPage(1); // reset to page 1 on search
-                                        }}
-                                        className="w-full bg-white pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 focus:border-rose-500 focus:ring-rose-500 text-slate-700 text-xs font-semibold placeholder-slate-400"
-                                    />
-                                </div>
-                                <div className="sm:col-span-5 relative flex gap-2">
-                                    <div className="relative flex-1">
-                                        <Filter className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
-                                        <select
-                                            value={dutyMonthFilter}
-                                            onChange={(e) => {
-                                                setDutyMonthFilter(e.target.value);
-                                                setDutyPage(1); // reset to page 1 on filter
-                                            }}
-                                            className="w-full bg-white pl-10 pr-8 py-2.5 rounded-2xl border border-slate-200 focus:border-rose-500 focus:ring-rose-500 text-slate-700 text-xs font-black appearance-none cursor-pointer text-ellipsis overflow-hidden"
-                                        >
-                                            <option value="ALL">🗓️ ทุกสัปดาห์ / ทุกเดือน</option>
-                                            {dutyMonthOptions.map(ym => (
-                                                <option key={ym} value={ym}>
-                                                    📅 {formatMonthYearToThai(ym)}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    {(dutySearchQuery || dutyMonthFilter !== 'ALL') && (
-                                        <button
-                                            onClick={() => {
-                                                setDutySearchQuery('');
-                                                setDutyMonthFilter('ALL');
-                                                setDutyPage(1);
-                                            }}
-                                            className="px-3 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-700 rounded-2xl border border-slate-200 text-xs font-bold transition-all cursor-pointer flex items-center justify-center"
-                                            title="ล้างตัวกรอง"
-                                        >
-                                            ล้าง
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-
-                            {loadingDutyList ? (
-                                <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-                                    <Loader className="animate-spin mb-4 text-rose-550" size={32} />
-                                    <p className="font-black text-sm">กำลังสรุปตรวจสอบรายการรายงานเวร...</p>
-                                </div>
-                            ) : dutyReports.length === 0 ? (
-                                <div className="text-center py-16 bg-slate-50 rounded-[2rem] border border-dashed border-slate-200">
-                                    <Shield size={48} className="mx-auto text-slate-300 mb-3" />
-                                    <p className="font-black text-slate-600 text-base">ยังตรวจสอบไม่พบบันทึกการรายงานเวรใดๆ</p>
-                                    <p className="text-slate-400 text-xs mt-1">กรุณากดปุ่มเพิ่มเพื่อเริ่มสร้างบันทึกข้อความราชการรายงานเวรการดูแลความเรียบร้อย</p>
-                                </div>
-                            ) : filteredDutyReports.length === 0 ? (
-                                <div className="text-center py-12 bg-slate-50 rounded-[2rem] border border-dashed border-slate-200">
-                                    <Search size={36} className="mx-auto text-slate-300 mb-2" />
-                                    <p className="font-black text-slate-500 text-sm">ไม่พบบันทึกที่ตรงกับเงื่อนไขการค้นหา/ตัวกรองรูปภาพ</p>
-                                    <p className="text-slate-450 text-[10px] mt-1">ทดลองพิมพ์คำสำคัญอื่น หรือเปลี่ยนรอบเดือนตัวเลือกด้านบน</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-6">
-                                    {/* Layout Option 1: ROW layout (แบบรายละเอียดแถวเดี่ยวประหยัดหน้าจอสูงสุด) */}
-                                    {dutyViewType === 'ROW' ? (
-                                        <div className="overflow-x-auto rounded-[1.5rem] border border-slate-150">
-                                            <table className="w-full text-left border-collapse bg-white">
-                                                <thead>
-                                                    <tr className="bg-slate-50 border-b border-slate-150 text-[11px] font-black uppercase text-slate-500 tracking-wider">
-                                                        <th className="py-3 px-4">วันที่ / เลขที่</th>
-                                                        <th className="py-3 px-4">ครูเวรผู้รายงาน</th>
-                                                        <th className="py-3 px-4">สรุปปฏิบัติเวรประจำวัน</th>
-                                                        <th className="py-3 px-4 text-center">ภาพถ่ายแนบ</th>
-                                                        <th className="py-3 px-4 text-right">จัดการข้อมูล</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-100 text-slate-700">
-                                                    {paginatedDutyReports.map((report) => (
-                                                        <tr key={report.id} className="hover:bg-slate-50 transition-colors group">
-                                                            <td className="py-3 px-4">
-                                                                <span className="font-extrabold text-slate-800 text-xs block whitespace-nowrap">
-                                                                    {formatToThaiDate(report.date)}
-                                                                </span>
-                                                                <span className="text-[9.5px] bg-rose-50 text-rose-700 border border-rose-100 px-1.5 py-0.5 rounded font-black inline-block mt-0.5">
-                                                                    ที่ {getDutyReportNumberText(report.date, report.id)}
-                                                                </span>
-                                                            </td>
-                                                            <td className="py-3 px-4 font-extrabold text-slate-700 text-xs">
-                                                                {report.teacherName}
-                                                            </td>
-                                                            <td className="py-3 px-4 max-w-sm">
-                                                                <div className="text-[11px] text-slate-500 line-clamp-1 mb-0.5">
-                                                                    <span className="font-extrabold text-slate-600">เช้า:</span> {report.morningReport || 'ไม่มีส่วนใดประเมินเพิ่มเติม'}
-                                                                </div>
-                                                                <div className="text-[11px] text-slate-500 line-clamp-1">
-                                                                    <span className="font-extrabold text-slate-600">กลางวัน/เย็น:</span> {report.afternoonReport || 'ไม่มีส่วนใดประเมินเพิ่มเติม'}
-                                                                </div>
-                                                            </td>
-                                                            <td className="py-3 px-4 text-center">
-                                                                <div className="flex items-center justify-center gap-1">
-                                                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center font-black text-[9px] border cursor-help ${report.pic1Url ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-100 text-slate-350 border-slate-150'}`} title={report.pic1Url ? "มีภาพบริเวณแรกช่วงเช้าครบถ้วน" : "ไม่มีภาพแนบช่วงเช้า"}>1</span>
-                                                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center font-black text-[9px] border cursor-help ${report.pic2Url ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-100 text-slate-350 border-slate-150'}`} title={report.pic2Url ? "มีภาพกิจกรรมหน้าเสาธง" : "ไม่มีภาพแนบหน้าเสาธง"}>2</span>
-                                                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center font-black text-[9px] border cursor-help ${report.pic3Url ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-100 text-slate-350 border-slate-150'}`} title={report.pic3Url ? "มีภาพรับประทานอาหารกลางวัน" : "ไม่มีภาพแนบอาหารกลางวัน"}>3</span>
-                                                                    <span className={`w-5 h-5 rounded-full flex items-center justify-center font-black text-[9px] border cursor-help ${report.pic4Url ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-100 text-slate-350 border-slate-150'}`} title={report.pic4Url ? "มีภาพความปลอดภัยและการส่งกลับ" : "ไม่มีภาพส่งกลับบ้าน"}>4</span>
-                                                                </div>
-                                                            </td>
-                                                            <td className="py-3 px-4 text-right">
-                                                                <div className="flex items-center justify-end gap-1.5">
-                                                                    <button 
-                                                                        onClick={() => {
-                                                                            setSelectedDutyReport(report);
-                                                                            fetchFullSchoolStatsForDate(report.date).then(stats => {
-                                                                                setActiveDutyStats(stats);
-                                                                            });
-                                                                        }}
-                                                                        className="p-1 px-2.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 rounded-xl transition-all font-black text-[10px] flex items-center gap-1 cursor-pointer"
-                                                                        title="ตรวจสอบรายงานตราครุฑ"
-                                                                    >
-                                                                        <Eye size={11} /> ตรวจสอบ
-                                                                    </button>
-                                                                    <button 
-                                                                        onClick={() => {
-                                                                            handleDutyDateChange(report.date);
-                                                                            setActiveDutyTab('FORM');
-                                                                        }}
-                                                                        className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-all cursor-pointer"
-                                                                        title="แก้ไขข้อมูลฉบับนี้"
-                                                                    >
-                                                                        <Edit size={12} />
-                                                                    </button>
-                                                                    {(isAdmin || isDirector) && (
-                                                                        <button 
-                                                                            onClick={() => deleteDutyReport(report.id)}
-                                                                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-500 hover:text-rose-700 rounded-lg transition-all cursor-pointer"
-                                                                            title="ลบรายงานฉบับนี้"
-                                                                        >
-                                                                            <Trash2 size={12} />
-                                                                        </button>
-                                                                    )}
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    ) : (
-                                        /* Layout Option 2: CARD layout (แสดงผลแบบ 5 วาระการ์ดสวยงาม) */
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                            {paginatedDutyReports.map((report) => (
-                                                <div key={report.id} className="bg-slate-50 hover:bg-white rounded-3xl p-5 border border-slate-100 shadow-sm hover:shadow-lg transition-all relative overflow-hidden flex flex-col justify-between group">
-                                                    <div>
-                                                        <div className="flex justify-between items-start mb-3">
-                                                            <span className="px-3.5 py-1 bg-rose-50 text-rose-700 border border-rose-100 rounded-full text-[11px] font-black">
-                                                                {formatToThaiDate(report.date)}
-                                                            </span>
-                                                            <div className="flex items-center gap-1.5">
-                                                                <span className="text-[10px] text-rose-700 font-extrabold bg-rose-50 border border-rose-100 px-2 py-0.5 rounded-lg">
-                                                                    ที่ {getDutyReportNumberText(report.date, report.id)}
-                                                                </span>
-                                                                {report.pdfUrl && (
-                                                                    <a 
-                                                                        href={report.pdfUrl} 
-                                                                        target="_blank" 
-                                                                        rel="noopener noreferrer"
-                                                                        className="p-1.5 bg-indigo-50 border border-indigo-100 rounded-lg text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
-                                                                        title="เปิด PDF ใน Google Drive"
-                                                                    >
-                                                                        <Download size={12} />
-                                                                    </a>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                        <p className="font-black text-slate-800 text-sm mb-1 mt-2">ผู้ส่งงาน: {report.teacherName}</p>
-                                                        <p className="text-slate-500 text-xs line-clamp-2 mb-3">
-                                                            <span className="font-bold text-slate-600 underline">ช่วงเช้า:</span> {report.morningReport || 'ไม่มีส่วนใดประเมินเพิ่มเติม'}
-                                                        </p>
-                                                        <p className="text-slate-500 text-xs line-clamp-2 mb-4">
-                                                            <span className="font-bold text-slate-600 underline">ช่วงบ่าย:</span> {report.afternoonReport || 'ไม่มีส่วนใดประเมินเพิ่มเติม'}
-                                                        </p>
-
-                                                        {/* Previews attached indicators */}
-                                                        <div className="flex gap-1.5 pt-3 border-t border-slate-100">
-                                                            {report.pic1Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปหน้าโรงเรียนช่วงเช้า">1</span>}
-                                                            {report.pic2Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปกิจกรรมหน้าเสาธง">2</span>}
-                                                            {report.pic3Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปอาหารกลางวันของนักเรียน">3</span>}
-                                                            {report.pic4Url && <span className="w-5 h-5 bg-emerald-50 rounded-full flex items-center justify-center font-black text-[9px] text-emerald-700 border border-emerald-100 cursor-help" title="มีรูปการดูแลความปลอดภัยหลังเลิกเรียน">4</span>}
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="mt-5 pt-4 border-t border-slate-100 flex gap-2">
-                                                        <button 
-                                                            onClick={() => {
-                                                                    setSelectedDutyReport(report);
-                                                                    fetchFullSchoolStatsForDate(report.date).then(stats => {
-                                                                        setActiveDutyStats(stats);
-                                                                    });
-                                                            }}
-                                                            className="flex-1 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                                                        >
-                                                            <Eye size={12} /> ตรวจสอบรายงาน
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => {
-                                                                handleDutyDateChange(report.date);
-                                                                setActiveDutyTab('FORM');
-                                                            }}
-                                                            className="py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-xs transition-all flex items-center justify-center cursor-pointer"
-                                                            title="แก้ไขข้อมูลฉบับนี้"
-                                                        >
-                                                            <Edit size={12} />
-                                                        </button>
-                                                        {(isAdmin || isDirector) && (
-                                                            <button 
-                                                                onClick={() => deleteDutyReport(report.id)}
-                                                                className="py-1.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold text-xs transition-all flex items-center justify-center cursor-pointer"
-                                                                title="ลบรายงานฉบับนี้"
-                                                            >
-                                                                <Trash2 size={12} />
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* Cool Pagination Bar */}
-                                    <div className="flex flex-col sm:flex-row justify-between items-center pt-5 mt-4 border-t border-slate-100 gap-4">
-                                        <div className="text-xs font-bold text-slate-400">
-                                            แสดงผลลัพธ์ที่ <span className="text-slate-700 font-extrabold">{((dutyPage - 1) * 5) + 1}</span> - <span className="text-slate-700 font-extrabold">{Math.min(dutyPage * 5, filteredDutyReports.length)}</span> จากทั้งหมด <span className="text-slate-700 font-extrabold">{filteredDutyReports.length}</span> รายการ
-                                        </div>
-                                        
-                                        <div className="flex items-center gap-1">
-                                            <button
-                                                onClick={() => setDutyPage(prev => Math.max(prev - 1, 1))}
-                                                disabled={dutyPage === 1}
-                                                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-205 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 rounded-xl font-bold text-[11px] transition-all cursor-pointer"
-                                            >
-                                                ก่อนหน้า
-                                            </button>
-                                            
-                                            {Array.from({ length: totalDutyPages }, (_, index) => index + 1).map((pageNum) => (
-                                                <button
-                                                    key={pageNum}
-                                                    onClick={() => setDutyPage(pageNum)}
-                                                    className={`w-8 h-8 rounded-xl font-black text-xs transition-all flex items-center justify-center cursor-pointer ${
-                                                        dutyPage === pageNum 
-                                                            ? 'bg-rose-600 text-white shadow-md shadow-rose-100' 
-                                                            : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-150'
-                                                    }`}
-                                                >
-                                                    {pageNum}
-                                                </button>
-                                            ))}
-                                            
-                                            <button
-                                                onClick={() => setDutyPage(prev => Math.min(prev + 1, totalDutyPages))}
-                                                disabled={dutyPage === totalDutyPages}
-                                                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-205 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 rounded-xl font-bold text-[11px] transition-all cursor-pointer"
-                                            >
-                                                ถัดไป
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                        null
                     ) : (
                         /* Compose / Edit Duty Report Form */
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -3905,7 +3610,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
             {/* Duty Report Detail Modal (Officially formatted memorandum card view) */}
             <AnimatePresence>
-                {selectedDutyReport && (
+                {selectedDutyReport && (viewMode as string) === 'OLD_DUTY_REPORT_REDUN' && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto print:p-0 print:bg-white">
                         <motion.div 
                             initial={{ opacity: 0, scale: 0.95 }}
