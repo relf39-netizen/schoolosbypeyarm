@@ -643,7 +643,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                         max-height: 80vh;
                         overflow-y: auto;
                     }
-                    #print-content-area {
+                    #print-content-area, .print-only-area {
                         display: none !important;
                     }
                 }
@@ -664,6 +664,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                         -webkit-print-color-adjust: exact !important;
                         print-color-adjust: exact !important;
                         overflow: visible !important;
+                        visibility: hidden !important;
                     }
 
                     /* Disable scrolling and overlay frames */
@@ -676,21 +677,10 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                         display: block !important;
                     }
 
-                    /* Hide all web components except print area */
-                    body > *:not(#print-content-area),
-                    #root > *:not(#print-content-area),
-                    .print\\:hidden,
-                    button,
-                    nav,
-                    header,
-                    footer,
-                    .no-print {
-                        display: none !important;
-                    }
-
-                    /* Ensure print content container is direct-rendered block */
-                    #print-content-area {
+                    /* Ensure print content container is direct-rendered block and visible */
+                    #print-content-area, .print-only-area {
                         display: block !important;
+                        visibility: visible !important;
                         position: absolute !important;
                         left: 0 !important;
                         top: 0 !important;
@@ -698,6 +688,20 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                         margin: 0 !important;
                         padding: 0 !important;
                         background: white !important;
+                    }
+
+                    #print-content-area *, .print-only-area * {
+                        visibility: visible !important;
+                    }
+
+                    /* Hide all web components except print area */
+                    .print\\:hidden,
+                    button,
+                    nav,
+                    header,
+                    footer,
+                    .no-print {
+                        display: none !important;
                     }
 
                     /* Print layout with exact standard margins */
@@ -1525,7 +1529,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
 
             {/* Print Area - EXCELLENT PERFECT A4 FORMAT VISIBLE ONLY WHEN window.print() RUNS */}
             {selectedDutyReport && (
-                <div id="print-content-area" className="hidden">
+                <div id="print-content-area" className="print-only-area">
                     {/* PAGE 1: Garuda, Administrative details, Section 1 table and Section 2 descriptions */}
                     <div className="print-page-layout">
                         <div>
