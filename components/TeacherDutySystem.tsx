@@ -731,7 +731,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                     /* Print layout with exact standard margins */
                     .print-page-layout {
                         width: 210mm !important;
-                        height: 297mm !important;
+                        height: 295mm !important;
                         page-break-after: always !important;
                         page-break-inside: avoid !important;
                         break-after: page !important;
@@ -743,7 +743,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                         position: relative !important;
                         display: flex !important;
                         flex-direction: column !important;
-                        justify-content: space-between !important;
+                        justify-content: flex-start !important;
                         overflow: hidden !important;
                     }
 
@@ -1700,19 +1700,23 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                             <p className="font-extrabold text-[15px] font-sarabun text-black text-center mt-6 mb-6">จึงเรียนมาเพื่อโปรดทราบและพิจารณา</p>
                         </div>
 
-                        {/* Sign-offs layout exactly A4 fitted at footer */}
-                        <div className="grid grid-cols-2 gap-12 text-center text-[14px] font-sarabun text-black mt-auto pb-4" style={{ fontSize: '15px' }}>
-                            <div className="flex flex-col items-center justify-end">
-                                <p className="mb-14 font-bold text-black" style={{ marginBottom: '55px' }}>ลงชื่อครูเวรประจำวัน</p>
-                                <p className="mb-1 font-medium text-black">ลงชื่อ............................................................ผู้รายงาน</p>
-                                <p className="font-bold text-black">( {selectedDutyReport.teacherName} )</p>
-                                <p className="text-[12px] text-slate-650" style={{ fontSize: '13px' }}>ครูเวรประจำวัน</p>
-                            </div>
-                            <div className="flex flex-col items-center justify-end">
-                                <p className="mb-14 font-bold text-black" style={{ marginBottom: '55px' }}>รับทราบ</p>
-                                <p className="mb-1 font-medium text-black">ลงชื่อ............................................................ผู้อนุมัติ</p>
-                                <p className="font-bold text-black">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
-                                <p className="text-[12px] text-slate-650" style={{ fontSize: '13px' }}>ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................'}</p>
+                        {/* Stacking sign-off blocks vertically on the right half with excellent spacing */}
+                        <div className="flex flex-col items-end w-full pr-12 pb-4 font-sarabun text-black" style={{ fontSize: '15px' }}>
+                            <div className="flex flex-col space-y-8 w-[320px]">
+                                {/* 1. Teacher Sign-off */}
+                                <div className="text-center">
+                                    <p className="mb-10 text-black">ลงชื่อ............................................................ผู้รายงาน</p>
+                                    <p className="font-extrabold text-black">( {selectedDutyReport.teacherName} )</p>
+                                    <p className="text-[13px] text-slate-800">ตำแหน่ง {getTeacherPosition(selectedDutyReport)}</p>
+                                </div>
+                                
+                                {/* 2. Director Sign-off */}
+                                <div className="text-center pt-2">
+                                    <p className="text-[13px] font-bold text-left mb-2 pl-4">ความเห็น / ข้อสั่งการผู้อำนวยการ:</p>
+                                    <p className="mb-10 text-black">ลงชื่อ............................................................ผู้อนุมัติ/ผู้รับทราบ</p>
+                                    <p className="font-extrabold text-black">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
+                                    <p className="text-[13px] text-slate-800">ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................'}</p>
+                                </div>
                             </div>
                         </div>
                     </div>
