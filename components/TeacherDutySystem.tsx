@@ -733,9 +733,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                     .print-page-layout {
                         width: 210mm !important;
                         height: 270mm !important;
-                        page-break-after: always !important;
                         page-break-inside: avoid !important;
-                        break-after: page !important;
                         break-inside: avoid !important;
                         box-sizing: border-box !important;
                         padding: 15mm 20mm 15mm 25mm !important; /* Standard Thai official margins optimized for absolute page-overflow safety */
@@ -746,6 +744,16 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                         flex-direction: column !important;
                         justify-content: flex-start !important;
                         overflow: hidden !important;
+                    }
+
+                    /* Special page breaks: Only break after page 1, never after page 2 */
+                    .print-page-1 {
+                        page-break-after: always !important;
+                        break-after: page !important;
+                    }
+                    .print-page-2 {
+                        page-break-after: avoid !important;
+                        break-after: avoid !important;
                     }
 
                     /* Avoid trailing blank page */
@@ -1579,7 +1587,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
             {selectedDutyReport && (
                 <div id="print-content-area" className="print-only-area">
                     {/* PAGE 1: Garuda, Administrative details, Section 1 table and Section 2 descriptions */}
-                    <div className="print-page-layout">
+                    <div className="print-page-layout print-page-1">
                         <div>
                             {/* Garuda Image */}
                             <div className="flex justify-start mb-2">
@@ -1665,7 +1673,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                                     </table>
                                 </div>
 
-                                <p className="font-bold mt-5 mb-2">๒. คำอธิบายรายละเอียดความเรียบร้อยระดับปฏิบัติงาน:</p>
+                                <p className="font-bold mt-5 mb-2">๒. รายงานเหตุการณ์การปฏิบัติหน้าที่เวรประจำวัน ประจำวันที่ {formatToThaiDate(selectedDutyReport.date)}:</p>
                                 <div className="space-y-3.5 pl-4 leading-relaxed" style={{ textIndent: '1cm' }}>
                                     <p className="text-justify-all" style={{ textIndent: '1cm' }}>
                                         <span className="font-bold underline text-black">กิจกรรมเวรช่วงเช้า:</span> {selectedDutyReport.morningReport || 'ปฏิบัติหน้าที่คอยต้อนรับนักเรียนและตรวจระเบียบวินัยก่อนเดินทางเข้าแถวในช่วงเช้าตามปกติด้วยความเรียบร้อยและปลอดภัย อบรมแกนนำจิตอาสาคอยอำนวยความสะดวกการจราจรร่วมกับชุมชน'}
@@ -1679,47 +1687,51 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                     </div>
 
                     {/* PAGE 2: Section 3 Photos and sign-offs block with exact spacing */}
-                    <div className="print-page-layout">
+                    <div className="print-page-layout print-page-2">
                         <div>
-                            <p className="font-extrabold mb-4 font-sarabun text-black" style={{ fontSize: '15px' }}>๓. รูปภาพหลักฐานภาพถ่ายรายงานปฏิบัติการตรวจเวร:</p>
+                            <p className="font-extrabold mb-4 font-sarabun text-black" style={{ fontSize: '15px' }}>๓. รูปภาพประกอบการรายงานเวรประจำวันที่ {formatToThaiDate(selectedDutyReport.date)}:</p>
                             
                             <div className="grid grid-cols-2 gap-x-6 gap-y-4 mb-4 font-sarabun text-black">
                                 {selectedDutyReport.pic1Url ? (
                                     <div className="border border-black p-2 rounded bg-white flex flex-col items-center">
                                         <p className="text-[11px] font-bold text-center text-black mb-1.5 line-clamp-1 h-4">{selectedDutyReport.pic1Desc}</p>
-                                        <img src={getDirectDriveUrl(selectedDutyReport.pic1Url)} alt="ภาพช่วงเช้า" className="h-[145px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
+                                        <img src={getDirectDriveUrl(selectedDutyReport.pic1Url)} alt="ภาพช่วงเช้า" className="h-[170px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
                                     </div>
                                 ) : (
-                                    <div className="h-[160px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">ช่วงเช้าหน้าโรงเรียน (เว้นว่างรูปแนบ)</div>
+                                    <div className="h-[190px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">ช่วงเช้าหน้าโรงเรียน (เว้นว่างรูปแนบ)</div>
                                 )}
 
                                 {selectedDutyReport.pic2Url ? (
                                     <div className="border border-black p-2 rounded bg-white flex flex-col items-center">
                                         <p className="text-[11px] font-bold text-center text-black mb-1.5 line-clamp-1 h-4">{selectedDutyReport.pic2Desc}</p>
-                                        <img src={getDirectDriveUrl(selectedDutyReport.pic2Url)} alt="กิจกรรมเสาธง" className="h-[145px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
+                                        <img src={getDirectDriveUrl(selectedDutyReport.pic2Url)} alt="กิจกรรมเสาธง" className="h-[170px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
                                     </div>
                                 ) : (
-                                    <div className="h-[160px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">กิจกรรมเสาธง (เว้นว่างรูปแนบ)</div>
+                                    <div className="h-[190px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">กิจกรรมเสาธง (เว้นว่างรูปแนบ)</div>
                                 )}
 
                                 {selectedDutyReport.pic3Url ? (
                                     <div className="border border-black p-2 rounded bg-white flex flex-col items-center">
                                         <p className="text-[11px] font-bold text-center text-black mb-1.5 line-clamp-1 h-4">{selectedDutyReport.pic3Desc}</p>
-                                        <img src={getDirectDriveUrl(selectedDutyReport.pic3Url)} alt="ภาพอาหาร" className="h-[145px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
+                                        <img src={getDirectDriveUrl(selectedDutyReport.pic3Url)} alt="ภาพอาหาร" className="h-[170px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
                                     </div>
                                 ) : (
-                                    <div className="h-[160px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">ดูแลอาหารกลางวัน (เว้นว่างรูปแนบ)</div>
+                                    <div className="h-[190px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">ดูแลอาหารกลางวัน (เว้นว่างรูปแนบ)</div>
                                 )}
 
                                 {selectedDutyReport.pic4Url ? (
                                     <div className="border border-black p-2 rounded bg-white flex flex-col items-center">
                                         <p className="text-[11px] font-bold text-center text-black mb-1.5 line-clamp-1 h-4">{selectedDutyReport.pic4Desc}</p>
-                                        <img src={getDirectDriveUrl(selectedDutyReport.pic4Url)} alt="ภาพเดินทางกลับ" className="h-[145px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
+                                        <img src={getDirectDriveUrl(selectedDutyReport.pic4Url)} alt="ภาพเดินทางกลับ" className="h-[170px] w-full object-cover rounded border border-slate-300" referrerPolicy="no-referrer" />
                                     </div>
                                 ) : (
-                                    <div className="h-[160px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">ตอนเดินทางกลับเย็น (เว้นว่างรูปแนบ)</div>
+                                    <div className="h-[190px] border border-dashed border-black/80 bg-slate-50 flex items-center justify-center text-[11px] text-slate-500 italic rounded text-center">ตอนเดินทางกลับเย็น (เว้นว่างรูปแนบ)</div>
                                 )}
                             </div>
+
+                            <p className="text-justify font-sarabun text-black mt-6 mb-5" style={{ textIndent: '1cm', fontSize: '15px', lineHeight: '1.6' }}>
+                                ข้าพเจ้าได้ปฏิบัติหน้าที่เวรประจำวันตามที่ได้รับมอบหมายเป็นที่เรียบร้อยแล้ว จึงขอรายงานผลการปฏิบัติหน้าที่เวรประจำวัน
+                            </p>
 
                             <p className="font-extrabold text-[15px] font-sarabun text-black text-center mt-6 mb-6">จึงเรียนมาเพื่อโปรดทราบและพิจารณา</p>
                         </div>
@@ -1730,7 +1742,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                                 {/* 1. Teacher Sign-off */}
                                 <div className="flex flex-col items-start pl-16 relative">
                                     <div className="relative h-14 w-full">
-                                        <span className="absolute right-full mr-[-6px] bottom-1 text-black font-semibold">ลงชื่อ</span>
+                                        <span className="absolute right-full mr-0.5 bottom-1 text-black font-semibold">ลงชื่อ</span>
                                     </div>
                                     <p className="font-extrabold text-black">( {selectedDutyReport.teacherName} )</p>
                                     <p className="text-[13px] text-slate-800">ตำแหน่ง {getTeacherPosition(selectedDutyReport)}</p>
@@ -1740,7 +1752,7 @@ export const TeacherDutySystem: React.FC<TeacherDutySystemProps> = ({
                                 <div className="flex flex-col items-start pl-16 relative pt-2">
                                     <p className="text-[13px] font-bold text-left mb-2 pl-[-16px]">- รับทราบ</p>
                                     <div className="relative h-14 w-full">
-                                        <span className="absolute right-full mr-[-6px] bottom-1 text-black font-semibold">ลงชื่อ</span>
+                                        <span className="absolute right-full mr-0.5 bottom-1 text-black font-semibold">ลงชื่อ</span>
                                     </div>
                                     <p className="font-extrabold text-black">( {directorName || 'ผู้อำนวยการโรงเรียน'} )</p>
                                     <p className="text-[13px] text-slate-800">ผู้อำนวยการโรงเรียน{(schoolConfig?.school_name || '').replace(/^โรงเรียน/, '') || '................................'}</p>
