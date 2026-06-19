@@ -672,7 +672,8 @@ export const generateOfficialLeavePdf = async (options: LeavePdfOptions): Promis
     
     const drawCell = (text: string, x: number, y: number, w: number) => {
         page.drawRectangle({ x, y: y - rowH, width: w, height: rowH, borderColor: rgb(0,0,0), borderWidth: 0.5 });
-        page.drawText(text, { x: x + 5, y: y - rowH + 7, size: 12, font: thaiFont });
+        const textWidth = thaiFont.widthOfTextAtSize(text, 12);
+        page.drawText(text, { x: x + (w - textWidth) / 2, y: y - rowH + 7, size: 12, font: thaiFont });
     };
 
     let rowY = tableTop - 10;
@@ -697,7 +698,7 @@ export const generateOfficialLeavePdf = async (options: LeavePdfOptions): Promis
     });
 
     const dirX = width / 2 + 20;
-    const dirBoxH = 150;
+    const dirBoxH = 180;
     const dirY = tableTop - dirBoxH - 10;
     
     page.drawRectangle({ x: dirX, y: dirY, width: 230, height: dirBoxH, borderColor: rgb(0,0,0), borderWidth: 0.5 });
@@ -715,16 +716,16 @@ export const generateOfficialLeavePdf = async (options: LeavePdfOptions): Promis
             if (directorSignatureBase64.toLowerCase().includes('png')) dSigImg = await pdfDoc.embedPng(dSigBytes);
             else dSigImg = await pdfDoc.embedJpg(dSigBytes);
             const dDim = dSigImg.scaleToFit(90 * (options.directorSignatureScale || 1), 40);
-            page.drawImage(dSigImg, { x: dirX + 70, y: dirY + 40 + (options.directorSignatureYOffset || 0), width: dDim.width, height: dDim.height });
+            page.drawImage(dSigImg, { x: dirX + 70, y: dirY + 65 + (options.directorSignatureYOffset || 0), width: dDim.width, height: dDim.height });
         } catch (e) {}
     }
 
-    page.drawText(`(ลงชื่อ)...........................................................`, { x: dirX + 15, y: dirY + 35, size: 14, font: thaiFont });
-    page.drawText(`(${directorName})`, { x: dirX + 60, y: dirY + 15, size: 14, font: thaiFont });
+    page.drawText(`(ลงชื่อ)...........................................................`, { x: dirX + 15, y: dirY + 60, size: 14, font: thaiFont });
+    page.drawText(`(${directorName})`, { x: dirX + 60, y: dirY + 38, size: 14, font: thaiFont });
     
     const dPos = options.directorPosition || `ผู้อำนวยการ${schoolName}`;
     const dPosW = thaiFont.widthOfTextAtSize(dPos, 12);
-    page.drawText(dPos, { x: dirX + (230 - dPosW) / 2, y: dirY - 2, size: 12, font: thaiFont });
+    page.drawText(dPos, { x: dirX + (230 - dPosW) / 2, y: dirY + 18, size: 12, font: thaiFont });
 
     return await pdfDoc.saveAsBase64({ dataUri: true });
 };
