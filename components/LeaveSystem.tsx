@@ -206,6 +206,12 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
     const submitRequest = async () => {
         const client = supabase;
         if (!isSupabaseConfigured || !client) return;
+
+        if (!currentUser.signatureBase64) {
+            alert("กรุณาอัพโหลดลายเซ็นของท่านที่หน้า 'จัดการโปรไฟล์' ก่อนดำเนินการยื่นใบลา เพื่อให้เป็นไปตามระเบียบราชการ");
+            return;
+        }
+
         setIsSubmitting(true);
 
         const payload = {

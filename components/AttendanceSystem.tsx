@@ -598,6 +598,12 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
 
     const handleAttendanceAction = async (type: 'IN' | 'OUT') => {
         if (!supabase) return;
+
+        if (!currentUser.signatureBase64) {
+            alert("กรุณาอัพโหลดลายเซ็นของท่านที่หน้า 'จัดการโปรไฟล์' ก่อนลงชื่อปฏิบัติงาน เพื่อให้เป็นไปตามระเบียบราชการ");
+            return;
+        }
+
         setIsProcessing(true);
         setErrorMsg(null);
         try {
