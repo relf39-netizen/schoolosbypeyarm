@@ -397,7 +397,7 @@ function handleTelegramWebhook(msg) {
         var res = logToDatabase('profiles', 'update', { telegram_chat_id: chatId }, userId);
         
         if (res && res.status !== 'error' && TELEGRAM_TOKEN) {
-          sendMessage(TELEGRAM_TOKEN, chatId, "✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nบัญชีของท่านได้รับการผูกกับระบบโรงเรียนเรียบร้อยแล้ว ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาผ่านช่องทางนี้ครับ");
+          sendMessage(TELEGRAM_TOKEN, chatId, "✅ <b>เชื่อมต่อสำเร็จ!</b>\\n\\nบัญชีของท่านได้รับการผูกกับระบบโรงเรียนเรียบร้อยแล้ว ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาผ่านช่องทางนี้ครับ");
         }
       }
     }
