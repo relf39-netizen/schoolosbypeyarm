@@ -141,7 +141,20 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             const res = await fetch(`/api/school-db-config/${selectedSchoolId}/sync`, {
                 method: 'POST'
             });
-            const data = await res.json();
+            
+            let data: any;
+            const contentType = res.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+                data = await res.json();
+            } else {
+                const text = await res.text();
+                // Check if it's the offline or database failed state
+                if (text.includes("ECONNREFUSED") || text.includes("Database connection failed")) {
+                    throw new Error("ไม่สามารถเชื่อมต่อกับฐานข้อมูลส่วนกลางของระบบได้ (ECONNREFUSED) กรุณาตรวจสอบการตั้งค่าตัวแปรสภาพแวดล้อม MYSQL_HOST ในหน้าตั้งค่าของระบบ");
+                }
+                throw new Error(`เซิร์ฟเวอร์ส่งคืนข้อมูลรูปแบบไม่ถูกต้อง (สถานะ: ${res.status}). อาจมีข้อผิดพลาดในระบบหรือไม่มีสิทธิ์การเข้าถึงข้อมูล`);
+            }
+
             if (data.success) {
                 alert(data.message || "คัดลอกและประสานข้อมูลไปยังฐานข้อมูลใหม่สำเร็จแล้ว!");
                 setSyncMessage(data.message);
@@ -828,14 +841,26 @@ const MigrationTool: React.FC = () => {
                         if(!confirm("ยืนยันการปรับปรุงโครงสร้างฐานข้อมูล?")) return;
                         try {
                             const res = await fetch('/api/init-db', { method: 'POST' });
-                            const data = await res.json();
+                            
+                            let data: any;
+                            const contentType = res.headers.get("content-type");
+                            if (contentType && contentType.includes("application/json")) {
+                                data = await res.json();
+                            } else {
+                                const text = await res.text();
+                                if (text.includes("ECONNREFUSED") || text.includes("Database connection failed")) {
+                                    throw new Error("ไม่สามารถเชื่อมต่อกับฐานข้อมูลส่วนกลางของระบบได้ (ECONNREFUSED) กรุณาตรวจสอบการตั้งค่าตัวแปรสภาพแวดล้อม MYSQL_HOST");
+                                }
+                                throw new Error(`เซิร์ฟเวอร์ส่งคืนข้อมูลรูปแบบไม่ถูกต้อง (สถานะ: ${res.status})`);
+                            }
+
                             if(data.success) {
                                 alert(data.message);
                             } else {
                                 alert("เกิดข้อผิดพลาด: " + data.error);
                             }
-                        } catch (e) {
-                            alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้");
+                        } catch (err: any) {
+                            alert("ขัดข้อง: " + err.message);
                         }
                     }}
                     className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black text-sm shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 active:scale-95"

@@ -36,6 +36,12 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
         setIsAuthenticating(true);
 
         try {
+            // Check for hardcoded fallback Super Admin first (so we don't block login if central database is down)
+            if (loginUsername === 'admin' && loginPassword === 'schoolos') {
+                 onSuperAdminLogin();
+                 return;
+            }
+
             // 1. Check for Super Admin from Database (Async)
             const client = supabase;
             if (isSupabaseConfigured && client) {
@@ -47,18 +53,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
                     .maybeSingle();
 
                 if (superAdmin && !superError) {
-                    onSuperAdminLogin();
-                    return;
-                }
-                
-                // Fallback for legacy local development if needed
-                if (loginUsername === 'admin' && loginPassword === 'schoolos') {
-                     onSuperAdminLogin();
-                     return;
-                }
-            } else {
-                // If Supabase not configured, use hardcoded (Dev mode)
-                if (loginUsername === 'admin' && loginPassword === 'schoolos') {
                     onSuperAdminLogin();
                     return;
                 }

@@ -98,7 +98,12 @@ async function startServer() {
     // Only force central pool if targetPool is not explicitly passed
     if (!targetPool) {
       // Check if the query is targeting central-only tables
-      const centralTables = ['schools', 'super_admins', 'school_configs', 'school_database_configs', 'profiles'];
+      // If a school-specific tenant pool is active, 'profiles' (teachers) should be queried from that tenant pool.
+      // Otherwise (like during login before school context is established), query 'profiles' from central.
+      const centralTables = tenantStorage.getStore()
+        ? ['schools', 'super_admins', 'school_configs', 'school_database_configs']
+        : ['schools', 'super_admins', 'school_configs', 'school_database_configs', 'profiles'];
+      
       const isCentral = centralTables.some(table => {
         // 1. Check if the table name is in the SQL string
         const regex = new RegExp(`\\b${table}\\b`, 'i');
