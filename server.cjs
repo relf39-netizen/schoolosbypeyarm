@@ -55,6 +55,7 @@ async function startServer() {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
+    connectTimeout: 5000,
     dateStrings: true
   });
 
@@ -79,6 +80,7 @@ async function startServer() {
           waitForConnections: true,
           connectionLimit: 10,
           queueLimit: 0,
+          connectTimeout: 5000,
           dateStrings: true
         });
         schoolPools.set(schoolId, schoolPool);
@@ -852,7 +854,11 @@ async function startServer() {
       });
     } catch (err) {
       console.error(`[Multi-DB Sync] Error syncing data for school ${schoolId}:`, err);
-      res.status(500).json({ error: `เกิดข้อผิดพลาดในการซิงค์ข้อมูล: ${err.message}` });
+      let errMsg = err.message;
+      if (err.message.includes('ECONNREFUSED') || err.message.includes('Database connection failed') || err.message.includes('ENOTFOUND') || err.message.includes('ETIMEDOUT')) {
+        errMsg = `ไม่สามารถเชื่อมต่อกับฐานข้อมูลหลักส่วนกลางได้ (ECONNREFUSED/ETIMEDOUT) กรุณาตรวจสอบตัวแปรสภาพแวดล้อม MYSQL_HOST ในหน้าตั้งค่า หรือคุณไม่จำเป็นต้องกดเครื่องมือประสานข้อมูลนี้หากเปิดใช้งานโหมด Client-side Mock ออฟไลน์`;
+      }
+      res.status(500).json({ error: `เกิดข้อผิดพลาดในการซิงค์ข้อมูล: ${errMsg}` });
     }
   });
 

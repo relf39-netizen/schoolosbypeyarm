@@ -142,25 +142,25 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 method: 'POST'
             });
             
-            let data: any;
+            let data: any = {};
             const contentType = res.headers.get("content-type");
             if (contentType && contentType.includes("application/json")) {
                 data = await res.json();
             } else {
                 const text = await res.text();
-                // Check if it's the offline or database failed state
-                if (text.includes("ECONNREFUSED") || text.includes("Database connection failed")) {
-                    throw new Error("ไม่สามารถเชื่อมต่อกับฐานข้อมูลส่วนกลางของระบบได้ (ECONNREFUSED) กรุณาตรวจสอบการตั้งค่าตัวแปรสภาพแวดล้อม MYSQL_HOST ในหน้าตั้งค่าของระบบ");
+                if (text.includes("ECONNREFUSED") || text.includes("Database connection failed") || text.includes("ETIMEDOUT")) {
+                    throw new Error("ไม่สามารถเชื่อมต่อกับฐานข้อมูลส่วนกลางหลักได้ (ECONNREFUSED) กรุณาตั้งค่าตัวแปรสภาพแวดล้อม MYSQL_HOST ในระบบ หรือใช้งานโหมดจำลองออฟไลน์");
                 }
-                throw new Error(`เซิร์ฟเวอร์ส่งคืนข้อมูลรูปแบบไม่ถูกต้อง (สถานะ: ${res.status}). อาจมีข้อผิดพลาดในระบบหรือไม่มีสิทธิ์การเข้าถึงข้อมูล`);
+                throw new Error(`เซิร์ฟเวอร์ฐานข้อมูลยังไม่พร้อมใช้งาน (รหัสสถานะ: ${res.status}) หากคุณทดลองใช้งานในระบบจำลองออฟไลน์ คุณไม่จำเป็นต้องประสานข้อมูลส่วนกลาง`);
             }
 
-            if (data.success) {
+            if (res.ok && data.success) {
                 alert(data.message || "คัดลอกและประสานข้อมูลไปยังฐานข้อมูลใหม่สำเร็จแล้ว!");
                 setSyncMessage(data.message);
             } else {
-                alert(data.error || "เกิดข้อผิดพลาดในการคัดลอกข้อมูล");
-                setSyncMessage("เกิดข้อผิดพลาด: " + data.error);
+                const errorMsg = data.error || data.message || "เกิดข้อผิดพลาดในการประสานข้อมูลส่วนกลาง";
+                alert(errorMsg);
+                setSyncMessage("ขัดข้อง: " + errorMsg);
             }
         } catch (err: any) {
             alert("ขัดข้อง: " + err.message);

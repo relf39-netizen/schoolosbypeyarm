@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
+import { createClient } from '@supabase/supabase-js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +43,7 @@ async function startServer() {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
+    connectTimeout: 5000,
     dateStrings: true
   });
 
@@ -66,6 +68,7 @@ async function startServer() {
           waitForConnections: true,
           connectionLimit: 10,
           queueLimit: 0,
+          connectTimeout: 5000,
           dateStrings: true
         });
         schoolPools.set(schoolId, schoolPool);
@@ -791,7 +794,11 @@ async function startServer() {
       });
     } catch (err) {
       console.error(`[Multi-DB Sync] Error syncing data for school ${schoolId}:`, err);
-      res.status(500).json({ error: `เกิดข้อผิดพลาดในการซิงค์ข้อมูล: ${err.message}` });
+      let errMsg = err.message;
+      if (err.message.includes('ECONNREFUSED') || err.message.includes('Database connection failed') || err.message.includes('ENOTFOUND') || err.message.includes('ETIMEDOUT')) {
+        errMsg = `ไม่สามารถเชื่อมต่อกับฐานข้อมูลหลักส่วนกลางได้ (ECONNREFUSED/ETIMEDOUT) กรุณาตรวจสอบตัวแปรสภาพแวดล้อม MYSQL_HOST ในหน้าตั้งค่า หรือคุณไม่จำเป็นต้องกดเครื่องมือประสานข้อมูลนี้หากเปิดใช้งานโหมด Client-side Mock ออฟไลน์`;
+      }
+      res.status(500).json({ error: `เกิดข้อผิดพลาดในการซิงค์ข้อมูล: ${errMsg}` });
     }
   });
 
@@ -1022,6 +1029,162 @@ async function startServer() {
       
       res.json({ success: true, results });
     } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/migrate', async (req, res) => {
+    const { supabaseUrl, supabaseKey, tables } = req.body;
+    if (!supabaseUrl || !supabaseKey || !tables || !Array.isArray(tables)) {
+      return res.status(400).json({ error: 'Missing required migration parameters' });
+    }
+
+    const supabaseSource = createClient(supabaseUrl, supabaseKey);
+    const results = [];
+
+    try {
+      // Disable foreign key checks during migration
+      await query('SET FOREIGN_KEY_CHECKS = 0');
+
+      for (const table of tables) {
+        console.log(`Migrating table: ${table}`);
+        
+        // 1. Get target table columns and types from MySQL
+        let targetColumns = [];
+        let columnTypes = {};
+        try {
+          const columnsInfo = await query(`SHOW COLUMNS FROM ??`, [table]);
+          targetColumns = columnsInfo.map(c => c.Field);
+          columnsInfo.forEach(c => {
+            columnTypes[c.Field] = c.Type.toLowerCase();
+          });
+        } catch (colErr) {
+          results.push({ table, status: 'error', message: `ไม่พบตารางนี้ใน MySQL: ${colErr.message}` });
+          continue;
+        }
+
+        // 2. Fetch data from Supabase using pagination (Loop to handle > 1000 records)
+        let successCount = 0;
+        let failCount = 0;
+        let lastError = null;
+        let totalFetched = 0;
+        let hasMoreData = true;
+        let batchSize = 1000;
+        let columnMismatch = false;
+
+        while (hasMoreData) {
+          const { data, error } = await supabaseSource
+            .from(table)
+            .select('*')
+            .range(totalFetched, totalFetched + batchSize - 1);
+          
+          if (error) {
+            results.push({ table, status: 'error', message: `Supabase Error at rows ${totalFetched}-${totalFetched + batchSize}: ${error.message}` });
+            hasMoreData = false;
+            continue;
+          }
+
+          if (!data || data.length === 0) {
+            if (totalFetched === 0) {
+              results.push({ table, status: 'skipped', message: 'ไม่พบข้อมูลใน Supabase' });
+            }
+            hasMoreData = false;
+            continue;
+          }
+
+          for (const row of data) {
+            try {
+              // 3. Map Supabase row to MySQL columns (Case-insensitive matching)
+              const filteredRow = {};
+              const rowKeys = Object.keys(row);
+              
+              targetColumns.forEach(targetCol => {
+                const sourceKey = rowKeys.find(k => k.toLowerCase() === targetCol.toLowerCase());
+                if (sourceKey !== undefined) {
+                  let val = row[sourceKey];
+                  
+                  // Format Date/Time for MySQL
+                  const type = columnTypes[targetCol];
+                  if (val && (type.includes('datetime') || type.includes('timestamp') || type.includes('date'))) {
+                    try {
+                      const d = new Date(val);
+                      if (!isNaN(d.getTime())) {
+                        if (type.includes('date') && !type.includes('time')) {
+                          val = d.toISOString().split('T')[0];
+                        } else {
+                          val = d.toISOString().slice(0, 19).replace('T', ' ');
+                        }
+                      }
+                    } catch (e) {
+                      console.error(`Date conversion error for ${targetCol}:`, e);
+                    }
+                  }
+
+                  filteredRow[targetCol] = val;
+                }
+              });
+
+              const keys = Object.keys(filteredRow);
+              if (keys.length === 0) {
+                columnMismatch = true;
+                continue;
+              }
+
+              const values = keys.map(k => {
+                const val = filteredRow[k];
+                if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {
+                  return JSON.stringify(val);
+                }
+                return val;
+              });
+              
+              const placeholders = keys.map(() => '?').join(', ');
+              const updates = keys.map(k => `?? = ?`).join(', ');
+              const updateParams = keys.flatMap(k => {
+                const val = filteredRow[k];
+                return [k, Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val];
+              });
+
+              const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
+              await query(sql, [table, keys, ...values, ...updateParams]);
+              successCount++;
+            } catch (rowErr) {
+              failCount++;
+              lastError = rowErr.message;
+            }
+          }
+
+          totalFetched += data.length;
+          if (data.length < batchSize) {
+            hasMoreData = false;
+          } else {
+            // Optional: small delay to avoid hitting rate limits
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
+        
+        if (successCount > 0) {
+          results.push({ 
+            table, 
+            status: 'success', 
+            successCount, 
+            failCount, 
+            message: failCount > 0 ? `สำเร็จบางส่วน (Error: ${lastError})` : 'ย้ายข้อมูลสำเร็จ' 
+          });
+        } else {
+          const msg = columnMismatch ? 'ชื่อคอลัมน์ไม่ตรงกันเลย' : (lastError || 'ย้ายไม่สำเร็จ');
+          results.push({ table, status: 'failed', successCount: 0, failCount, message: msg });
+        }
+      }
+      
+      // Re-enable foreign key checks
+      await query('SET FOREIGN_KEY_CHECKS = 1');
+      
+      res.json({ success: true, results });
+    } catch (err) {
+      // Ensure checks are re-enabled even on error
+      await query('SET FOREIGN_KEY_CHECKS = 1').catch(() => {});
+      console.error('[Migration Error]', err);
       res.status(500).json({ error: err.message });
     }
   });
