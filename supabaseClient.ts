@@ -129,10 +129,50 @@ class SupabaseQueryBuilder {
     if (this.orderCol) queryParams.append('order', `${this.orderCol}.${this.orderDir}`);
     if (this.limitCount) queryParams.append('limit', this.limitCount.toString());
 
+    // Extract school ID for multi-database routing
+    let schoolId = '';
+    if (this.filters['school_id']) {
+      schoolId = String(this.filters['school_id']).replace(/^(eq|neq|gte|lte|gt|lt|in)\./, '');
+      if (schoolId.startsWith('(')) {
+        schoolId = schoolId.slice(1, -1).split(',')[0];
+      }
+    } else if (this.filters['schoolId']) {
+      schoolId = String(this.filters['schoolId']).replace(/^(eq|neq|gte|lte|gt|lt|in)\./, '');
+      if (schoolId.startsWith('(')) {
+        schoolId = schoolId.slice(1, -1).split(',')[0];
+      }
+    }
+
+    if (!schoolId && this.bodyData) {
+      if (Array.isArray(this.bodyData)) {
+        const first = this.bodyData[0];
+        if (first) {
+          schoolId = first.school_id || first.schoolId || '';
+        }
+      } else {
+        schoolId = this.bodyData.school_id || this.bodyData.schoolId || '';
+      }
+    }
+
+    if (!schoolId) {
+      try {
+        schoolId = localStorage.getItem('impersonated_school_id') || '';
+      } catch (e) {}
+    }
+
+    if (!schoolId) {
+      try {
+        schoolId = localStorage.getItem('school_id') || '';
+      } catch (e) {}
+    }
+
     try {
       const options: RequestInit = {
         method: this.method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-School-ID': schoolId
+        },
       };
 
       if (this.bodyData) {

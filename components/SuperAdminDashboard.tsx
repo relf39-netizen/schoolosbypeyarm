@@ -44,6 +44,89 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     const [selectedSchoolId, setSelectedSchoolId] = useState<string | null>(null);
     const [isUpdatingTeacher, setIsUpdatingTeacher] = useState<string | null>(null);
 
+    // Multi-Database Configuration State
+    const [dbConfig, setDbConfig] = useState({ host: '', port: '3306', user: '', password: '', database_name: '' });
+    const [isLoadingDbConfig, setIsLoadingDbConfig] = useState(false);
+    const [isTestingDbConfig, setIsTestingDbConfig] = useState(false);
+    const [hasDbConfig, setHasDbConfig] = useState(false);
+
+    useEffect(() => {
+        if (selectedSchoolId) {
+            const fetchDbConfig = async () => {
+                setIsLoadingDbConfig(true);
+                try {
+                    const res = await fetch(`/api/school-db-config/${selectedSchoolId}`);
+                    const data = await res.json();
+                    if (data) {
+                        setDbConfig({
+                            host: data.host,
+                            port: String(data.port || '3306'),
+                            user: data.user,
+                            password: '', // Keep password blank or hidden
+                            database_name: data.database_name
+                        });
+                        setHasDbConfig(true);
+                    } else {
+                        setDbConfig({ host: '', port: '3306', user: '', password: '', database_name: '' });
+                        setHasDbConfig(false);
+                    }
+                } catch (e) {
+                    console.error("Error fetching db config:", e);
+                } finally {
+                    setIsLoadingDbConfig(false);
+                }
+            };
+            fetchDbConfig();
+        }
+    }, [selectedSchoolId]);
+
+    const handleSaveDbConfig = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedSchoolId) return;
+        setIsTestingDbConfig(true);
+        try {
+            const res = await fetch(`/api/school-db-config/${selectedSchoolId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dbConfig)
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message || "ตั้งค่าและเชื่อมต่อฐานข้อมูลแยกเฉพาะสำเร็จ!");
+                setHasDbConfig(true);
+            } else {
+                alert(data.error || "เกิดข้อผิดพลาดในการเชื่อมต่อ");
+            }
+        } catch (err: any) {
+            alert("ไม่สามารถติดต่อเซิร์ฟเวอร์ได้: " + err.message);
+        } finally {
+            setIsTestingDbConfig(false);
+        }
+    };
+
+    const handleResetDbConfig = async () => {
+        if (!selectedSchoolId) return;
+        if (!confirm("คุณครูมั่นใจหรือไม่ว่าต้องการเปลี่ยนโรงเรียนนี้กลับไปใช้ฐานข้อมูลหลัก? การรีเซ็ตนี้จะเปลี่ยนการใช้ฐานข้อมูลให้มาเชื่อมต่อส่วนกลางทันที")) return;
+        setIsTestingDbConfig(true);
+        try {
+            const res = await fetch(`/api/school-db-config/${selectedSchoolId}`, {
+                method: 'DELETE'
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message || "เปลี่ยนกลับไปใช้ฐานข้อมูลหลักเรียบร้อยแล้ว");
+                setDbConfig({ host: '', port: '3306', user: '', password: '', database_name: '' });
+                setHasDbConfig(false);
+            } else {
+                alert(data.error || "ลบไม่สำเร็จ");
+            }
+        } catch (err: any) {
+            alert("ขัดข้อง: " + err.message);
+        } finally {
+            setIsTestingDbConfig(false);
+        }
+    };
+
     // Automated MySQL Database Initialization State
     const [dbAutoInitStatus, setDbAutoInitStatus] = useState<'pending' | 'success' | 'failed'>('pending');
     const [dbInitMessage, setDbInitMessage] = useState<string>('กำลังตรวจสอบและอัปเดตโครงสร้างฐานข้อมูล MySQL อัตโนมัติ...');
@@ -446,6 +529,135 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                                     </tbody>
                                 </table>
                             </div>
+                        </div>
+
+                        {/* Dedicated Database Connection Manager for school */}
+                        <div className="bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm mt-8 animate-fade-in">
+                            <div className="flex items-center gap-4 mb-6 pb-4 border-b border-slate-50">
+                                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
+                                    <Database size={24} />
+                                </div>
+                                <div className="text-left">
+                                    <h4 className="text-lg font-black text-slate-800">ฐานข้อมูลแยกเฉพาะ (Multi-Database Routing)</h4>
+                                    <p className="text-xs text-slate-400">กำหนดค่าโฮสต์ภายนอกเพื่อให้ระบบวิ่งไปหาฐานข้อมูลแยกของโรงเรียนนี้โดยเฉพาะ</p>
+                                </div>
+                            </div>
+
+                            {isLoadingDbConfig ? (
+                                <div className="flex flex-col items-center justify-center py-8 gap-3">
+                                    <Loader2 className="animate-spin text-indigo-500" size={32} />
+                                    <div className="text-xs text-slate-400 font-bold">กำลังตรวจสอบประวัติการเชื่อมต่อ...</div>
+                                </div>
+                            ) : (
+                                <form onSubmit={handleSaveDbConfig} className="space-y-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                                        <div>
+                                            <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-wider">โฮสต์ฐานข้อมูล (MySQL Host) *</label>
+                                            <input 
+                                                type="text" 
+                                                value={dbConfig.host} 
+                                                onChange={e => setDbConfig({...dbConfig, host: e.target.value})} 
+                                                placeholder="เช่น db.myschool.com หรือ IP" 
+                                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 ring-indigo-500 font-bold text-slate-700"
+                                                required 
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-wider">พอร์ต (Port)</label>
+                                            <input 
+                                                type="number" 
+                                                value={dbConfig.port} 
+                                                onChange={e => setDbConfig({...dbConfig, port: e.target.value})} 
+                                                placeholder="3306" 
+                                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 ring-indigo-500 font-bold text-slate-700" 
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                                        <div>
+                                            <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-wider">ผู้ใช้งาน (User) *</label>
+                                            <input 
+                                                type="text" 
+                                                value={dbConfig.user} 
+                                                onChange={e => setDbConfig({...dbConfig, user: e.target.value})} 
+                                                placeholder="เช่น admin_school" 
+                                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 ring-indigo-500 font-bold text-slate-700"
+                                                required 
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-wider">รหัสผ่าน (Password)</label>
+                                            <input 
+                                                type="password" 
+                                                value={dbConfig.password} 
+                                                onChange={e => setDbConfig({...dbConfig, password: e.target.value})} 
+                                                placeholder={hasDbConfig ? "•••••••• (ไม่ระบุหากใช้ของเดิม)" : "รหัสผ่านฐานข้อมูล"} 
+                                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 ring-indigo-500 font-bold text-slate-700" 
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="text-left">
+                                        <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-wider">ชื่อฐานข้อมูล (Database Name) *</label>
+                                        <input 
+                                            type="text" 
+                                            value={dbConfig.database_name} 
+                                            onChange={e => setDbConfig({...dbConfig, database_name: e.target.value})} 
+                                            placeholder="เช่น school_database_school_a" 
+                                            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 ring-indigo-500 font-bold text-slate-700"
+                                            required 
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center justify-between gap-4 pt-6 border-t border-slate-50">
+                                        <div className="flex items-center gap-2">
+                                            {hasDbConfig ? (
+                                                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 text-green-700 rounded-full text-[10px] font-black uppercase">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                                                    เชื่อมต่อฐานข้อมูลแยกเฉพาะอยู่
+                                                </div>
+                                            ) : (
+                                                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-slate-500 rounded-full text-[10px] font-black uppercase">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                                                    ใช้งานฐานข้อมูลหลักร่วมกัน
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="flex items-center gap-3">
+                                            {hasDbConfig && (
+                                                <button 
+                                                    type="button" 
+                                                    onClick={handleResetDbConfig} 
+                                                    disabled={isTestingDbConfig}
+                                                    className="px-4 py-2.5 text-xs font-black uppercase tracking-wider text-red-600 hover:bg-red-50 rounded-xl transition-colors flex items-center gap-2"
+                                                >
+                                                    <Trash2 size={14} />
+                                                    ล้างค่า/กลับไปใช้ตัวหลัก
+                                                </button>
+                                            )}
+                                            <button 
+                                                type="submit" 
+                                                disabled={isTestingDbConfig}
+                                                className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg hover:bg-indigo-700 transition-all flex items-center gap-2 disabled:opacity-50"
+                                            >
+                                                {isTestingDbConfig ? (
+                                                    <>
+                                                        <Loader2 className="animate-spin" size={14} />
+                                                        กำลังทดสอบและเตรียมตาราง...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Save size={14} />
+                                                        {hasDbConfig ? 'บันทึกการเปลี่ยนค่า' : 'ทดสอบและเปิดใช้งาน'}
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            )}
                         </div>
                     </div>
                 )}

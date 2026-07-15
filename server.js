@@ -5,9 +5,12 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import { AsyncLocalStorage } from 'async_hooks';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const tenantStorage = new AsyncLocalStorage();
 
 // Accessing the secret key from environment variables
 const MY_SECRET_KEY = process.env.MY_SECRET_KEY;
@@ -42,11 +45,70 @@ async function startServer() {
     dateStrings: true
   });
 
+  // Cached connection pools for school-specific databases
+  const schoolPools = new Map();
+
+  const getPoolForSchool = async (schoolId) => {
+    if (!schoolId) return pool;
+    if (schoolPools.has(schoolId)) return schoolPools.get(schoolId);
+
+    try {
+      const [rows] = await pool.query('SELECT * FROM school_database_configs WHERE school_id = ?', [schoolId]);
+      if (rows && rows.length > 0) {
+        const config = rows[0];
+        console.log(`[Multi-DB] Creating dedicated connection pool for school: ${schoolId} on database: ${config.database_name}`);
+        const schoolPool = mysql.createPool({
+          host: config.host || process.env.MYSQL_HOST || 'localhost',
+          user: config.user || process.env.MYSQL_USER || 'root',
+          password: config.password !== undefined ? config.password : (process.env.MYSQL_PASSWORD || ''),
+          database: config.database_name,
+          port: parseInt(config.port || process.env.MYSQL_PORT || '3306'),
+          waitForConnections: true,
+          connectionLimit: 10,
+          queueLimit: 0,
+          dateStrings: true
+        });
+        schoolPools.set(schoolId, schoolPool);
+        return schoolPool;
+      }
+    } catch (err) {
+      console.error(`[Multi-DB] Error loading database config for school ${schoolId}:`, err.message);
+    }
+
+    return pool;
+  };
+
+  const closePoolForSchool = async (schoolId) => {
+    if (schoolPools.has(schoolId)) {
+      const schoolPool = schoolPools.get(schoolId);
+      try {
+        await schoolPool.end();
+        console.log(`[Multi-DB] Successfully closed connection pool for school: ${schoolId}`);
+      } catch (err) {
+        console.error(`[Multi-DB] Error closing connection pool for school ${schoolId}:`, err.message);
+      }
+      schoolPools.delete(schoolId);
+    }
+  };
+
   // Helper to handle SQL queries
-  const query = async (sql, params = []) => {
+  const query = async (sql, params = [], targetPool = null) => {
+    let activePool = targetPool || tenantStorage.getStore() || pool;
+
+    // Check if the query is targeting central-only tables
+    const centralTables = ['schools', 'super_admins', 'school_configs', 'school_database_configs', 'profiles'];
+    const isCentral = centralTables.some(table => {
+      const regex = new RegExp(`\\b${table}\\b`, 'i');
+      return regex.test(sql);
+    });
+
+    if (isCentral) {
+      activePool = pool;
+    }
+
     try {
       // Use query instead of execute to support ?? placeholders for identifiers
-      const [results] = await pool.query(sql, params);
+      const [results] = await activePool.query(sql, params);
       return results;
     } catch (error) {
       console.error('Database Error:', error);
@@ -56,10 +118,22 @@ async function startServer() {
     }
   };
 
+  const runGlobalQuery = query;
+
   // Database Initialization Function
-  const initializeDatabase = async () => {
+  const initializeDatabase = async (targetPool = pool) => {
+    const query = (sql, params = []) => runGlobalQuery(sql, params, targetPool);
     try {
       const schema = [
+        `CREATE TABLE IF NOT EXISTS school_database_configs (
+          school_id VARCHAR(255) PRIMARY KEY,
+          host VARCHAR(255) NOT NULL,
+          port INT DEFAULT 3306,
+          user VARCHAR(255) NOT NULL,
+          password VARCHAR(255) DEFAULT '',
+          database_name VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
         `CREATE TABLE IF NOT EXISTS schools (
           id VARCHAR(255) PRIMARY KEY,
           name VARCHAR(255) NOT NULL,
@@ -505,6 +579,99 @@ async function startServer() {
 
   // API Routes
   
+  // Multi-tenant database routing middleware
+  app.use(async (req, res, next) => {
+    const schoolId = req.headers['x-school-id'] || req.query.school_id || req.query.schoolId || (req.body && (req.body.school_id || req.body.schoolId));
+    if (schoolId) {
+      const tenantPool = await getPoolForSchool(schoolId);
+      tenantStorage.run(tenantPool, () => {
+        next();
+      });
+    } else {
+      next();
+    }
+  });
+
+  // School Database Configuration Management APIs (Super Admin only)
+  app.get('/api/school-db-config/:schoolId', async (req, res) => {
+    const { schoolId } = req.params;
+    try {
+      const [rows] = await pool.query('SELECT school_id, host, port, user, database_name, created_at FROM school_database_configs WHERE school_id = ?', [schoolId]);
+      if (rows && rows.length > 0) {
+        res.json(rows[0]);
+      } else {
+        res.json(null);
+      }
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/school-db-config/:schoolId', async (req, res) => {
+    const { schoolId } = req.params;
+    const { host, port, user, password, database_name } = req.body;
+
+    if (!host || !user || !database_name) {
+      return res.status(400).json({ error: 'กรุณากรอกข้อมูลโฮสต์, ผู้ใช้งาน, และชื่อฐานข้อมูลให้ครบถ้วน' });
+    }
+
+    try {
+      console.log(`[Multi-DB] Testing database connection for school ${schoolId} on database ${database_name}...`);
+      const testPool = mysql.createPool({
+        host,
+        user,
+        password: password !== undefined ? password : '',
+        database: database_name,
+        port: parseInt(port || '3306'),
+        connectionLimit: 2,
+        connectTimeout: 5000,
+        waitForConnections: true
+      });
+
+      // Simple connectivity test
+      await testPool.query('SELECT 1');
+      console.log(`[Multi-DB] Connection successful! Initializing schema on database ${database_name}...`);
+
+      // Initialize the database structure for this specific school
+      await tenantStorage.run(testPool, async () => {
+        await initializeDatabase(testPool);
+      });
+
+      // Save to central/main database configs
+      await pool.query(
+        `INSERT INTO school_database_configs (school_id, host, port, user, password, database_name) 
+         VALUES (?, ?, ?, ?, ?, ?) 
+         ON DUPLICATE KEY UPDATE host=?, port=?, user=?, password=?, database_name=?`,
+        [
+          schoolId, host, parseInt(port || '3306'), user, password || '', database_name,
+          host, parseInt(port || '3306'), user, password || '', database_name
+        ]
+      );
+
+      // Close the cached connection pool if any exists
+      await closePoolForSchool(schoolId);
+
+      // Cache the newly tested pool
+      schoolPools.set(schoolId, testPool);
+
+      res.json({ success: true, message: `เชื่อมต่อฐานข้อมูลและสร้างตารางสำหรับโรงเรียนเรียบร้อยแล้ว` });
+    } catch (err) {
+      console.error(`[Multi-DB] Configuration failed for school ${schoolId}:`, err);
+      res.status(500).json({ error: `เชื่อมต่อฐานข้อมูลไม่สำเร็จ: ${err.message}` });
+    }
+  });
+
+  app.delete('/api/school-db-config/:schoolId', async (req, res) => {
+    const { schoolId } = req.params;
+    try {
+      await pool.query('DELETE FROM school_database_configs WHERE school_id = ?', [schoolId]);
+      await closePoolForSchool(schoolId);
+      res.json({ success: true, message: 'เปลี่ยนกลับไปใช้ฐานข้อมูลหลักเรียบร้อยแล้ว' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 1. Schools
   app.get('/api/db-check', async (req, res) => {
     try {

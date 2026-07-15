@@ -39,6 +39,14 @@ const App: React.FC = () => {
     const [impersonatedSchoolId, setImpersonatedSchoolId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
+    useEffect(() => {
+        if (impersonatedSchoolId) {
+            localStorage.setItem('impersonated_school_id', impersonatedSchoolId);
+        } else {
+            localStorage.removeItem('impersonated_school_id');
+        }
+    }, [impersonatedSchoolId]);
+
     const virtualUser: Teacher | null = currentUser || (isSuperAdmin ? {
         id: 'SUPER_ADMIN',
         schoolId: impersonatedSchoolId || '',
@@ -257,6 +265,7 @@ const App: React.FC = () => {
     const handleLogin = (user: Teacher) => {
         setCurrentUser(user);
         localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id, isSuperAdmin: false }));
+        localStorage.setItem('school_id', user.schoolId || '');
     };
 
     const handleLogout = () => {
@@ -266,6 +275,8 @@ const App: React.FC = () => {
         setIsSuperAdmin(false);
         setImpersonatedSchoolId(null);
         localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem('school_id');
+        localStorage.removeItem('impersonated_school_id');
         setCurrentView(SystemView.DASHBOARD);
     };
 
