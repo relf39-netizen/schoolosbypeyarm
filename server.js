@@ -672,6 +672,108 @@ async function startServer() {
     }
   });
 
+  app.post('/api/school-db-config/:schoolId/sync', async (req, res) => {
+    const { schoolId } = req.params;
+    try {
+      console.log(`[Multi-DB] Starting data sync for school ${schoolId} to dedicated database...`);
+      
+      // 1. Get the target connection pool for the school
+      const [configRows] = await pool.query('SELECT * FROM school_database_configs WHERE school_id = ?', [schoolId]);
+      if (!configRows || configRows.length === 0) {
+        return res.status(400).json({ error: 'ไม่พบการตั้งค่าฐานข้อมูลแยกเฉพาะสำหรับโรงเรียนนี้ กรุณาตั้งค่าเชื่อมต่อฐานข้อมูลก่อนเริ่มคัดลอกข้อมูล' });
+      }
+
+      const targetPool = await getPoolForSchool(schoolId);
+      
+      // 2. Ensure target tables exist (use server.js initialization function)
+      await initializeDatabase(targetPool);
+
+      const tablesToSync = [
+        { name: 'schools', filterCol: 'id' },
+        { name: 'school_configs', filterCol: 'school_id' },
+        { name: 'profiles', filterCol: 'school_id' },
+        { name: 'class_rooms', filterCol: 'school_id' },
+        { name: 'students', filterCol: 'school_id' },
+        { name: 'student_attendance', filterCol: 'school_id' },
+        { name: 'student_health_records', filterCol: 'school_id' },
+        { name: 'student_savings', filterCol: 'school_id' },
+        { name: 'academic_years', filterCol: 'school_id' },
+        { name: 'attendance', filterCol: 'school_id' },
+        { name: 'leave_requests', filterCol: 'school_id' },
+        { name: 'plan_projects', filterCol: 'school_id' },
+        { name: 'plan_project_expenses', filterCol: 'school_id' },
+        { name: 'budget_settings', filterCol: 'school_id' },
+        { name: 'academic_enrollments', filterCol: 'school_id' },
+        { name: 'academic_test_scores', filterCol: 'school_id' },
+        { name: 'academic_calendar', filterCol: 'school_id' },
+        { name: 'academic_sar', filterCol: 'school_id' },
+        { name: 'documents', filterCol: 'school_id' },
+        { name: 'director_events', filterCol: 'school_id' },
+        { name: 'finance_accounts', filterCol: 'school_id' },
+        { name: 'finance_transactions', filterCol: 'school_id' },
+        { name: 'teacher_duty_reports', filterCol: 'school_id' }
+      ];
+
+      const syncResults = {};
+      let totalSyncedRows = 0;
+
+      for (const table of tablesToSync) {
+        const tableName = table.name;
+        const filterCol = table.filterCol;
+
+        // Fetch columns of the table from the central database
+        const [columnsResult] = await pool.query(
+          'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?',
+          [tableName]
+        );
+        const columns = columnsResult.map(c => c.COLUMN_NAME);
+
+        if (columns.length === 0) {
+          console.warn(`[Multi-DB Sync] Table ${tableName} does not have schema or column info in central database.`);
+          continue;
+        }
+
+        // Fetch data of this school from central database
+        const [rows] = await pool.query(`SELECT * FROM \`${tableName}\` WHERE \`${filterCol}\` = ?`, [schoolId]);
+        
+        syncResults[tableName] = rows.length;
+
+        if (rows.length > 0) {
+          console.log(`[Multi-DB Sync] Table ${tableName}: Found ${rows.length} rows to sync.`);
+          const escapedColumns = columns.map(col => `\`${col}\``).join(', ');
+          const updateClause = columns.map(col => `\`${col}\` = VALUES(\`${col}\`)`).join(', ');
+
+          for (const row of rows) {
+            const values = [];
+            const placeholders = [];
+            for (const col of columns) {
+              let val = row[col];
+              if (typeof val === 'object' && val !== null) {
+                val = JSON.stringify(val);
+              }
+              values.push(val);
+              placeholders.push('?');
+            }
+
+            const insertSql = `INSERT INTO \`${tableName}\` (${escapedColumns}) VALUES (${placeholders.join(', ')}) ON DUPLICATE KEY UPDATE ${updateClause}`;
+            await targetPool.query(insertSql, values);
+          }
+          totalSyncedRows += rows.length;
+        }
+      }
+
+      console.log(`[Multi-DB Sync] Synchronization complete. Synced ${totalSyncedRows} total rows across tables.`);
+      res.json({
+        success: true,
+        message: `คัดลอกและซิงค์ข้อมูลจากส่วนกลางไปยังฐานข้อมูลแยกของโรงเรียนเรียบร้อยแล้ว รวมทั้งสิ้น ${totalSyncedRows} แถวข้อมูล`,
+        details: syncResults
+      });
+    } catch (err) {
+      console.error(`[Multi-DB Sync] Error syncing data for school ${schoolId}:`, err);
+      res.status(500).json({ error: `เกิดข้อผิดพลาดในการซิงค์ข้อมูล: ${err.message}` });
+    }
+  });
+
   // 1. Schools
   app.get('/api/db-check', async (req, res) => {
     try {

@@ -117,6 +117,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 alert(data.message || "เปลี่ยนกลับไปใช้ฐานข้อมูลหลักเรียบร้อยแล้ว");
                 setDbConfig({ host: '', port: '3306', user: '', password: '', database_name: '' });
                 setHasDbConfig(false);
+                setSyncMessage(null);
             } else {
                 alert(data.error || "ลบไม่สำเร็จ");
             }
@@ -124,6 +125,35 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             alert("ขัดข้อง: " + err.message);
         } finally {
             setIsTestingDbConfig(false);
+        }
+    };
+
+    // Multi-Database Synchronization State
+    const [isSyncingDb, setIsSyncingDb] = useState(false);
+    const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+    const handleSyncDbConfig = async () => {
+        if (!selectedSchoolId) return;
+        if (!confirm("คุณครูต้องการเริ่มคัดลอกข้อมูลปัจจุบันจากส่วนกลางไปยังฐานข้อมูลแยกของโรงเรียนนี้ใช่หรือไม่? ข้อมูลเดิมในส่วนกลางจะยังคงอยู่และถูกทำสำเนาไปเขียนทับหรืออัปเดตลงในฐานข้อมูลใหม่นี้โดยสมบูรณ์")) return;
+        setIsSyncingDb(true);
+        setSyncMessage(null);
+        try {
+            const res = await fetch(`/api/school-db-config/${selectedSchoolId}/sync`, {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message || "คัดลอกและประสานข้อมูลไปยังฐานข้อมูลใหม่สำเร็จแล้ว!");
+                setSyncMessage(data.message);
+            } else {
+                alert(data.error || "เกิดข้อผิดพลาดในการคัดลอกข้อมูล");
+                setSyncMessage("เกิดข้อผิดพลาด: " + data.error);
+            }
+        } catch (err: any) {
+            alert("ขัดข้อง: " + err.message);
+            setSyncMessage("ขัดข้อง: " + err.message);
+        } finally {
+            setIsSyncingDb(false);
         }
     };
 
@@ -657,6 +687,55 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                                         </div>
                                     </div>
                                 </form>
+                            )}
+
+                            {/* Database Sync Tool (Only show when school has custom DB connection) */}
+                            {hasDbConfig && (
+                                <div className="mt-8 pt-8 border-t border-slate-100 text-left animate-fade-in">
+                                    <div className="flex items-center gap-3 mb-4">
+                                        <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                                            <RefreshCw size={18} className={isSyncingDb ? "animate-spin" : ""} />
+                                        </div>
+                                        <div>
+                                            <h5 className="text-sm font-black text-slate-800">เครื่องมือคัดลอกข้อมูลอัตโนมัติ (Data Sync Tool)</h5>
+                                            <p className="text-[10px] text-slate-400">คัดลอกข้อมูลเดิมจากระบบฐานข้อมูลส่วนกลาง ไปยังฐานข้อมูลใหม่ของโรงเรียนนี้โดยตรง</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                        <div className="space-y-1">
+                                            <div className="text-xs font-bold text-amber-800">สำเนาและโอนย้ายข้อมูลเดิมไปยังฐานข้อมูลใหม่</div>
+                                            <div className="text-[10px] text-amber-600 font-medium max-w-xl leading-relaxed">
+                                                ระบบจะดึงข้อมูลทั้งหมดของโรงเรียนนี้ในปัจจุบัน (เช่น รายชื่อนักเรียน, ประวัติการออมเงิน, บันทึกการลงเวลา, เอกสารหนังสือราชการ, บัญชีการเงิน ฯลฯ) ที่จัดเก็บอยู่ในฐานข้อมูลกลาง แล้วนำไปคัดลอกลงในตารางของฐานข้อมูลแยกเฉพาะให้อย่างครบถ้วน สะดวก ปลอดภัย ไม่ต้องพิมพ์ใหม่
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={handleSyncDbConfig}
+                                            disabled={isSyncingDb || isTestingDbConfig}
+                                            className="w-full md:w-auto px-5 py-3 bg-amber-600 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md hover:bg-amber-700 active:scale-95 transition-all flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50"
+                                        >
+                                            {isSyncingDb ? (
+                                                <>
+                                                    <Loader2 className="animate-spin" size={14} />
+                                                    กำลังคัดลอกข้อมูล...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Zap size={14} />
+                                                    คัดลอกข้อมูลปัจจุบันจากส่วนกลางไปยังฐานข้อมูลใหม่
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+
+                                    {syncMessage && (
+                                        <div className="mt-4 p-4 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl text-xs font-bold leading-relaxed">
+                                            {syncMessage}
+                                        </div>
+                                    )}
+                                </div>
                             )}
                         </div>
                     </div>
