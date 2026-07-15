@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Teacher, SystemConfig } from '../types';
 import { ACADEMIC_POSITIONS } from '../constants';
 import { User, Lock, Save, UploadCloud, FileSignature, Briefcase, Eye, EyeOff, Loader, MessageCircle, Smartphone, CheckCircle, Zap, AlertCircle, Info } from 'lucide-react';
-import { db, isConfigured as isFirebaseConfigured, doc, setDoc } from '../firebaseConfig';
-import { supabase, isConfigured as isSupabaseConfigured } from '../supabaseClient';
+import { supabase } from '../supabaseClient';
 
 interface UserProfileProps {
     currentUser: Teacher;
@@ -44,7 +43,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         if (!currentUser.telegramChatId && botUsername) {
             // Check status every 5 seconds if not linked
             interval = setInterval(async () => {
-                if (isSupabaseConfigured && supabase) {
+                if (supabase) {
                     const { data } = await supabase.from('profiles').select('telegram_chat_id').eq('id', currentUser.id).maybeSingle();
                     if (data && data.telegram_chat_id) {
                         onUpdateUser({ ...currentUser, telegramChatId: data.telegram_chat_id });
@@ -60,7 +59,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
 
     const handleRefreshTelegram = async () => {
         setIsRefreshing(true);
-        if (isSupabaseConfigured && supabase) {
+        if (supabase) {
             try {
                 const { data, error } = await supabase.from('profiles').select('telegram_chat_id').eq('id', currentUser.id).maybeSingle();
                 if (error) throw error;
@@ -85,7 +84,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
 
     useEffect(() => {
         const loadBotConfig = async () => {
-            if (isSupabaseConfigured && supabase) {
+            if (supabase) {
                 try {
                     const { data, error } = await supabase
                         .from('school_configs')
@@ -173,27 +172,23 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         };
 
         try {
-            // Update in Supabase profiles table
-            if (isSupabaseConfigured && supabase) {
-                await supabase.from('profiles').update({
+            // Update in MySQL profiles table (using mock supabase proxy client)
+            if (supabase) {
+                const { error } = await supabase.from('profiles').update({
                     name: updated.name,
                     position: updated.position,
                     password: updated.password,
                     signature_base_64: updated.signatureBase64,
                     telegram_chat_id: updated.telegramChatId
                 }).eq('id', updated.id);
-            }
-            
-            // Legacy Firebase sync if enabled
-            if (isFirebaseConfigured && db) {
-                await setDoc(doc(db, 'teachers', updated.id), updated);
+                if (error) throw new Error(error.message);
             }
 
             onUpdateUser(updated);
             alert("บันทึกข้อมูลเรียบร้อยแล้ว");
-        } catch (error) {
+        } catch (error: any) {
             console.error("Save profile error", error);
-            alert("บันทึกข้อมูลไม่สำเร็จ");
+            alert(`บันทึกข้อมูลไม่สำเร็จ: ${error.message || "เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล"}`);
         } finally {
             setIsSaving(false);
         }
@@ -206,8 +201,20 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         }
         // Deep Link: https://t.me/BotName?start=Parameter
         const cleanBotUser = botUsername.replace('@', '').trim();
-        const telegramUrl = `https://t.me/${cleanBotUser}?start=${currentUser.id}`;
-        window.open(telegramUrl, '_blank');
+        const webUrl = `https://t.me/${cleanBotUser}?start=${currentUser.id}`;
+        const nativeUrl = `tg://resolve?domain=${cleanBotUser}&start=${currentUser.id}`;
+
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        if (isMobile) {
+            // Attempt to directly open native Telegram app
+            window.location.href = nativeUrl;
+            // Fallback to browser if app is not installed
+            setTimeout(() => {
+                window.open(webUrl, '_blank');
+            }, 1200);
+        } else {
+            window.open(webUrl, '_blank');
+        }
     };
 
     return (

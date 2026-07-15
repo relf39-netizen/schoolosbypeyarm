@@ -523,6 +523,27 @@ async function startServer() {
       console.error('Migration check failed (might be expected if table just created):', migErr.message);
     }
 
+    // Clean up duplicate student_attendance rows and add UNIQUE KEY
+    try {
+      console.log('[Migration] Cleaning duplicate student_attendance rows...');
+      await query(`
+        DELETE t1 FROM student_attendance t1
+        INNER JOIN student_attendance t2 
+        WHERE (t1.created_at < t2.created_at OR (t1.created_at = t2.created_at AND t1.id < t2.id))
+          AND t1.student_id = t2.student_id 
+          AND t1.date = t2.date
+      `);
+      console.log('[Migration] Attempting to add UNIQUE KEY unique_attendance on student_attendance...');
+      await query('ALTER TABLE student_attendance ADD UNIQUE KEY unique_attendance (student_id, date)');
+      console.log('[Migration] Successfully added UNIQUE KEY unique_attendance on student_attendance.');
+    } catch (e) {
+      if (e.code === 'ER_DUP_KEYNAME' || e.errno === 1061) {
+        console.log('[Migration] UNIQUE KEY unique_attendance already exists on student_attendance.');
+      } else {
+        console.error('[Migration Error] student_attendance unique key migration failed:', e.message);
+      }
+    }
+
     // Add default Super Admin
     await query('INSERT IGNORE INTO super_admins (username, password) VALUES (?, ?)', ['admin', 'schoolos']);
     await query('INSERT IGNORE INTO super_admins (username, password) VALUES (?, ?)', ['peyarm', 'Siam@2520']);

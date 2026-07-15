@@ -1264,7 +1264,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             
             if (error) throw error;
             if (data) {
-                setHistoryAttendance(data.map((a: any) => ({
+                const mapped = data.map((a: any) => ({
                     id: a.id,
                     schoolId: a.school_id,
                     studentId: a.student_id,
@@ -1273,7 +1273,25 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                     academicYear: a.academic_year,
                     createdBy: a.created_by,
                     createdAt: a.created_at
-                })));
+                }));
+
+                // Deduplicate by studentId + date, keeping the latest one by createdAt
+                const dedupedMap = new Map<string, typeof mapped[0]>();
+                mapped.forEach((item: any) => {
+                    const key = `${item.studentId}_${item.date}`;
+                    const existing = dedupedMap.get(key);
+                    if (!existing) {
+                        dedupedMap.set(key, item);
+                    } else {
+                        const existingTime = existing.createdAt ? new Date(existing.createdAt).getTime() : 0;
+                        const itemTime = item.createdAt ? new Date(item.createdAt).getTime() : 0;
+                        if (itemTime > existingTime) {
+                            dedupedMap.set(key, item);
+                        }
+                    }
+                });
+
+                setHistoryAttendance(Array.from(dedupedMap.values()));
             }
         } catch (error) {
             console.error('Error fetching history:', error);
@@ -1318,7 +1336,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             
             if (error) throw error;
             if (data) {
-                setAttendance(data.map((a: any) => ({
+                const mapped = data.map((a: any) => ({
                     id: a.id,
                     schoolId: a.school_id,
                     studentId: a.student_id,
@@ -1327,7 +1345,25 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                     academicYear: a.academic_year,
                     createdBy: a.created_by,
                     createdAt: a.created_at
-                })));
+                }));
+
+                // Deduplicate by studentId + date, keeping the latest one by createdAt
+                const dedupedMap = new Map<string, typeof mapped[0]>();
+                mapped.forEach((item: any) => {
+                    const key = `${item.studentId}_${item.date}`;
+                    const existing = dedupedMap.get(key);
+                    if (!existing) {
+                        dedupedMap.set(key, item);
+                    } else {
+                        const existingTime = existing.createdAt ? new Date(existing.createdAt).getTime() : 0;
+                        const itemTime = item.createdAt ? new Date(item.createdAt).getTime() : 0;
+                        if (itemTime > existingTime) {
+                            dedupedMap.set(key, item);
+                        }
+                    }
+                });
+
+                setAttendance(Array.from(dedupedMap.values()));
             }
         } catch (error) {
             console.error('Error fetching attendance:', error);

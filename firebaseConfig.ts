@@ -32,7 +32,10 @@ const firebaseConfig = {
     appId: process.env.FIREBASE_APP_ID || "วาง App ID ของคุณที่นี่"
 };
 
-export const isConfigured = !!firebaseConfig.apiKey && firebaseConfig.apiKey.length > 10;
+export const isConfigured = !!firebaseConfig.apiKey && 
+                            firebaseConfig.apiKey.length > 10 && 
+                            !firebaseConfig.apiKey.includes("วาง API Key") && 
+                            firebaseConfig.apiKey.startsWith("AIza");
 
 let app: any = null;
 let db: any = null;

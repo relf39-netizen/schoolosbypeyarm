@@ -461,6 +461,28 @@ async function startServer() {
           console.error(`Error checking/migrating table ${table}:`, e.message);
         }
       }
+
+      // Clean up duplicate student_attendance rows and add UNIQUE KEY
+      try {
+        console.log('[Migration] Cleaning duplicate student_attendance rows...');
+        await query(`
+          DELETE t1 FROM student_attendance t1
+          INNER JOIN student_attendance t2 
+          WHERE (t1.created_at < t2.created_at OR (t1.created_at = t2.created_at AND t1.id < t2.id))
+            AND t1.student_id = t2.student_id 
+            AND t1.date = t2.date
+        `);
+        console.log('[Migration] Attempting to add UNIQUE KEY unique_attendance on student_attendance...');
+        await query('ALTER TABLE student_attendance ADD UNIQUE KEY unique_attendance (student_id, date)');
+        console.log('[Migration] Successfully added UNIQUE KEY unique_attendance on student_attendance.');
+      } catch (e) {
+        if (e.code === 'ER_DUP_KEYNAME' || e.errno === 1061) {
+          console.log('[Migration] UNIQUE KEY unique_attendance already exists on student_attendance.');
+        } else {
+          console.error('[Migration Error] student_attendance unique key migration failed:', e.message);
+        }
+      }
+
       console.log('Database initialized and migrated successfully');
     } catch (err) {
       console.error('Database initialization error:', err);
@@ -1141,7 +1163,7 @@ async function startServer() {
   });
 
   // Catch-all for unmatched API routes
-  app.all('/api/*', (req, res) => {
+  app.all('/api/*all', (req, res) => {
     console.log(`[${new Date().toISOString()}] Unmatched API Route: ${req.method} ${req.url}`);
     res.status(404).json({ error: `Route ${req.method} ${req.url} not found` });
   });
