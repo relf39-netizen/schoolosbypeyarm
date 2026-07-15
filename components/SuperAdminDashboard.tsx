@@ -374,7 +374,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                                     </div>
                                     <div className="bg-slate-50 p-4 border-t flex justify-between items-center">
                                         <div className="flex gap-2">
-                                            <button onClick={() => setSelectedSchoolId(s.id)} className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black shadow-md hover:bg-blue-700 transition-all">ดูบุคลากร</button>
+                                            <button onClick={() => setSelectedSchoolId(s.id)} className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black shadow-md hover:bg-blue-700 transition-all">จัดการบุคลากรและตั้งค่าฐานข้อมูล</button>
                                             <button onClick={() => onEnterSchool(s.id)} className="px-4 py-1.5 bg-rose-600 text-white rounded-lg text-[10px] font-black shadow-md hover:bg-rose-700 transition-all flex items-center gap-1">
                                                 <Shield size={10}/> จัดการระบบ
                                             </button>
