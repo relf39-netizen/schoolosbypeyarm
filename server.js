@@ -95,22 +95,25 @@ async function startServer() {
   const query = async (sql, params = [], targetPool = null) => {
     let activePool = targetPool || tenantStorage.getStore() || pool;
 
-    // Check if the query is targeting central-only tables
-    const centralTables = ['schools', 'super_admins', 'school_configs', 'school_database_configs', 'profiles'];
-    const isCentral = centralTables.some(table => {
-      // 1. Check if the table name is in the SQL string
-      const regex = new RegExp(`\\b${table}\\b`, 'i');
-      if (regex.test(sql)) return true;
+    // Only force central pool if targetPool is not explicitly passed
+    if (!targetPool) {
+      // Check if the query is targeting central-only tables
+      const centralTables = ['schools', 'super_admins', 'school_configs', 'school_database_configs', 'profiles'];
+      const isCentral = centralTables.some(table => {
+        // 1. Check if the table name is in the SQL string
+        const regex = new RegExp(`\\b${table}\\b`, 'i');
+        if (regex.test(sql)) return true;
 
-      // 2. Check if the table name is passed as the first parameter (e.g., SELECT * FROM ??)
-      if (params && params.length > 0 && typeof params[0] === 'string') {
-        if (params[0].toLowerCase() === table.toLowerCase()) return true;
+        // 2. Check if the table name is passed as the first parameter (e.g., SELECT * FROM ??)
+        if (params && params.length > 0 && typeof params[0] === 'string') {
+          if (params[0].toLowerCase() === table.toLowerCase()) return true;
+        }
+        return false;
+      });
+
+      if (isCentral) {
+        activePool = pool;
       }
-      return false;
-    });
-
-    if (isCentral) {
-      activePool = pool;
     }
 
     try {
@@ -728,12 +731,15 @@ async function startServer() {
         const tableName = table.name;
         const filterCol = table.filterCol;
 
-        // Fetch columns of the table from the central database
-        const [columnsResult] = await pool.query(
-          'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?',
-          [tableName]
-        );
-        const columns = columnsResult.map(c => c.COLUMN_NAME);
+        let columns = [];
+        try {
+          // Fetch columns of the table from the central database using SHOW COLUMNS (more robust)
+          const [columnsResult] = await pool.query(`SHOW COLUMNS FROM \`${tableName}\``);
+          columns = columnsResult.map(c => c.Field);
+        } catch (colErr) {
+          console.warn(`[Multi-DB Sync] Failed to fetch columns for table ${tableName}:`, colErr.message);
+          continue;
+        }
 
         if (columns.length === 0) {
           console.warn(`[Multi-DB Sync] Table ${tableName} does not have schema or column info in central database.`);
@@ -755,7 +761,10 @@ async function startServer() {
             const placeholders = [];
             for (const col of columns) {
               let val = row[col];
-              if (typeof val === 'object' && val !== null) {
+              // Ensure we do NOT stringify Date objects, keep them intact so mysql2 can format them
+              if (val instanceof Date) {
+                // Keep as Date object
+              } else if (typeof val === 'object' && val !== null) {
                 val = JSON.stringify(val);
               }
               values.push(val);
