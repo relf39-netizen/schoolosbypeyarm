@@ -111,8 +111,15 @@ async function startServer() {
     // Check if the query is targeting central-only tables
     const centralTables = ['schools', 'super_admins', 'school_configs', 'school_database_configs', 'profiles'];
     const isCentral = centralTables.some(table => {
+      // 1. Check if the table name is in the SQL string
       const regex = new RegExp(`\\b${table}\\b`, 'i');
-      return regex.test(sql);
+      if (regex.test(sql)) return true;
+
+      // 2. Check if the table name is passed as the first parameter (e.g., SELECT * FROM ??)
+      if (params && params.length > 0 && typeof params[0] === 'string') {
+        if (params[0].toLowerCase() === table.toLowerCase()) return true;
+      }
+      return false;
     });
 
     if (isCentral) {
