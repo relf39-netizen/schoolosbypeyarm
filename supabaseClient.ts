@@ -154,13 +154,30 @@ class SupabaseQueryBuilder {
       }
     }
 
-    if (!schoolId) {
+    let isSuperAdminMode = false;
+    try {
+      isSuperAdminMode = localStorage.getItem('is_super_admin_mode') === 'true';
+    } catch (e) {}
+
+    if (!schoolId && !isSuperAdminMode) {
       try {
         schoolId = localStorage.getItem('impersonated_school_id') || '';
       } catch (e) {}
     }
 
-    if (!schoolId) {
+    // Only fall back to school_id if we are NOT in Super Admin mode
+    let isSuperAdmin = false;
+    try {
+      const sessionStr = localStorage.getItem('schoolos_session_v1');
+      if (sessionStr) {
+        const session = JSON.parse(sessionStr);
+        if (session.isSuperAdmin) {
+          isSuperAdmin = true;
+        }
+      }
+    } catch (e) {}
+
+    if (!schoolId && !isSuperAdmin && !isSuperAdminMode) {
       try {
         schoolId = localStorage.getItem('school_id') || '';
       } catch (e) {}

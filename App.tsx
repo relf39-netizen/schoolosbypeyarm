@@ -47,6 +47,10 @@ const App: React.FC = () => {
         }
     }, [impersonatedSchoolId]);
 
+    useEffect(() => {
+        localStorage.setItem('is_super_admin_mode', isSuperAdminMode ? 'true' : 'false');
+    }, [isSuperAdminMode]);
+
     const virtualUser: Teacher | null = currentUser || (isSuperAdmin ? {
         id: 'SUPER_ADMIN',
         schoolId: impersonatedSchoolId || '',
@@ -474,9 +478,12 @@ const App: React.FC = () => {
         }]);
         if (!error) { await fetchInitialData(); } else { alert(error.message); }
     }} onSuperAdminLogin={() => {
+        setImpersonatedSchoolId(null);
         setIsSuperAdminMode(true);
         setIsSuperAdmin(true);
         localStorage.setItem(SESSION_KEY, JSON.stringify({ isSuperAdmin: true }));
+        localStorage.removeItem('school_id');
+        localStorage.removeItem('impersonated_school_id');
     }} />;
     
     if (virtualUser.isFirstLogin) return <FirstLoginSetup user={virtualUser} onComplete={async (p, pos) => {
@@ -500,7 +507,10 @@ const App: React.FC = () => {
                 <div className="max-w-7xl mx-auto w-full px-4 md:px-8 flex justify-between items-center">
                     <div className="flex items-center gap-2 md:gap-6">
                         {isSuperAdmin && !isSuperAdminMode && (
-                            <button onClick={() => setIsSuperAdminMode(true)} className="p-2 md:p-3 bg-rose-50 hover:bg-rose-100 rounded-2xl text-rose-600 transition-all flex items-center gap-2 font-black text-xs">
+                            <button onClick={() => {
+                                setImpersonatedSchoolId(null);
+                                setIsSuperAdminMode(true);
+                            }} className="p-2 md:p-3 bg-rose-50 hover:bg-rose-100 rounded-2xl text-rose-600 transition-all flex items-center gap-2 font-black text-xs">
                                 <Shield size={18}/>
                                 <span className="hidden md:inline">กลับหน้าหลัก Super Admin</span>
                             </button>
