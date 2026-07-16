@@ -854,6 +854,12 @@ async function startServer() {
           continue;
         }
 
+        // Ensure the filter column exists in the central table schema
+        if (!columns.includes(filterCol)) {
+          console.warn(`[Multi-DB Sync] Table ${tableName} is missing the filter column '${filterCol}' in central database. Skipping sync.`);
+          continue;
+        }
+
         // Fetch data of this school from central database
         const [rows] = await pool.query(`SELECT * FROM \`${tableName}\` WHERE \`${filterCol}\` = ?`, [schoolId]);
         
