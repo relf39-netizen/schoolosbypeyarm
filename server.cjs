@@ -276,6 +276,8 @@ async function startServer() {
         school_id VARCHAR(255),
         year VARCHAR(255) NOT NULL,
         is_current BOOLEAN DEFAULT FALSE,
+        academic_year_start DATE DEFAULT NULL,
+        academic_year_end DATE DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`,
       `CREATE TABLE IF NOT EXISTS attendance (
@@ -834,8 +836,21 @@ async function startServer() {
           continue;
         }
 
-        if (columns.length === 0) {
-          console.warn(`[Multi-DB Sync] Table ${tableName} does not have schema or column info in central database.`);
+        let targetColumns = [];
+        try {
+          // Fetch columns of the table from the target database to ensure we do not try to insert missing columns
+          const [targetColumnsResult] = await targetPool.query(`SHOW COLUMNS FROM \`${tableName}\``);
+          targetColumns = targetColumnsResult.map(c => c.Field);
+        } catch (targetColErr) {
+          console.warn(`[Multi-DB Sync] Failed to fetch columns from target database for table ${tableName}:`, targetColErr.message);
+          continue;
+        }
+
+        // Intersect columns to sync only what is present in BOTH databases
+        const commonColumns = columns.filter(col => targetColumns.includes(col));
+
+        if (commonColumns.length === 0) {
+          console.warn(`[Multi-DB Sync] Table ${tableName} does not have any common columns to sync.`);
           continue;
         }
 
@@ -846,13 +861,13 @@ async function startServer() {
 
         if (rows.length > 0) {
           console.log(`[Multi-DB Sync] Table ${tableName}: Found ${rows.length} rows to sync.`);
-          const escapedColumns = columns.map(col => `\`${col}\``).join(', ');
-          const updateClause = columns.map(col => `\`${col}\` = VALUES(\`${col}\`)`).join(', ');
+          const escapedColumns = commonColumns.map(col => `\`${col}\``).join(', ');
+          const updateClause = commonColumns.map(col => `\`${col}\` = VALUES(\`${col}\`)`).join(', ');
 
           for (const row of rows) {
             const values = [];
             const placeholders = [];
-            for (const col of columns) {
+            for (const col of commonColumns) {
               let val = row[col];
               // Ensure we do NOT stringify Date objects, keep them intact so mysql2 can format them
               if (val instanceof Date) {
