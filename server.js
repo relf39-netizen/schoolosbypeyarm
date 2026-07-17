@@ -124,6 +124,9 @@ async function startServer() {
       }
     }
 
+    const poolLabel = (activePool === pool) ? 'CENTRAL' : 'TENANT_DEDICATED';
+    console.log(`[Database Query] [Pool: ${poolLabel}] SQL: ${sql.substring(0, 150)}${sql.length > 150 ? '...' : ''} | Params: ${JSON.stringify(params).substring(0, 300)}`);
+
     try {
       // Use query instead of execute to support ?? placeholders for identifiers
       const [results] = await activePool.query(sql, params);
@@ -601,13 +604,21 @@ async function startServer() {
   
   // Multi-tenant database routing middleware
   app.use(async (req, res, next) => {
-    const schoolId = req.headers['x-school-id'] || req.query.school_id || req.query.schoolId || (req.body && (req.body.school_id || req.body.schoolId));
+    let schoolId = req.headers['x-school-id'] || req.query.school_id || req.query.schoolId || (req.body && (req.body.school_id || req.body.schoolId));
+    
+    // Normalize string representation of null/undefined
+    if (schoolId === 'undefined' || schoolId === 'null') {
+      schoolId = null;
+    }
+
     if (schoolId) {
+      console.log(`[Multi-Tenant Middleware] Routing request ${req.method} ${req.originalUrl || req.url} to school: ${schoolId}`);
       const tenantPool = await getPoolForSchool(schoolId);
       tenantStorage.run(tenantPool, () => {
         next();
       });
     } else {
+      console.log(`[Multi-Tenant Middleware] Request ${req.method} ${req.originalUrl || req.url} has no school context. Routing to CENTRAL pool.`);
       next();
     }
   });
