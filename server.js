@@ -314,7 +314,7 @@ async function startServer() {
           mobile_phone VARCHAR(255),
           contact_info TEXT,
           status VARCHAR(255) DEFAULT 'Pending',
-          director_signature VARCHAR(255),
+          director_signature LONGTEXT,
           approved_date VARCHAR(255),
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
@@ -518,7 +518,7 @@ async function startServer() {
             { name: 'substitute_name', type: 'VARCHAR(255)' },
             { name: 'mobile_phone', type: 'VARCHAR(255)' },
             { name: 'contact_info', type: 'TEXT' },
-            { name: 'director_signature', type: 'VARCHAR(255)' },
+            { name: 'director_signature', type: 'LONGTEXT' },
             { name: 'approved_date', type: 'VARCHAR(255)' }
           ]
         }
@@ -610,6 +610,15 @@ async function startServer() {
         } else {
           console.error('[Migration Error] student_attendance unique key migration failed:', e.message);
         }
+      }
+
+      // Specific migration to modify existing leave_requests.director_signature column to LONGTEXT
+      try {
+        console.log('[Migration] Ensuring leave_requests.director_signature is LONGTEXT...');
+        await query('ALTER TABLE `leave_requests` MODIFY COLUMN `director_signature` LONGTEXT');
+        console.log('[Migration] Successfully forced leave_requests.director_signature to LONGTEXT.');
+      } catch (e) {
+        console.error('[Migration Error] Failed to modify leave_requests.director_signature column type:', e.message);
       }
 
       console.log('Database initialized and migrated successfully');
@@ -906,6 +915,33 @@ async function startServer() {
   });
 
   // 1. Schools
+  app.get('/api/debug-tables', async (req, res) => {
+    try {
+      const schoolId = req.headers['x-school-id'] || req.query.school_id || req.query.schoolId;
+      const targetPool = schoolId ? await getPoolForSchool(schoolId) : pool;
+      const poolLabel = schoolId ? `Tenant DB (${schoolId})` : 'Central DB';
+      
+      const tables = await query('SHOW TABLES', [], targetPool);
+      
+      let leaveCols = [];
+      try {
+        leaveCols = await query('DESCRIBE leave_requests', [], targetPool);
+      } catch (colErr) {
+        leaveCols = { error: colErr.message };
+      }
+      
+      res.json({
+        success: true,
+        poolLabel,
+        schoolId,
+        tables,
+        leaveCols
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.get('/api/db-check', async (req, res) => {
     try {
       const result = await query('SELECT 1 as connected');
@@ -1358,21 +1394,47 @@ async function startServer() {
       });
       res.json(parsed);
     } catch (err) {
-      res.status(500).json({ error: `Failed to fetch from ${tableName}` });
+      res.status(500).json({ error: `Failed to fetch from ${tableName}: ${err.message || String(err)}` });
     }
   });
 
   // Database Initialization (Manual Trigger)
   app.post('/api/init-db', async (req, res) => {
     try {
+      console.log('[Init-DB] Initializing central database...');
       await initializeDatabase();
+      
+      // Also fetch and initialize all registered school tenant databases
+      let configs = [];
+      try {
+        [configs] = await pool.query('SELECT * FROM school_database_configs');
+      } catch (err) {
+        console.warn('[Init-DB] school_database_configs table does not exist or cannot be queried yet:', err.message);
+      }
+      
+      const results = [];
+      results.push({ database: 'Central DB', status: 'success' });
+      
+      for (const config of configs) {
+        try {
+          console.log(`[Init-DB] Propagating initialization to school tenant DB: ${config.database_name} (${config.school_id})`);
+          const schoolPool = await getPoolForSchool(config.school_id);
+          await initializeDatabase(schoolPool);
+          results.push({ database: `${config.database_name} (${config.school_id})`, status: 'success' });
+        } catch (tenantErr) {
+          console.error(`[Init-DB] Failed to initialize tenant DB: ${config.database_name}:`, tenantErr.message);
+          results.push({ database: `${config.database_name} (${config.school_id})`, status: 'failed', error: tenantErr.message });
+        }
+      }
+      
       res.json({ 
         success: true, 
-        message: 'ปรับปรุงโครงสร้างฐานข้อมูลเรียบร้อยแล้ว' 
+        message: 'ปรับปรุงโครงสร้างฐานข้อมูลทุกโรงเรียนและส่วนกลางเรียบร้อยแล้ว',
+        details: results
       });
     } catch (err) {
       console.error(err);
-      res.status(500).json({ error: 'Failed to initialize database' });
+      res.status(500).json({ error: 'Failed to initialize database: ' + (err.message || String(err)) });
     }
   });
 
@@ -1649,7 +1711,7 @@ async function startServer() {
       res.json(Array.isArray(data) ? data : [data]);
     } catch (err) {
       console.error(err);
-      res.status(500).json({ error: `Failed to update ${tableName}` });
+      res.status(500).json({ error: `Failed to update ${tableName}: ${err.message || String(err)}` });
     }
   });
 
@@ -1714,7 +1776,7 @@ async function startServer() {
       await query(sql, params);
       res.json({ success: true });
     } catch (err) {
-      res.status(500).json({ error: `Failed to delete from ${tableName}` });
+      res.status(500).json({ error: `Failed to delete from ${tableName}: ${err.message || String(err)}` });
     }
   });
 
