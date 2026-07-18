@@ -6,7 +6,7 @@ import {
     Search, Users, Power, PowerOff, 
     ArrowLeft, Edit, Key, User as UserIcon, Eye, EyeOff,
     Clock, Check, ShieldPlus, UserMinus,
-    Database, RefreshCw, Zap
+    Database, RefreshCw, Zap, ShieldAlert
 } from 'lucide-react';
 import { supabase, isConfigured as isSupabaseConfigured } from '../supabaseClient';
 
@@ -167,6 +167,35 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             setSyncMessage("ขัดข้อง: " + err.message);
         } finally {
             setIsSyncingDb(false);
+        }
+    };
+
+    // Multi-Database Diagnose and Repair State
+    const [isDiagnosingDb, setIsDiagnosingDb] = useState(false);
+    const [diagnoseReport, setDiagnoseReport] = useState<any | null>(null);
+    const [diagnoseError, setDiagnoseError] = useState<string | null>(null);
+
+    const handleDiagnoseRepair = async () => {
+        if (!selectedSchoolId) return;
+        setIsDiagnosingDb(true);
+        setDiagnoseReport(null);
+        setDiagnoseError(null);
+        try {
+            const res = await fetch(`/api/school-db-config/${selectedSchoolId}/diagnose-repair`, {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if (data.success) {
+                setDiagnoseReport(data.report);
+                alert("ตรวจวินิจฉัยและปรับปรุงสคีมาตารางข้อมูลในระบบสำเร็จแล้ว! กรุณาตรวจสอบรายงานรายละเอียดการซ่อมแซม");
+            } else {
+                setDiagnoseError(data.error || "เกิดข้อผิดพลาดระหว่างการตรวจวินิจฉัยฐานข้อมูล");
+                if (data.report) setDiagnoseReport(data.report);
+            }
+        } catch (err: any) {
+            setDiagnoseError("ไม่สามารถติดต่อเซิร์ฟเวอร์ตรวจวินิจฉัยได้: " + err.message);
+        } finally {
+            setIsDiagnosingDb(false);
         }
     };
 
@@ -748,6 +777,94 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                                             {syncMessage}
                                         </div>
                                     )}
+
+                                    {/* Database Diagnostics & Repair Tool (Specifically to help fix leave request table column mismatches) */}
+                                    <div className="mt-8 pt-8 border-t border-slate-100">
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
+                                                <ShieldAlert size={18} className={isDiagnosingDb ? "animate-bounce" : ""} />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-sm font-black text-slate-800">เครื่องมือตรวจวินิจฉัยและซ่อมแซมตารางข้อมูล (DB Diagnostics & Schema Repair)</h5>
+                                                <p className="text-[10px] text-slate-400">ตรวจสอบ แก้ไขคอลัมน์ และขยายขนาดฟิลด์ (เช่น ชื่ออนุมัติ/ลายเซ็นใบลา) ในฐานข้อมูลของโรงเรียนนี้โดยอัตโนมัติ</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-rose-50/50 border border-rose-100 rounded-2xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                            <div className="space-y-1">
+                                                <div className="text-xs font-bold text-rose-800">แสกนตรวจวินิจฉัย แก้ปัญหาสิทธิ์อนุมัติใบลา และซ่อมแซมฐานข้อมูลใหม่</div>
+                                                <div className="text-[10px] text-rose-600 font-medium max-w-xl leading-relaxed">
+                                                    หากคุณครูพบปัญหาเช่น <b>"ไม่สามารถอนุมัติใบลาได้"</b> หรือมีปัญหาในการเขียนข้อมูลบนฐานข้อมูลแยกใหม่ ปุ่มนี้จะช่วยตรวจหาคอลัมน์ที่ขาดหายไป ปรับปรุงคอลัมน์ชื่อผู้เขียน-ลายเซ็นอนุมัติ (director_signature) และตรวจสอบข้อจำกัดสิทธิ์คีย์นอก (Foreign Key) ของตาราง schools/configs ให้ตรงกันเพื่อแก้ปัญหาทันที
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                onClick={handleDiagnoseRepair}
+                                                disabled={isDiagnosingDb || isTestingDbConfig}
+                                                className="w-full md:w-auto px-5 py-3 bg-rose-600 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md hover:bg-rose-700 active:scale-95 transition-all flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50"
+                                            >
+                                                {isDiagnosingDb ? (
+                                                    <>
+                                                        <Loader2 className="animate-spin" size={14} />
+                                                        กำลังวินิจฉัยและซ่อมแซม...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <RefreshCw size={14} />
+                                                        ตรวจวินิจฉัยและซ่อมแซมตารางอัตโนมัติ
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+
+                                        {diagnoseError && (
+                                            <div className="mt-4 p-4 bg-red-50 border border-red-100 text-red-800 rounded-xl text-xs font-bold leading-relaxed">
+                                                ❌ {diagnoseError}
+                                            </div>
+                                        )}
+
+                                        {diagnoseReport && (
+                                            <div className="mt-4 p-5 bg-slate-900 text-slate-100 rounded-2xl text-xs font-mono border border-slate-800 space-y-3">
+                                                <div className="text-sm font-black text-slate-200 border-b border-slate-800 pb-2 flex items-center justify-between">
+                                                    <span>รายงานผลการตรวจวินิจฉัยและซ่อมแซม:</span>
+                                                    <span className={`px-2 py-0.5 text-[9px] font-black rounded-full uppercase ${diagnoseReport.connection.status === 'success' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                                        {diagnoseReport.connection.status === 'success' ? 'เชื่อมต่อสำเร็จ' : 'เชื่อมต่อล้มเหลว'}
+                                                    </span>
+                                                </div>
+                                                
+                                                <div className="space-y-1.5 text-slate-300">
+                                                    <div>📡 <b>การเชื่อมต่อ:</b> {diagnoseReport.connection.message}</div>
+                                                    <div>📋 <b>สถานะตารางข้อมูล:</b></div>
+                                                    <div className="pl-4 space-y-1">
+                                                        <div>• ตาราง <code>leave_requests</code>: <span className={diagnoseReport.tables.leave_requests === 'OK' ? 'text-green-400 font-bold' : 'text-red-400 font-bold'}>{diagnoseReport.tables.leave_requests}</span></div>
+                                                    </div>
+                                                </div>
+
+                                                {diagnoseReport.repaired.length > 0 && (
+                                                    <div className="pt-2 border-t border-slate-800 space-y-1">
+                                                        <div className="text-slate-200 font-black">🛠️ รายการซ่อมแซมสำเร็จ:</div>
+                                                        <ul className="list-disc pl-5 space-y-0.5 text-green-400">
+                                                            {diagnoseReport.repaired.map((item: string, idx: number) => (
+                                                                <li key={idx}>{item}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+
+                                                {diagnoseReport.errors.length > 0 && (
+                                                    <div className="pt-2 border-t border-slate-800 space-y-1">
+                                                        <div className="text-amber-400 font-black">⚠️ ข้อพิจารณาเพิ่มเติม/คำเตือน:</div>
+                                                        <ul className="list-disc pl-5 space-y-0.5 text-amber-300">
+                                                            {diagnoseReport.errors.map((item: string, idx: number) => (
+                                                                <li key={idx}>{item}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>
