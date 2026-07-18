@@ -922,6 +922,181 @@ async function startServer() {
     }
   });
 
+  app.post('/api/school-db-config/:schoolId/diagnose-repair', async (req, res) => {
+    const { schoolId } = req.params;
+    const report = {
+      connection: { status: 'pending', message: '' },
+      tables: {},
+      repaired: [],
+      errors: []
+    };
+
+    try {
+      console.log(`[Multi-DB Diagnose] Starting database diagnostics and repair for school ID: ${schoolId}...`);
+      
+      // 1. Get database configuration
+      const [configs] = await pool.query('SELECT * FROM school_database_configs WHERE school_id = ?', [schoolId]);
+      if (!configs || configs.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'ไม่พบการตั้งค่าฐานข้อมูลแยกเฉพาะสำหรับโรงเรียนนี้ กรุณาระบุการตั้งค่าฐานข้อมูลก่อนเริ่มตรวจวินิจฉัย'
+        });
+      }
+      
+      const config = configs[0];
+      const targetPool = await getPoolForSchool(schoolId);
+      
+      // Test Connection
+      try {
+        await targetPool.query('SELECT 1');
+        report.connection.status = 'success';
+        report.connection.message = `เชื่อมต่อกับฐานข้อมูลเรียบร้อยแล้ว: ${config.database_name} บนโฮสต์ ${config.host}`;
+      } catch (connErr) {
+        report.connection.status = 'failed';
+        report.connection.message = `เชื่อมต่อล้มเหลว: ${connErr.message}`;
+        report.errors.push(`ข้อผิดพลาดการเชื่อมต่อฐานข้อมูล: ${connErr.message}`);
+        return res.json({ success: false, report });
+      }
+
+      // Helper function to run query on target pool
+      const targetQuery = (sql, params = []) => runGlobalQuery(sql, params, targetPool);
+
+      // 2. Diagnose & Repair Table schema: leave_requests
+      try {
+        // Check if table exists
+        const [tables] = await targetQuery("SHOW TABLES LIKE 'leave_requests'");
+        if (!tables || tables.length === 0) {
+          // Table doesn't exist, create it!
+          await targetQuery(`
+            CREATE TABLE \`leave_requests\` (
+              \`id\` BIGINT AUTO_INCREMENT PRIMARY KEY,
+              \`school_id\` VARCHAR(255) NOT NULL,
+              \`teacher_id\` VARCHAR(255) NOT NULL,
+              \`teacher_name\` VARCHAR(255) DEFAULT NULL,
+              \`teacher_position\` VARCHAR(255) DEFAULT NULL,
+              \`type\` VARCHAR(255) NOT NULL,
+              \`start_date\` VARCHAR(255) NOT NULL,
+              \`end_date\` VARCHAR(255) NOT NULL,
+              \`start_time\` VARCHAR(255) DEFAULT NULL,
+              \`end_time\` VARCHAR(255) DEFAULT NULL,
+              \`substitute_name\` VARCHAR(255) DEFAULT NULL,
+              \`reason\` TEXT DEFAULT NULL,
+              \`mobile_phone\` VARCHAR(255) DEFAULT NULL,
+              \`contact_info\` TEXT DEFAULT NULL,
+              \`status\` VARCHAR(255) DEFAULT 'Pending',
+              \`director_signature\` LONGTEXT DEFAULT NULL,
+              \`approved_date\` VARCHAR(255) DEFAULT NULL,
+              \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+          `);
+          report.repaired.push('สร้างตาราง leave_requests ใหม่สำเร็จ (เนื่องจากตรวจไม่พบตารางในฐานข้อมูลแยกเฉพาะ)');
+        } else {
+          // Table exists, check and add missing columns
+          const cols = await targetQuery("SHOW COLUMNS FROM `leave_requests`");
+          const colNames = cols.map(c => c.Field || c.column_name || c.COLUMN_NAME);
+          
+          const expectedCols = [
+            { name: 'school_id', type: 'VARCHAR(255) NOT NULL' },
+            { name: 'teacher_id', type: 'VARCHAR(255) NOT NULL' },
+            { name: 'teacher_name', type: 'VARCHAR(255) DEFAULT NULL' },
+            { name: 'teacher_position', type: 'VARCHAR(255) DEFAULT NULL' },
+            { name: 'type', type: 'VARCHAR(255) NOT NULL' },
+            { name: 'start_date', type: 'VARCHAR(255) NOT NULL' },
+            { name: 'end_date', type: 'VARCHAR(255) NOT NULL' },
+            { name: 'start_time', type: 'VARCHAR(255) DEFAULT NULL' },
+            { name: 'end_time', type: 'VARCHAR(255) DEFAULT NULL' },
+            { name: 'substitute_name', type: 'VARCHAR(255) DEFAULT NULL' },
+            { name: 'reason', type: 'TEXT DEFAULT NULL' },
+            { name: 'mobile_phone', type: 'VARCHAR(255) DEFAULT NULL' },
+            { name: 'contact_info', type: 'TEXT DEFAULT NULL' },
+            { name: 'status', type: 'VARCHAR(255) DEFAULT "Pending"' },
+            { name: 'director_signature', type: 'LONGTEXT DEFAULT NULL' },
+            { name: 'approved_date', type: 'VARCHAR(255) DEFAULT NULL' }
+          ];
+
+          for (const ec of expectedCols) {
+            if (!colNames.includes(ec.name)) {
+              await targetQuery(`ALTER TABLE \`leave_requests\` ADD COLUMN \`${ec.name}\` ${ec.type}`);
+              report.repaired.push(`เพิ่มคอลัมน์ใหม่สำเร็จ: leave_requests.${ec.name}`);
+            }
+          }
+
+          // Check if director_signature is LONGTEXT
+          const sigCol = cols.find(c => (c.Field || c.column_name || c.COLUMN_NAME) === 'director_signature');
+          if (sigCol) {
+            const type = (sigCol.Type || sigCol.type || '').toLowerCase();
+            if (!type.includes('longtext')) {
+              try {
+                await targetQuery('ALTER TABLE `leave_requests` MODIFY COLUMN `director_signature` LONGTEXT');
+                report.repaired.push('ปรับปรุงประเภทข้อมูลคอลัมน์ director_signature ในตาราง leave_requests ให้เป็น LONGTEXT เรียบร้อยแล้ว');
+              } catch (alterErr) {
+                report.errors.push(`ไม่สามารถปรับปรุงประเภทคอลัมน์ director_signature ได้: ${alterErr.message}`);
+              }
+            }
+          }
+        }
+        report.tables.leave_requests = 'OK';
+      } catch (leaveErr) {
+        report.tables.leave_requests = 'ERROR';
+        report.errors.push(`ความล้มเหลวในการตรวจ/ซ่อมแซมตาราง leave_requests: ${leaveErr.message}`);
+      }
+
+      // 3. Ensure Foreign Key and School context exists
+      try {
+        const [schoolsRows] = await targetQuery("SELECT * FROM `schools` WHERE `id` = ?", [schoolId]);
+        if (!schoolsRows || schoolsRows.length === 0) {
+          // School is missing in target database, copy it from central database!
+          const [centralSchool] = await pool.query("SELECT * FROM `schools` WHERE `id` = ?", [schoolId]);
+          if (centralSchool && centralSchool.length > 0) {
+            const cs = centralSchool[0];
+            const keys = Object.keys(cs);
+            const placeholders = keys.map(() => '?').join(', ');
+            const values = keys.map(k => cs[k]);
+            await targetQuery(`INSERT INTO \`schools\` (\`${keys.join('`, `')}\`) VALUES (${placeholders})`, values);
+            report.repaired.push(`คัดลอกข้อมูลโครงสร้างโรงเรียนลงในตาราง schools ในฐานข้อมูลใหม่ เพื่อให้คีย์อ้างอิงตรงกัน`);
+          }
+        }
+      } catch (schoolErr) {
+        report.errors.push(`ความล้มเหลวในการตรวจสอบตาราง schools: ${schoolErr.message}`);
+      }
+
+      // 4. Ensure school config context exists
+      try {
+        const [configRows] = await targetQuery("SELECT * FROM `school_configs` WHERE `school_id` = ?", [schoolId]);
+        if (!configRows || configRows.length === 0) {
+          const [centralConfig] = await pool.query("SELECT * FROM `school_configs` WHERE `school_id` = ?", [schoolId]);
+          if (centralConfig && centralConfig.length > 0) {
+            const cc = centralConfig[0];
+            const keys = Object.keys(cc);
+            const placeholders = keys.map(() => '?').join(', ');
+            const values = keys.map(k => {
+              if (Array.isArray(cc[k]) || (typeof cc[k] === 'object' && cc[k] !== null)) {
+                return JSON.stringify(cc[k]);
+              }
+              return cc[k];
+            });
+            await targetQuery(`INSERT INTO \`school_configs\` (\`${keys.join('`, `')}\`) VALUES (${placeholders})`, values);
+            report.repaired.push(`คัดลอกการตั้งค่าระบบโรงเรียนหลักลงในตาราง school_configs สำเร็จ`);
+          }
+        }
+      } catch (configErr) {
+        report.errors.push(`ความล้มเหลวในการตรวจสอบตาราง school_configs: ${configErr.message}`);
+      }
+
+      console.log(`[Multi-DB Diagnose] Completed repair and diagnosis for school ${schoolId}.`);
+      res.json({
+        success: true,
+        report
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({
+        success: false,
+        error: `เกิดข้อผิดพลาดในการตรวจวินิจฉัย/ซ่อมแซมฐานข้อมูล: ${err.message || String(err)}`
+      });
+    }
+  });
+
   // 1. Schools
   app.get('/api/db-check', async (req, res) => {
     try {
