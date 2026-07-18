@@ -387,7 +387,7 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
                                         </div>
                                         <div className="flex justify-between items-start mb-3 relative z-10">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-2xl bg-white/20 text-white flex items-center justify-center font-black backdrop-blur-md shadow-inner">{req.teacherName[0]}</div>
+                                                <div className="w-10 h-10 rounded-2xl bg-white/20 text-white flex items-center justify-center font-black backdrop-blur-md shadow-inner">{(req.teacherName || '')[0] || '?'}</div>
                                                 <div>
                                                     <p className="font-black text-white leading-none mb-1 drop-shadow-sm">{req.teacherName}</p>
                                                     <p className="text-[10px] text-white/70 font-bold uppercase tracking-wider">{req.teacherPosition}</p>

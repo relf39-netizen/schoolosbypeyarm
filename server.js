@@ -293,11 +293,20 @@ async function startServer() {
           id BIGINT AUTO_INCREMENT PRIMARY KEY,
           school_id VARCHAR(255),
           teacher_id VARCHAR(255),
+          teacher_name VARCHAR(255),
+          teacher_position VARCHAR(255),
           type VARCHAR(255),
           start_date DATE,
           end_date DATE,
+          start_time VARCHAR(255),
+          end_time VARCHAR(255),
+          substitute_name VARCHAR(255),
           reason TEXT,
+          mobile_phone VARCHAR(255),
+          contact_info TEXT,
           status VARCHAR(255) DEFAULT 'Pending',
+          director_signature VARCHAR(255),
+          approved_date VARCHAR(255),
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
         `CREATE TABLE IF NOT EXISTS plan_projects (
@@ -488,6 +497,20 @@ async function startServer() {
             { name: 'director_signature_base_64', type: 'LONGTEXT' },
             { name: 'director_signature_scale', type: 'FLOAT DEFAULT 1.0' },
             { name: 'director_signature_y_offset', type: 'FLOAT DEFAULT 0' }
+          ]
+        },
+        {
+          table: 'leave_requests',
+          columns: [
+            { name: 'teacher_name', type: 'VARCHAR(255)' },
+            { name: 'teacher_position', type: 'VARCHAR(255)' },
+            { name: 'start_time', type: 'VARCHAR(255)' },
+            { name: 'end_time', type: 'VARCHAR(255)' },
+            { name: 'substitute_name', type: 'VARCHAR(255)' },
+            { name: 'mobile_phone', type: 'VARCHAR(255)' },
+            { name: 'contact_info', type: 'TEXT' },
+            { name: 'director_signature', type: 'VARCHAR(255)' },
+            { name: 'approved_date', type: 'VARCHAR(255)' }
           ]
         }
       ];
