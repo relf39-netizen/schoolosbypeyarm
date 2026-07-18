@@ -72,6 +72,15 @@ async function startServer() {
           dateStrings: true
         });
         schoolPools.set(schoolId, schoolPool);
+        
+        // Ensure schema and all migrations are applied to the new tenant database pool
+        try {
+          console.log(`[Multi-DB] Automatically initializing schema and migrations for school: ${schoolId}`);
+          await initializeDatabase(schoolPool);
+        } catch (initErr) {
+          console.error(`[Multi-DB] Failed to run schema/migrations initialization for school: ${schoolId}:`, initErr.message);
+        }
+
         return schoolPool;
       }
     } catch (err) {
