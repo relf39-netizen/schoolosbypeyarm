@@ -15,6 +15,7 @@ import { supabase } from '../supabaseClient';
 import { Teacher, Student, StudentAttendance, StudentAttendanceStatus, ClassRoom, AcademicYear, StudentHealthRecord } from '../types';
 import { getDirectDriveUrl } from '../utils/drive';
 import { motion, AnimatePresence } from 'framer-motion';
+import { sendTelegramMessage } from '../utils/telegram';
 import { TeacherDutySystem } from './TeacherDutySystem';
 import { 
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
@@ -245,7 +246,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             // Fetch Director Name
             const { data: teachers } = await supabase
                 .from('profiles')
-                .select('name, roles, position, is_acting_director')
+                .select('name, roles, position, is_acting_director, telegram_chat_id')
                 .eq('school_id', currentUser.schoolId);
             
             if (teachers && teachers.length > 0) {
@@ -1439,6 +1440,142 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         }
     };
 
+    const saveAndSendTelegram = async () => {
+        if (!supabase) return;
+        
+        if (!currentAcademicYear) {
+            alert('ไม่พบข้อมูลปีการศึกษาปัจจุบัน กรุณาตั้งค่าปีการศึกษาในหน้าจัดการข้อมูล (Manage Academic Years) และเลือกปีปัจจุบันก่อน');
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            const records = Object.entries(tempAttendance).map(([studentId, status]) => ({
+                school_id: currentUser.schoolId,
+                student_id: studentId,
+                date: selectedDate,
+                status: status,
+                academic_year: currentAcademicYear,
+                created_by: currentUser.id
+            }));
+
+            if (records.length === 0) {
+                alert('ไม่พบรายชื่อนักเรียนที่จะบันทึก');
+                setIsSaving(false);
+                return;
+            }
+
+            // Use upsert to handle updates
+            const { error } = await supabase
+                .from('student_attendance')
+                .upsert(records, { onConflict: 'student_id, date' });
+
+            if (error) throw error;
+            
+            // Now construct and send Telegram notification
+            let telegramSentSuccess = false;
+            let telegramConfigMissing = false;
+            let noChatId = false;
+            
+            const botToken = schoolConfig?.telegram_bot_token;
+            if (botToken) {
+                const classStudents = students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim());
+                const total = classStudents.length;
+                const present = classStudents.filter(s => tempAttendance[s.id] === 'Present').length;
+                const late = classStudents.filter(s => tempAttendance[s.id] === 'Late').length;
+                const sick = classStudents.filter(s => tempAttendance[s.id] === 'Sick').length;
+                const absent = classStudents.filter(s => tempAttendance[s.id] === 'Absent').length;
+                
+                const absentNames = classStudents
+                    .filter(s => tempAttendance[s.id] === 'Absent')
+                    .map(s => s.name);
+                const sickNames = classStudents
+                    .filter(s => tempAttendance[s.id] === 'Sick')
+                    .map(s => s.name);
+                const lateNames = classStudents
+                    .filter(s => tempAttendance[s.id] === 'Late')
+                    .map(s => s.name);
+
+                const thaiDateStr = formatToThaiDate(selectedDate);
+                
+                const message = 
+                    `📊 <b>รายงานการมาเรียนของนักเรียน</b>\n\n` +
+                    `🏫 <b>ห้องเรียน:</b> ${selectedClass}\n` +
+                    `📅 <b>วันที่:</b> ${thaiDateStr}\n` +
+                    `👥 <b>จำนวนนักเรียนทั้งหมด:</b> ${total} คน\n\n` +
+                    `🟢 <b>มาเรียน:</b> ${present} คน\n` +
+                    `🟡 <b>สาย:</b> ${late} คน\n` +
+                    `🔵 <b>ลา:</b> ${sick} คน\n` +
+                    `🔴 <b>ขาดเรียน:</b> ${absent} คน\n\n` +
+                    (absentNames.length > 0 ? `❌ <b>รายชื่อนักเรียนที่ขาดเรียน:</b>\n${absentNames.map((name, i) => `${i+1}. ${name}`).join('\n')}\n\n` : '') +
+                    (sickNames.length > 0 ? `📝 <b>รายชื่อนักเรียนที่ลา:</b>\n${sickNames.map((name, i) => `${i+1}. ${name}`).join('\n')}\n\n` : '') +
+                    (lateNames.length > 0 ? `⏳ <b>รายชื่อนักเรียนที่มาสาย:</b>\n${lateNames.map((name, i) => `${i+1}. ${name}`).join('\n')}\n\n` : '') +
+                    `👤 <b>ผู้บันทึก:</b> คุณครู ${currentUser.name}`;
+
+                // Target Recipients:
+                const recipients: string[] = [];
+                
+                // 1. Current teacher's telegram chat id
+                if (currentUser.telegramChatId) {
+                    recipients.push(currentUser.telegramChatId);
+                } else {
+                    // Try the mapped database profile
+                    const currentProfile = allSchoolTeachers.find((t: any) => t.id === currentUser.id);
+                    if (currentProfile?.telegram_chat_id) {
+                        recipients.push(currentProfile.telegram_chat_id);
+                    }
+                }
+                
+                // 2. Administrators / Directors
+                const directors = allSchoolTeachers.filter((t: any) => 
+                    (t.roles || []).includes('DIRECTOR') || 
+                    t.is_acting_director === true ||
+                    (t.roles || []).includes('SYSTEM_ADMIN')
+                );
+                
+                directors.forEach((dir: any) => {
+                    if (dir.telegram_chat_id && !recipients.includes(dir.telegram_chat_id)) {
+                        recipients.push(dir.telegram_chat_id);
+                    }
+                });
+
+                if (recipients.length > 0) {
+                    for (const chatId of recipients) {
+                        await sendTelegramMessage(botToken, chatId, message);
+                    }
+                    telegramSentSuccess = true;
+                } else {
+                    noChatId = true;
+                }
+            } else {
+                telegramConfigMissing = true;
+            }
+
+            let alertMsg = 'บันทึกข้อมูลการมาเรียนเรียบร้อยแล้ว!';
+            if (telegramSentSuccess) {
+                alertMsg += '\n\n📲 ระบบได้ส่งสรุปรายงานการมาเรียนเข้า Telegram ของท่านและผู้บริหารเรียบร้อยแล้ว';
+            } else if (telegramConfigMissing) {
+                alertMsg += '\n\n⚠️ หมายเหตุ: ไม่พบการตั้งค่า Telegram Bot Token ของโรงเรียนในระบบ จึงไม่สามารถส่งสรุปเข้า Telegram ได้ (กรุณาให้ผู้ดูแลระบบตั้งค่า Token ที่เมนูจัดการระบบ)';
+            } else if (noChatId) {
+                alertMsg += '\n\n⚠️ หมายเหตุ: บันทึกสำเร็จ แต่ไม่สามารถส่งแจ้งเตือนได้ เนื่องจากคุณครูประจำชั้นและผู้บริหารยังไม่ได้ผูกบัญชี Telegram Chat ID ในหน้าข้อมูลส่วนตัว';
+            }
+            
+            alert(alertMsg);
+            
+            await fetchAttendance(selectedDate);
+            if (viewMode === 'HISTORY' || true) {
+                fetchHistory();
+            }
+            setViewMode('DASHBOARD');
+        } catch (error: any) {
+            console.error('Error saving attendance:', error);
+            const errorMsg = error.message || error.details || 'Unknown error';
+            alert(`เกิดข้อผิดพลาดในการบันทึกข้อมูล: ${errorMsg}`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const handlePurgeAttendance = async () => {
         if (!isAdmin) {
             alert('ขออภัย เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถล้างข้อมูลได้');
@@ -2013,19 +2150,27 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
             )}
 
             {viewMode === 'RECORD' && (
-                <div className="space-y-6 animate-slide-up">
-                    <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100">
-                        <div className="flex justify-between items-center mb-8 border-b pb-6 border-slate-50">
-                            <div className="flex items-center gap-4">
+                <div className="space-y-6 animate-slide-up pb-28">
+                    <div className="bg-white p-4 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-xl border border-slate-100">
+                        {/* Header Area */}
+                        <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-100">
+                            <div className="flex items-center gap-3">
                                 <button onClick={() => setViewMode('DASHBOARD')} className="p-2 hover:bg-slate-50 rounded-full text-slate-400 transition-all">
-                                    <ArrowLeft size={24} />
+                                    <ArrowLeft size={20} className="stroke-[3]" />
                                 </button>
                                 <div>
-                                    <h3 className="font-black text-xl text-slate-800">บันทึกการมาเรียน: ชั้น {selectedClass}</h3>
-                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">วันที่ {formatToThaiDate(selectedDate)}</p>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <h3 className="font-black text-base md:text-xl text-slate-800">ห้องเรียนของฉัน {selectedClass}</h3>
+                                        <span className="bg-blue-50 text-blue-600 font-bold px-3 py-1 rounded-full text-xs md:text-sm">
+                                            มา {students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim() && tempAttendance[s.id] === 'Present').length}/{students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim()).length}
+                                        </span>
+                                    </div>
+                                    <p className="text-[10px] md:text-xs font-bold text-slate-400 mt-0.5 tracking-wider">วันที่ {formatToThaiDate(selectedDate)}</p>
                                 </div>
                             </div>
-                            <div className="flex gap-3">
+                            
+                            {/* Desktop only controls */}
+                            <div className="hidden md:flex gap-3">
                                 <button 
                                     onClick={() => setViewMode('DASHBOARD')}
                                     className="px-6 py-2 bg-slate-100 text-slate-500 rounded-xl font-black text-sm hover:bg-slate-200 transition-all"
@@ -2035,49 +2180,112 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                 <button 
                                     onClick={saveAttendance}
                                     disabled={isSaving}
-                                    className="px-8 py-2 bg-indigo-600 text-white rounded-xl font-black text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center gap-2"
+                                    className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-black text-sm hover:bg-indigo-700 transition-all shadow-md flex items-center gap-2"
                                 >
-                                    {isSaving ? <TrendingUp className="animate-spin" size={18} /> : <Save size={18} />}
-                                    บันทึกทั้งหมด
+                                    {isSaving ? <Loader className="animate-spin" size={16} /> : <Save size={16} />}
+                                    บันทึกระบบ
                                 </button>
                             </div>
                         </div>
 
-                        <div className="space-y-4">
-                            {students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim()).map((student, idx) => (
-                                <div key={student.id} className="flex flex-col md:flex-row md:items-center justify-between p-6 bg-slate-50 rounded-3xl border border-slate-100 gap-4">
-                                    <div className="flex items-center gap-4">
-                                        <span className="text-sm font-black text-slate-300 w-8">{idx + 1}</span>
-                                                    <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center font-black text-indigo-500 shadow-sm border border-slate-100 text-xl overflow-hidden">
-                                                        {student.photoUrl ? (
-                                                            <img src={getDirectDriveUrl(student.photoUrl)} className="w-full h-full object-cover" alt={student.name} referrerPolicy="no-referrer" />
-                                                        ) : (
-                                                            student.name[0]
-                                                        )}
-                                                    </div>
-                                        <div>
-                                            <p className="font-black text-slate-800 text-lg">{student.name}</p>
-                                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">ID: {student.id.slice(0,8)}</p>
+                        {/* Student Attendance List */}
+                        <div className="space-y-3">
+                            {students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim()).map((student, idx) => {
+                                const currentStatus = tempAttendance[student.id] || 'Present';
+                                
+                                // Determine border and glow colors to match screenshot status matching
+                                let borderClass = 'border-slate-100 bg-white';
+                                if (currentStatus === 'Present') borderClass = 'border-emerald-500/20 bg-emerald-50/5 shadow-sm shadow-emerald-50';
+                                if (currentStatus === 'Late') borderClass = 'border-amber-500/20 bg-amber-50/5 shadow-sm shadow-amber-50';
+                                if (currentStatus === 'Sick') borderClass = 'border-blue-500/20 bg-blue-50/5 shadow-sm shadow-blue-50';
+                                if (currentStatus === 'Absent') borderClass = 'border-rose-500/20 bg-rose-50/5 shadow-sm shadow-rose-50';
+
+                                return (
+                                    <div 
+                                        key={student.id} 
+                                        className={`flex items-center justify-between p-4 rounded-2xl border transition-all duration-200 ${borderClass} gap-4`}
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <span className="text-xs font-black text-slate-300 w-5 shrink-0 text-center">{idx + 1}</span>
+                                            <div className="min-w-0">
+                                                <p className="font-bold text-slate-800 text-sm md:text-base truncate">{student.name}</p>
+                                                <p className="text-[10px] md:text-xs font-bold text-slate-400 mt-0.5 tracking-wider">ID: {student.id.slice(0, 8)}</p>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {(['Present', 'Late', 'Sick', 'Absent'] as StudentAttendanceStatus[]).map(status => (
+
+                                        {/* Horizontal Toggle Buttons similar to mobile screenshot */}
+                                        <div className="flex items-center bg-slate-50 border border-slate-100 p-1 rounded-full shrink-0">
                                             <button
-                                                key={status}
-                                                onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: status }))}
-                                                className={`flex-1 md:flex-none px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all border-2 flex items-center justify-center gap-2 ${
-                                                    tempAttendance[student.id] === status 
-                                                        ? getStatusColor(status).replace('bg-', 'bg-').replace('text-', 'text-') + ' border-current shadow-md'
-                                                        : 'bg-white text-slate-400 border-slate-100 hover:border-slate-200'
+                                                onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Present' }))}
+                                                className={`px-3 py-1.5 rounded-full text-[11px] font-black transition-all ${
+                                                    currentStatus === 'Present'
+                                                        ? 'bg-emerald-500 text-white shadow-sm'
+                                                        : 'text-slate-400 hover:text-slate-600'
                                                 }`}
                                             >
-                                                {getStatusIcon(status)}
-                                                {getStatusLabel(status)}
+                                                มา
                                             </button>
-                                        ))}
+                                            <button
+                                                onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Late' }))}
+                                                className={`px-3 py-1.5 rounded-full text-[11px] font-black transition-all ${
+                                                    currentStatus === 'Late'
+                                                        ? 'bg-amber-500 text-white shadow-sm'
+                                                        : 'text-slate-400 hover:text-slate-600'
+                                                }`}
+                                            >
+                                                สาย
+                                            </button>
+                                            <button
+                                                onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Sick' }))}
+                                                className={`px-3 py-1.5 rounded-full text-[11px] font-black transition-all ${
+                                                    currentStatus === 'Sick'
+                                                        ? 'bg-blue-500 text-white shadow-sm'
+                                                        : 'text-slate-400 hover:text-slate-600'
+                                                }`}
+                                            >
+                                                ลา
+                                            </button>
+                                            <button
+                                                onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Absent' }))}
+                                                className={`px-3 py-1.5 rounded-full text-[11px] font-black transition-all ${
+                                                    currentStatus === 'Absent'
+                                                        ? 'bg-rose-500 text-white shadow-sm'
+                                                        : 'text-slate-400 hover:text-slate-600'
+                                                }`}
+                                            >
+                                                ขาด
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Floating Sticky Bottom Bar for Mobile Devices */}
+                    <div className="fixed bottom-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md border-t border-slate-100 p-4 flex justify-center shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.08)] md:p-5">
+                        <div className="w-full max-w-xl flex gap-3">
+                            <button 
+                                onClick={() => setViewMode('DASHBOARD')}
+                                className="px-5 py-3 bg-slate-100 text-slate-500 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all active:scale-95 whitespace-nowrap"
+                            >
+                                ยกเลิก
+                            </button>
+                            <button 
+                                onClick={saveAndSendTelegram}
+                                disabled={isSaving}
+                                className="flex-1 py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-sm transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 active:scale-95"
+                            >
+                                {isSaving ? (
+                                    <Loader className="animate-spin" size={18} />
+                                ) : (
+                                    <svg className="w-4 h-4 transform rotate-45" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                                    </svg>
+                                )}
+                                บันทึกและส่งสรุปเข้า Telegram
+                            </button>
                         </div>
                     </div>
                 </div>
