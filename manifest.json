@@ -12,13 +12,25 @@
       "src": "https://img2.pic.in.th/pic/9c2e0f8ba684e3441fc58d880fdf143d.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "https://img2.pic.in.th/pic/9c2e0f8ba684e3441fc58d880fdf143d.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "https://img2.pic.in.th/pic/9c2e0f8ba684e3441fc58d880fdf143d.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "https://img2.pic.in.th/pic/9c2e0f8ba684e3441fc58d880fdf143d.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

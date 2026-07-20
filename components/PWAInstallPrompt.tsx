@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Smartphone, Chrome, X, Share, PlusSquare, Info, CheckCircle, Star } from 'lucide-react';
+import { Download, Smartphone, Chrome, X, Share, PlusSquare, Info, CheckCircle, Star, Copy, ExternalLink, AlertTriangle } from 'lucide-react';
 
 const PWAInstallPrompt: React.FC = () => {
     const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
     const [isInstalled, setIsInstalled] = useState(false);
     const [isIOS, setIsIOS] = useState(false);
     const [isAndroid, setIsAndroid] = useState(false);
+    const [isInAppBrowser, setIsInAppBrowser] = useState(false);
     const [showPrompt, setShowPrompt] = useState(false);
-    const [activeTab, setActiveTab] = useState<'AUTO' | 'IOS' | 'ANDROID_MANUAL'>('AUTO');
+    const [activeTab, setActiveTab] = useState<'AUTO' | 'IOS' | 'ANDROID_MANUAL' | 'IN_APP'>('AUTO');
+    const [copySuccess, setCopySuccess] = useState(false);
 
     useEffect(() => {
-        // 1. Check if already running in standalone mode (installed)
+        // 1. Check if already running in standalone mode (installed as PWA)
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
                             (window.navigator as any).standalone === true;
         
@@ -19,18 +21,29 @@ const PWAInstallPrompt: React.FC = () => {
             return;
         }
 
-        // 2. Detect platform
+        // 2. Detect platform and user agent
         const ua = window.navigator.userAgent.toLowerCase();
         const ios = /iphone|ipad|ipod/.test(ua);
         const android = /android/.test(ua);
         setIsIOS(ios);
         setIsAndroid(android);
 
+        // Detect in-app browsers like LINE, Facebook, Instagram, Messenger, WeChat, Google Search App
+        const isLNE = ua.includes('line');
+        const isFB = ua.includes('fbav') || ua.includes('fb_iab') || ua.includes('fb4a') || ua.includes('fban');
+        const isMessenger = ua.includes('messenger') || ua.includes('fbiab');
+        const isInstagram = ua.includes('instagram');
+        const isWeChat = ua.includes('micromessenger');
+        const isOthersInApp = ua.includes('webview') || ua.includes('gsa'); // gsa is Google Search App on iOS
+
+        const inApp = isLNE || isFB || isMessenger || isInstagram || isWeChat || isOthersInApp;
+        setIsInAppBrowser(inApp);
+
         // Set default tab based on platform
-        if (ios) {
+        if (inApp) {
+            setActiveTab('IN_APP');
+        } else if (ios) {
             setActiveTab('IOS');
-        } else if (android) {
-            setActiveTab('AUTO');
         } else {
             setActiveTab('AUTO');
         }
@@ -41,19 +54,22 @@ const PWAInstallPrompt: React.FC = () => {
             // Delay showing the prompt slightly for a better user experience
             const timer = setTimeout(() => {
                 setShowPrompt(true);
-            }, 1500);
+            }, 1000);
             return () => clearTimeout(timer);
         }
     }, []);
 
     useEffect(() => {
-        // 3. Listen to the browser's native beforeinstallprompt event (mainly Chrome/Android)
+        // 3. Listen to the browser's native beforeinstallprompt event (Chrome/Android)
         const handleBeforeInstallPrompt = (e: Event) => {
             e.preventDefault();
             console.log('beforeinstallprompt event captured');
             setDeferredPrompt(e);
-            // Auto switch to AUTO tab since we can trigger it programmatically
-            setActiveTab('AUTO');
+            
+            // If we are not in an in-app browser, set to AUTO tab to show install option
+            if (!isInAppBrowser) {
+                setActiveTab('AUTO');
+            }
         };
 
         window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -72,7 +88,7 @@ const PWAInstallPrompt: React.FC = () => {
             window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
             window.removeEventListener('appinstalled', handleAppInstalled);
         };
-    }, []);
+    }, [isInAppBrowser]);
 
     const handleInstallClick = async () => {
         if (!deferredPrompt) {
@@ -100,6 +116,15 @@ const PWAInstallPrompt: React.FC = () => {
         }
     };
 
+    const handleCopyLink = () => {
+        navigator.clipboard.writeText(window.location.origin).then(() => {
+            setCopySuccess(true);
+            setTimeout(() => setCopySuccess(false), 3000);
+        }).catch((err) => {
+            console.error('Could not copy text: ', err);
+        });
+    };
+
     const handleDismiss = () => {
         setShowPrompt(false);
         // Persist dismissal so we don't annoy the user
@@ -116,11 +141,11 @@ const PWAInstallPrompt: React.FC = () => {
             {/* Header */}
             <div className="bg-slate-900 px-5 py-4 text-white flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-600 rounded-xl">
-                        <Smartphone size={18} className="text-white animate-bounce" />
+                    <div className="p-2 bg-blue-600 rounded-xl shadow-lg shadow-blue-500/30">
+                        <Smartphone size={18} className="text-white animate-pulse" />
                     </div>
                     <div>
-                        <h4 className="text-xs font-black tracking-wide text-blue-400 uppercase">PROGRESSIVE WEB APP</h4>
+                        <h4 className="text-xs font-black tracking-wider text-blue-400 uppercase">MOBILE INSTALLATION</h4>
                         <h3 className="text-sm font-black text-white">ติดตั้งแอปพลิเคชัน SchoolOS</h3>
                     </div>
                 </div>
@@ -134,69 +159,121 @@ const PWAInstallPrompt: React.FC = () => {
             </div>
 
             {/* Platform Selection Tabs */}
-            <div className="flex border-b border-slate-100 bg-slate-50 text-[11px] font-black uppercase tracking-wider">
+            <div className="flex border-b border-slate-100 bg-slate-50 text-[10px] font-black uppercase tracking-wider">
+                {isInAppBrowser && (
+                    <button 
+                        onClick={() => setActiveTab('IN_APP')}
+                        className={`flex-1 py-3 text-center transition-all ${activeTab === 'IN_APP' ? 'text-red-600 border-b-2 border-red-500 bg-white' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                        ⚠️ เบราว์เซอร์ในแอป
+                    </button>
+                )}
                 <button 
                     onClick={() => setActiveTab('AUTO')}
                     className={`flex-1 py-3 text-center transition-all ${activeTab === 'AUTO' ? 'text-blue-600 border-b-2 border-blue-600 bg-white' : 'text-slate-400 hover:text-slate-600'}`}
                 >
-                    {deferredPrompt ? '📲 ติดตั้งด่วน' : '📱 แนะนำสำหรับ Android'}
+                    {deferredPrompt ? '📲 ติดตั้งทันที' : '🤖 แนะนำสำหรับ Android'}
                 </button>
                 <button 
                     onClick={() => setActiveTab('IOS')}
                     className={`flex-1 py-3 text-center transition-all ${activeTab === 'IOS' ? 'text-blue-600 border-b-2 border-blue-600 bg-white' : 'text-slate-400 hover:text-slate-600'}`}
                 >
-                    🍎 สำหรับ iPhone / iPad
-                </button>
-                <button 
-                    onClick={() => setActiveTab('ANDROID_MANUAL')}
-                    className={`flex-1 py-3 text-center transition-all ${activeTab === 'ANDROID_MANUAL' ? 'text-blue-600 border-b-2 border-blue-600 bg-white' : 'text-slate-400 hover:text-slate-600'}`}
-                >
-                    🔍 วิธีติดตั้งมือถือทั่วไป
+                    🍎 สำหรับ iPhone/iPad
                 </button>
             </div>
 
             {/* Tab Contents */}
-            <div className="p-5 max-h-[320px] overflow-y-auto">
+            <div className="p-5 max-h-[350px] overflow-y-auto">
+                {activeTab === 'IN_APP' && (
+                    <div className="space-y-4">
+                        <div className="bg-red-50 border border-red-100 p-4 rounded-2xl text-red-900 text-xs leading-relaxed space-y-2">
+                            <div className="font-black text-red-800 flex items-center gap-2">
+                                <AlertTriangle size={16} className="text-red-600 shrink-0" />
+                                <span>พบการเปิดหน้าเว็บภายในแอปอื่น (In-App Browser)</span>
+                            </div>
+                            <p className="font-medium text-[11px]">
+                                หน้าเว็บนี้เปิดขึ้นภายในเบราว์เซอร์ของแอปพลิเคชันอื่น (เช่น <b>LINE, Facebook, Messenger, หรือ Instagram</b>) ซึ่งเป็นระบบปิด <b>ไม่ยอมรับการสร้างไอคอนแอปพลิเคชันอย่างสมบูรณ์แบบ</b> ทำให้ไม่สามารถติดตั้งลงบนโทรศัพท์มือถือของคุณได้โดยตรง
+                            </p>
+                        </div>
+
+                        <div className="space-y-3">
+                            <h5 className="text-[11px] font-black text-slate-700 uppercase tracking-wider">วิธีการติดตั้งระบบจริง:</h5>
+                            <div className="text-xs space-y-2.5 pl-1 text-slate-600 font-medium">
+                                <div className="flex items-start gap-2">
+                                    <span className="text-blue-600 font-black">1.</span>
+                                    <span>กดปุ่ม <b>"คัดลอกลิงก์"</b> ด้านล่างนี้</span>
+                                </div>
+                                <div className="flex items-start gap-2">
+                                    <span className="text-blue-600 font-black">2.</span>
+                                    <span>ออกจากแอปนี้ แล้วเปิดแอปเบราว์เซอร์หลักของโทรศัพท์:
+                                        <div className="mt-1 flex gap-2">
+                                            <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded-lg text-[10px] font-black inline-flex items-center gap-1"><Chrome size={10} className="text-blue-500" /> Google Chrome</span>
+                                            <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded-lg text-[10px] font-black inline-flex items-center gap-1">🌐 Safari</span>
+                                        </div>
+                                    </span>
+                                </div>
+                                <div className="flex items-start gap-2">
+                                    <span className="text-blue-600 font-black">3.</span>
+                                    <span>วางลิงก์ที่คัดลอก และกดเปิดใช้งาน จากนั้นแถบติดตั้งแอปจะขึ้นเพื่อให้คุณติดตั้งทันทีอย่างถูกต้อง!</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-2">
+                            <button
+                                onClick={handleCopyLink}
+                                className={`flex-1 py-3 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 border-2 ${copySuccess ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-slate-900 hover:bg-slate-800 text-white border-slate-900'}`}
+                            >
+                                {copySuccess ? (
+                                    <>
+                                        <CheckCircle size={14} />
+                                        คัดลอกเรียบร้อยแล้ว!
+                                    </>
+                                ) : (
+                                    <>
+                                        <Copy size={14} />
+                                        คัดลอกลิงก์เพื่อไปเปิดในเบราว์เซอร์
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {activeTab === 'AUTO' && (
                     <div className="space-y-4">
                         <div className="text-xs font-medium text-slate-600 leading-relaxed">
-                            เปลี่ยนระบบเว็บไซต์ให้เป็น <span className="font-bold text-blue-600">แอปพลิเคชันเต็มรูปแบบ</span> บนมือถือของคุณ เพื่อการใช้งานที่เสถียร รวดเร็ว และลื่นไหลเหมือนแอปแท้ โดยไม่มีแถบที่อยู่เว็บของเบราว์เซอร์กวนใจ!
+                            เปลี่ยนระบบเว็บไซต์ให้เป็น <span className="font-bold text-blue-600">แอปพลิเคชัน SchoolOS แท้</span> บนโทรศัพท์มือถือของคุณ เพื่อการใช้งานแบบเต็มหน้าจอ รวดเร็ว ประหยัดเน็ต และปรากฏไอคอนแอปเดี่ยวบนหน้าจอโทรศัพท์เหมือนติดตั้งจาก Store!
                         </div>
 
                         {deferredPrompt ? (
                             <div className="space-y-3">
-                                <div className="bg-blue-50 text-blue-800 p-3.5 rounded-2xl border border-blue-100 text-xs font-bold flex items-start gap-2.5">
+                                <div className="bg-blue-50/75 text-blue-900 p-3.5 rounded-2xl border border-blue-100 text-xs font-medium flex items-start gap-2.5">
                                     <CheckCircle size={16} className="text-blue-600 shrink-0 mt-0.5" />
-                                    <span>โทรศัพท์ของคุณรองรับการติดตั้งด่วนทันที! กดปุ่มติดตั้งด้านล่างเพื่อทำการสร้างแอป SchoolOS</span>
+                                    <span>อุปกรณ์ของคุณพร้อมรองรับ <b>"การติดตั้งแอปอัตโนมัติ"</b> ทันทีโดยไม่ต้องเปิดเมนูเบราว์เซอร์!</span>
                                 </div>
                                 <button
                                     onClick={handleInstallClick}
-                                    className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-black uppercase tracking-wider shadow-lg shadow-blue-200 hover:shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                                    className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-wider shadow-lg shadow-blue-500/20 hover:shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2"
                                 >
-                                    <Download size={14} />
-                                    ติดตั้งแอปทันที (Install App)
+                                    <Download size={15} />
+                                    ติดตั้งแอปทันทีบนโทรศัพท์มือถือ
                                 </button>
                             </div>
                         ) : (
                             <div className="space-y-3">
                                 <div className="bg-amber-50/70 text-amber-900 p-4 rounded-2xl border border-amber-100 text-xs leading-relaxed space-y-2">
-                                    <div className="font-bold text-amber-800 flex items-center gap-1.5">
+                                    <div className="font-black text-amber-800 flex items-center gap-1.5">
                                         <Info size={14} className="text-amber-600" />
-                                        <span>คำอธิบายวิธีติดตั้งบนระบบ Android:</span>
+                                        <span>คำแนะนำวิธีติดตั้งด่วนบน Android:</span>
                                     </div>
-                                    <div className="font-medium space-y-1.5 pl-5 list-decimal block">
-                                        <div>1. เปิดลิงก์นี้ในแอป <span className="font-bold text-slate-800">Google Chrome</span> บนมือถือ</div>
-                                        <div>2. สังเกตที่ด้านขวาบน คลิกสัญลักษณ์ <span className="font-bold text-slate-800">จุดสามจุด (⁝)</span></div>
-                                        <div>3. เลือกเมนู <span className="font-bold text-blue-600">"ติดตั้งแอป" (Install App)</span> หรือ <span className="font-bold text-blue-600">"เพิ่มลงในหน้าจอหลัก" (Add to Home screen)</span></div>
-                                        <div>4. กด <span className="font-bold text-slate-800">"ติดตั้ง"</span> ยืนยัน แอปจะปรากฏเป็นไอคอนบนหน้าจอมือถือของคุณทันที!</div>
+                                    <div className="font-medium space-y-1.5 pl-4 list-decimal block text-[11px] text-slate-700">
+                                        <div>1. ตรวจสอบว่าเปิดเว็บนี้ในแอป <span className="font-bold text-slate-900">Google Chrome</span> หลักของเครื่องแล้ว (ไม่ใช่อยู่ในไลน์)</div>
+                                        <div>2. สังเกตปุ่ม <span className="font-bold text-blue-600">จุดสามจุด (⁝)</span> ที่ขวาบนของ Google Chrome</div>
+                                        <div>3. กดเลือกเมนู <span className="font-bold text-blue-600">"ติดตั้งแอปพลิเคชัน" (Install App)</span> หรือ <span className="font-bold text-blue-600">"เพิ่มลงในหน้าจอหลัก" (Add to Home screen)</span></div>
+                                        <div>4. กดปุ่มยืนยัน <span className="font-bold text-slate-900">"ติดตั้ง"</span> ระบบจะติดตั้งแอปพลิเคชันพร้อมแสดงไอคอน SchoolOS บนหน้าจอทันที!</div>
                                     </div>
                                 </div>
-                                <button
-                                    onClick={() => setActiveTab('ANDROID_MANUAL')}
-                                    className="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2"
-                                >
-                                    <span>ดูขั้นตอนแบบมีรูปภาพประกอบ</span>
-                                </button>
                             </div>
                         )}
                     </div>
@@ -205,75 +282,42 @@ const PWAInstallPrompt: React.FC = () => {
                 {activeTab === 'IOS' && (
                     <div className="space-y-4">
                         <div className="text-xs font-medium text-slate-600 leading-relaxed">
-                            สำหรับอุปกรณ์ <span className="font-bold text-slate-900">Apple iPhone / iPad</span> สามารถติดตั้งเป็นแอปพลิเคชันได้ง่ายๆ ผ่านเว็บเบราว์เซอร์ <span className="font-bold text-blue-600">Safari</span> ตามขั้นตอนดังนี้:
+                            สำหรับ <span className="font-bold text-slate-900">Apple iPhone / iPad</span> เบราว์เซอร์ iOS บังคับให้ติดตั้งแอปผ่านการกดสั่งด้วยตนเองในเบราว์เซอร์ <span className="font-bold text-blue-600">Safari</span> ตามขั้นตอนที่ง่ายและปลอดภัยดังนี้:
                         </div>
 
-                        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-3 text-xs text-slate-700 font-medium">
+                        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4.5 space-y-3.5 text-xs text-slate-700 font-medium">
                             <div className="flex items-start gap-3">
-                                <div className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center font-black text-[10px] shrink-0 mt-0.5">1</div>
+                                <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-[10px] shrink-0 mt-0.5 shadow-md shadow-blue-500/20">1</div>
                                 <div>
-                                    เปิดหน้านี้ด้วยเบราว์เซอร์ <span className="font-bold text-slate-900">Safari</span>
+                                    เปิดลิงก์หน้านี้ด้วยเว็บบนเบราว์เซอร์ <span className="font-black text-slate-950">Safari</span> (ไม่เปิดภายในแอปอื่น)
                                 </div>
                             </div>
                             <div className="flex items-start gap-3">
-                                <div className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center font-black text-[10px] shrink-0 mt-0.5">2</div>
-                                <div className="space-y-1">
-                                    <span>กดปุ่ม <span className="font-bold text-blue-600">"แชร์" (Share)</span> 📥 ตรงแถบเมนูด้านล่างสุด</span>
-                                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400 bg-white p-1.5 rounded-lg border border-slate-100 max-w-max mt-1">
+                                <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-[10px] shrink-0 mt-0.5 shadow-md shadow-blue-500/20">2</div>
+                                <div className="space-y-1.5">
+                                    <span>กดปุ่ม <span className="font-bold text-blue-600">"ปุ่มแชร์" (Share)</span> 📥 แถบด้านล่างสุดของหน้าจอซาฟารี</span>
+                                    <div className="flex items-center gap-2 text-[10px] text-slate-500 bg-white px-2.5 py-1.5 rounded-xl border border-slate-100 max-w-max">
                                         <Share size={12} className="text-blue-500" />
-                                        <span>ปุ่มแชร์รูปสี่เหลี่ยมที่มีลูกศรชี้ขึ้น</span>
+                                        <span>ไอคอนรูปสี่เหลี่ยมที่มีลูกศรชี้ขึ้นตรงกลาง</span>
                                     </div>
                                 </div>
                             </div>
                             <div className="flex items-start gap-3">
-                                <div className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center font-black text-[10px] shrink-0 mt-0.5">3</div>
+                                <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-[10px] shrink-0 mt-0.5 shadow-md shadow-blue-500/20">3</div>
                                 <div className="space-y-1">
-                                    <span>เลื่อนลงมาแล้วกดเลือกเมนู <span className="font-bold text-blue-600">"เพิ่มไปยังหน้าจอโฮม" (Add to Home Screen)</span> ➕</span>
+                                    <span>เลื่อนแถบเมนูขึ้นแล้วเลือกคำว่า <span className="font-bold text-blue-600">"เพิ่มไปยังหน้าจอโฮม" (Add to Home Screen)</span> ➕</span>
                                 </div>
                             </div>
                             <div className="flex items-start gap-3">
-                                <div className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center font-black text-[10px] shrink-0 mt-0.5">4</div>
+                                <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-[10px] shrink-0 mt-0.5 shadow-md shadow-blue-500/20">4</div>
                                 <div>
-                                    กดปุ่ม <span className="font-bold text-slate-900">"เพิ่ม" (Add)</span> ที่มุมขวาบน เพื่อเสร็จสิ้นขั้นตอน
+                                    กดปุ่มคำว่า <span className="font-bold text-slate-900">"เพิ่ม" (Add)</span> ที่มุมขวาบน เพื่อนำแอป SchoolOS ไปสร้างเป็นแอปเดี่ยวบนหน้าจอมือถือของคุณทันที
                                 </div>
                             </div>
                         </div>
 
-                        <div className="text-[10px] text-slate-400 font-bold text-center">
-                            * เมื่อติดตั้งเรียบร้อยแล้ว แอป SchoolOS จะมีไอคอนและแสดงผลเต็มจอเหมือนแอปพลิเคชันทั่วไป!
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'ANDROID_MANUAL' && (
-                    <div className="space-y-3.5">
-                        <div className="text-xs font-medium text-slate-600 leading-relaxed">
-                            วิธีการติดตั้งแอปพลิเคชันด้วยตัวเองผ่านเมนูของเบราว์เซอร์:
-                        </div>
-
-                        <div className="border border-slate-150 rounded-2xl overflow-hidden text-xs">
-                            <div className="bg-slate-50 px-4 py-2.5 font-bold text-slate-700 border-b border-slate-100 flex items-center gap-2">
-                                <Chrome size={14} className="text-blue-500" />
-                                <span>สำหรับ Google Chrome (Android / Desktop)</span>
-                            </div>
-                            <div className="p-4 space-y-2.5 font-medium text-slate-600">
-                                <div className="flex gap-2">
-                                    <span className="text-blue-500 font-bold">1.</span>
-                                    <span>คลิกปุ่ม <span className="font-bold text-slate-800">จุดสามจุด (⁝)</span> ที่มุมขวาบนของ Chrome</span>
-                                </div>
-                                <div className="flex gap-2">
-                                    <span className="text-blue-500 font-bold">2.</span>
-                                    <span>หาเมนูคำว่า <span className="font-bold text-blue-600">"ติดตั้งแอป" (Install App)</span> หรือ <span className="font-bold text-blue-600">"เพิ่มลงในหน้าจอหลัก"</span></span>
-                                </div>
-                                <div className="flex gap-2">
-                                    <span className="text-blue-500 font-bold">3.</span>
-                                    <span>กดปุ่ม <span className="font-bold text-slate-800">"ติดตั้ง"</span> ระบบจะดาวน์โหลดและติดตั้งแอป SchoolOS ให้เป็นไอคอนแอปพลิเคชันเดี่ยวบนมือถือทันที!</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 text-[10px] text-blue-800 font-medium">
-                            💡 <b>ข้อดีของการติดตั้งเป็นแอป:</b> แอปจะทำงานแยกจากแท็บเบราว์เซอร์ทั่วไป, บูตระบบได้รวดเร็วยิ่งขึ้น, และช่วยประหยัดพลังงานแบตเตอรี่โทรศัพท์มือถือ
+                        <div className="text-[10px] text-slate-400 font-bold text-center leading-relaxed">
+                            * เมื่อเพิ่มสำเร็จ แอปจะกลายเป็นไอคอนแอป SchoolOS แท้จริงที่เปิดทำงานแบบจอไร้ขอบ (Full Screen) เหมือนกับแอปโหลดจาก App Store!
                         </div>
                     </div>
                 )}
@@ -283,12 +327,13 @@ const PWAInstallPrompt: React.FC = () => {
             <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-bold">
                 <span className="flex items-center gap-1">
                     <Star size={10} className="text-amber-500 fill-amber-500 animate-pulse" />
-                    รองรับทุกอุปกรณ์เคลื่อนที่ Android / iOS
+                    รองรับอุปกรณ์เคลื่อนที่ Android และ iOS อย่างเต็มระบบ
                 </span>
-                <span>เวอร์ชันเว็บแอป v5.0</span>
+                <span>Web App v5.1</span>
             </div>
         </div>
     );
 };
 
 export default PWAInstallPrompt;
+
