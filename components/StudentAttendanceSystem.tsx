@@ -89,6 +89,9 @@ interface StudentAttendanceSystemProps {
 
 const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ currentUser }) => {
     const [viewMode, setViewMode] = useState<'DASHBOARD' | 'RECORD' | 'HISTORY' | 'STUDENT_INFO' | 'OVERALL_REPORT' | 'CLASS_REPORT' | 'RANGE_REPORT' | 'DUTY_REPORT'>('DASHBOARD');
+    const [infoBackMode, setInfoBackMode] = useState<'DASHBOARD' | 'RECORD'>('DASHBOARD');
+    const [singleStudentAttendance, setSingleStudentAttendance] = useState<StudentAttendance[]>([]);
+    const [isLoadingSingleStudentAttendance, setIsLoadingSingleStudentAttendance] = useState<boolean>(false);
     
     // Duty Report States
     const [dutyReports, setDutyReports] = useState<any[]>([]);
@@ -1061,9 +1064,55 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
         }
     };
 
-    const openStudentInfo = (student: Student) => {
+    const fetchSingleStudentAttendance = async (studentId: string) => {
+        if (!supabase) return;
+        setIsLoadingSingleStudentAttendance(true);
+        try {
+            const { data, error } = await supabase
+                .from('student_attendance')
+                .select('*')
+                .eq('student_id', studentId)
+                .order('date', { ascending: false });
+            if (error) throw error;
+            if (data) {
+                const mapped = data.map((a: any) => ({
+                    id: a.id,
+                    schoolId: a.school_id,
+                    studentId: a.student_id,
+                    date: typeof a.date === 'string' ? a.date.split('T')[0] : formatToISODate(new Date(a.date)),
+                    status: a.status as StudentAttendanceStatus,
+                    academicYear: a.academic_year,
+                    createdBy: a.created_by,
+                    createdAt: a.created_at
+                }));
+                // Deduplicate by date
+                const dedupedMap = new Map<string, typeof mapped[0]>();
+                mapped.forEach((item: any) => {
+                    const existing = dedupedMap.get(item.date);
+                    if (!existing) {
+                        dedupedMap.set(item.date, item);
+                    } else {
+                        const existingTime = existing.createdAt ? new Date(existing.createdAt).getTime() : 0;
+                        const itemTime = item.createdAt ? new Date(item.createdAt).getTime() : 0;
+                        if (itemTime > existingTime) {
+                            dedupedMap.set(item.date, item);
+                        }
+                    }
+                });
+                setSingleStudentAttendance(Array.from(dedupedMap.values()).sort((a, b) => b.date.localeCompare(a.date)));
+            }
+        } catch (err) {
+            console.error('Error fetching single student attendance:', err);
+        } finally {
+            setIsLoadingSingleStudentAttendance(false);
+        }
+    };
+
+    const openStudentInfo = (student: Student, backMode: 'DASHBOARD' | 'RECORD' = 'DASHBOARD') => {
         setSelectedStudentForInfo(student);
         fetchHealthRecords(student.id);
+        fetchSingleStudentAttendance(student.id);
+        setInfoBackMode(backMode);
         setViewMode('STUDENT_INFO');
     };
 
@@ -2231,19 +2280,19 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                     </AnimatePresence>
 
                     {/* Main Container */}
-                    <div className="bg-white dark:bg-slate-900 p-4 md:p-6 rounded-[1.25rem] shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
+                    <div className="bg-white p-4 md:p-6 rounded-[1.25rem] shadow-sm border border-slate-100 transition-colors">
                         {/* Header Area */}
                         <div className="flex flex-col gap-4 mb-4">
                             <div className="flex items-center gap-3">
                                 <button 
                                     onClick={() => setViewMode('DASHBOARD')} 
-                                    className="p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-full text-slate-400 dark:text-slate-500 transition-all active:scale-95 shrink-0"
+                                    className="p-1.5 hover:bg-slate-50 rounded-full text-slate-400 transition-all active:scale-95 shrink-0"
                                 >
                                     <ArrowLeft size={18} className="stroke-[3]" />
                                 </button>
                                 <div className="min-w-0">
-                                    <h3 className="font-bold text-sm md:text-base text-slate-500 dark:text-slate-400 leading-none">ห้องเรียนของฉัน {selectedClass}</h3>
-                                    <h2 className="font-extrabold text-base md:text-lg text-slate-800 dark:text-white mt-1 leading-tight">ระบบดูแลช่วยเหลือนักเรียน</h2>
+                                    <h3 className="font-bold text-sm md:text-base text-slate-500 leading-none">ห้องเรียนของฉัน {selectedClass}</h3>
+                                    <h2 className="font-extrabold text-base md:text-lg text-slate-800 mt-1 leading-tight">ระบบดูแลช่วยเหลือนักเรียน</h2>
                                 </div>
                             </div>
 
@@ -2258,7 +2307,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                             setSelectedDate(e.target.value);
                                             fetchAttendance(e.target.value);
                                         }} 
-                                        className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700 rounded-2xl px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                        className="w-full bg-slate-50 border border-slate-200/60 rounded-2xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                                     />
                                 </div>
 
@@ -2267,7 +2316,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                     <select 
                                         value={selectedClass} 
                                         onChange={(e) => setSelectedClass(e.target.value)} 
-                                        className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700 rounded-2xl px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 appearance-none"
+                                        className="w-full bg-slate-50 border border-slate-200/60 rounded-2xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 appearance-none"
                                     >
                                         <option value="">-- เลือกชั้นเรียน --</option>
                                         {classRooms.map(c => (
@@ -2286,7 +2335,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                         placeholder="ค้นหาชื่อ หรือเลขประจำตัว..." 
                                         value={recordSearchQuery} 
                                         onChange={(e) => setRecordSearchQuery(e.target.value)} 
-                                        className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700 rounded-2xl pl-9 pr-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                        className="w-full bg-slate-50 border border-slate-200/60 rounded-2xl pl-9 pr-3 py-2 text-xs font-semibold text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                                     />
                                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                 </div>
@@ -2303,29 +2352,29 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                             const absent = classStudents.filter(s => tempAttendance[s.id] === 'Absent').length;
 
                             return (
-                                <div className="bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800/50 p-3 rounded-2xl mb-4 transition-colors">
+                                <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl mb-4 transition-colors">
                                     <div className="flex justify-between items-center mb-2">
-                                        <span className="text-xs font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                                        <span className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
                                             <span>👨‍🎓</span>
                                             <span>นักเรียนทั้งหมด {total} คน</span>
                                         </span>
                                     </div>
                                     <div className="grid grid-cols-4 gap-2">
-                                        <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100/50 dark:border-emerald-900/30 p-2 rounded-xl text-center">
-                                            <span className="block text-[10px] font-bold text-emerald-700 dark:text-emerald-400 leading-none">🟢 มาเรียน</span>
-                                            <span className="block text-sm font-black text-emerald-600 dark:text-emerald-300 mt-1">{present}</span>
+                                        <div className="bg-emerald-50 border border-emerald-100/50 p-2 rounded-xl text-center">
+                                            <span className="block text-[10px] font-bold text-emerald-700 leading-none">🟢 มาเรียน</span>
+                                            <span className="block text-sm font-black text-emerald-600 mt-1">{present}</span>
                                         </div>
-                                        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-100/50 dark:border-amber-900/30 p-2 rounded-xl text-center">
-                                            <span className="block text-[10px] font-bold text-amber-700 dark:text-amber-400 leading-none">🟡 สาย</span>
-                                            <span className="block text-sm font-black text-amber-600 dark:text-amber-300 mt-1">{late}</span>
+                                        <div className="bg-amber-50 border border-amber-100/50 p-2 rounded-xl text-center">
+                                            <span className="block text-[10px] font-bold text-amber-700 leading-none">🟡 สาย</span>
+                                            <span className="block text-sm font-black text-amber-600 mt-1">{late}</span>
                                         </div>
-                                        <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-100/50 dark:border-blue-900/30 p-2 rounded-xl text-center">
-                                            <span className="block text-[10px] font-bold text-blue-700 dark:text-blue-400 leading-none">🔵 ลา</span>
-                                            <span className="block text-sm font-black text-blue-600 dark:text-blue-300 mt-1">{sick}</span>
+                                        <div className="bg-blue-50 border border-blue-100/50 p-2 rounded-xl text-center">
+                                            <span className="block text-[10px] font-bold text-blue-700 leading-none">🔵 ลา</span>
+                                            <span className="block text-sm font-black text-blue-600 mt-1">{sick}</span>
                                         </div>
-                                        <div className="bg-rose-50 dark:bg-rose-950/20 border border-rose-100/50 dark:border-rose-900/30 p-2 rounded-xl text-center">
-                                            <span className="block text-[10px] font-bold text-rose-700 dark:text-rose-400 leading-none">🔴 ขาด</span>
-                                            <span className="block text-sm font-black text-rose-600 dark:text-rose-300 mt-1">{absent}</span>
+                                        <div className="bg-rose-50 border border-rose-100/50 p-2 rounded-xl text-center">
+                                            <span className="block text-[10px] font-bold text-rose-700 leading-none">🔴 ขาด</span>
+                                            <span className="block text-sm font-black text-rose-600 mt-1">{absent}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -2361,7 +2410,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
 
                                 if (filteredStudents.length === 0) {
                                     return (
-                                        <div className="py-12 text-center bg-slate-50 dark:bg-slate-800/10 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                                        <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                                             <Users size={32} className="text-slate-300 mx-auto mb-2" />
                                             <p className="text-xs font-bold text-slate-400">ไม่พบรายชื่อนักเรียนที่ค้นหา</p>
                                         </div>
@@ -2372,12 +2421,12 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                     const currentStatus = tempAttendance[student.id] || 'Present';
                                     const note = studentNotes[student.id] || '';
 
-                                    // Determine custom background/border classes based on the selected status
-                                    let statusBgClass = 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900';
-                                    if (currentStatus === 'Present') statusBgClass = 'border-emerald-500/25 bg-emerald-50/5 dark:bg-emerald-950/5 shadow-sm shadow-emerald-50/10';
-                                    if (currentStatus === 'Late') statusBgClass = 'border-amber-500/25 bg-amber-50/5 dark:bg-amber-950/5 shadow-sm shadow-amber-50/10';
-                                    if (currentStatus === 'Sick') statusBgClass = 'border-blue-500/25 bg-blue-50/5 dark:bg-blue-950/5 shadow-sm shadow-blue-50/10';
-                                    if (currentStatus === 'Absent') statusBgClass = 'border-rose-500/25 bg-rose-50/5 dark:bg-rose-950/5 shadow-sm shadow-rose-50/10';
+                                    // Determine custom background/border classes based on the selected status - bright light theme colors
+                                    let statusBgClass = 'border-slate-100 bg-white shadow-sm';
+                                    if (currentStatus === 'Present') statusBgClass = 'border-emerald-500/25 bg-emerald-50/20 shadow-sm shadow-emerald-50/20';
+                                    if (currentStatus === 'Late') statusBgClass = 'border-amber-500/25 bg-amber-50/20 shadow-sm shadow-amber-50/20';
+                                    if (currentStatus === 'Sick') statusBgClass = 'border-blue-500/25 bg-blue-50/20 shadow-sm shadow-blue-50/20';
+                                    if (currentStatus === 'Absent') statusBgClass = 'border-rose-500/25 bg-rose-50/20 shadow-sm shadow-rose-50/20';
 
                                     return (
                                         <div 
@@ -2386,10 +2435,10 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                         >
                                             {/* Left Profile details */}
                                             <div className="flex items-center gap-2 min-w-0 flex-1 select-none">
-                                                <span className="text-[10px] font-bold text-slate-300 dark:text-slate-600 w-4 shrink-0 text-center leading-none">
+                                                <span className="text-[10px] font-bold text-slate-300 w-4 shrink-0 text-center leading-none">
                                                     {idx + 1}
                                                 </span>
-                                                <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-slate-800 flex items-center justify-center font-bold text-indigo-500 dark:text-indigo-400 shadow-sm border border-slate-100/50 dark:border-slate-700 text-sm overflow-hidden shrink-0">
+                                                <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center font-bold text-indigo-500 shadow-sm border border-slate-100/50 text-sm overflow-hidden shrink-0">
                                                     {student.photoUrl ? (
                                                         <img 
                                                             src={getDirectDriveUrl(student.photoUrl)} 
@@ -2403,24 +2452,34 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                                 </div>
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-1">
-                                                        <p className="font-bold text-slate-700 dark:text-slate-200 text-xs md:text-sm truncate">
+                                                        <p className="font-bold text-slate-700 text-xs md:text-sm truncate">
                                                             {student.name}
                                                         </p>
                                                     </div>
-                                                    <p className="text-[9px] font-medium text-slate-400 dark:text-slate-500 leading-none mt-0.5 uppercase tracking-wider">
-                                                        ID: {student.studentId || student.id.slice(0, 5)} {student.gender ? `• ${student.gender}` : ''}
-                                                    </p>
+                                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                                        <p className="text-[9px] font-medium text-slate-400 leading-none uppercase tracking-wider">
+                                                            ID: {student.studentId || student.id.slice(0, 5)} {student.gender ? `• ${student.gender}` : ''}
+                                                        </p>
+                                                        <span className="text-slate-300 text-[8px] leading-none">•</span>
+                                                        <button
+                                                            onClick={() => openStudentInfo(student, 'RECORD')}
+                                                            className="text-[10px] font-black text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5 underline decoration-indigo-300 decoration-1 underline-offset-2 transition-all cursor-pointer hover:scale-105"
+                                                        >
+                                                            <History size={10} className="stroke-[2.5]" />
+                                                            <span>ดูประวัติ</span>
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
 
                                             {/* Segmented Buttons for quick attendance status - always showing full text on mobile */}
-                                            <div className="flex items-center bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-xl border border-slate-200/50 dark:border-slate-700/50 shrink-0 select-none">
+                                            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/50 shrink-0 select-none">
                                                 <button
                                                     onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Present' }))}
                                                     className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all duration-150 flex items-center justify-center gap-0.5 ${
                                                         currentStatus === 'Present'
                                                             ? 'bg-emerald-500 text-white shadow-sm scale-105'
-                                                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/40'
                                                     }`}
                                                 >
                                                     <span>มา</span>
@@ -2430,7 +2489,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                                     className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all duration-150 flex items-center justify-center gap-0.5 ${
                                                         currentStatus === 'Late'
                                                             ? 'bg-amber-500 text-white shadow-sm scale-105'
-                                                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/40'
                                                     }`}
                                                 >
                                                     <span>สาย</span>
@@ -2440,7 +2499,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                                     className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all duration-150 flex items-center justify-center gap-0.5 ${
                                                         currentStatus === 'Sick'
                                                             ? 'bg-sky-500 text-white shadow-sm scale-105'
-                                                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/40'
                                                     }`}
                                                 >
                                                     <span>ลา</span>
@@ -2450,7 +2509,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                                     className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all duration-150 flex items-center justify-center gap-0.5 ${
                                                         currentStatus === 'Absent'
                                                             ? 'bg-rose-500 text-white shadow-sm scale-105'
-                                                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/40'
                                                     }`}
                                                 >
                                                     <span>ขาด</span>
@@ -2464,18 +2523,18 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                     </div>
 
                     {/* Floating Sticky Bottom Bar for convenient single-hand control */}
-                    <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 p-3.5 flex justify-center shadow-[0_-8px_30px_rgba(0,0,0,0.06)] transition-colors">
+                    <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-100 p-3.5 flex justify-center shadow-[0_-8px_30px_rgba(0,0,0,0.06)] transition-colors">
                         <div className="w-full max-w-xl flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                                <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 block uppercase tracking-wider">ความคืบหน้า</span>
-                                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 block mt-0.5">
-                                    บันทึกแล้ว <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{Object.keys(tempAttendance).length}</span> / {students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim()).length} คน
+                                <span className="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">ความคืบหน้า</span>
+                                <span className="text-xs font-bold text-slate-700 block mt-0.5">
+                                    บันทึกแล้ว <span className="text-indigo-600 font-extrabold">{Object.keys(tempAttendance).length}</span> / {students.filter(s => (s.currentClass || '').trim() === (selectedClass || '').trim()).length} คน
                                 </span>
                             </div>
                             <div className="flex gap-2 shrink-0">
                                 <button 
                                     onClick={() => setViewMode('DASHBOARD')}
-                                    className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs hover:bg-slate-200 dark:hover:bg-slate-700 transition-all active:scale-95"
+                                    className="px-4 py-2.5 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-200 transition-all active:scale-95"
                                 >
                                     ยกเลิก
                                 </button>
@@ -2655,7 +2714,7 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                 <div className="space-y-6 animate-fade-in">
                     <div className="flex items-center gap-4 mb-6">
                         <button 
-                            onClick={() => setViewMode('DASHBOARD')}
+                            onClick={() => setViewMode(infoBackMode)}
                             className="p-3 bg-white text-slate-600 rounded-2xl shadow-sm border border-slate-100 hover:bg-slate-50 transition-all"
                         >
                             <ArrowLeft size={20} />
@@ -2893,6 +2952,88 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                     </p>
                                 </div>
                             )}
+
+                            {/* Attendance History Card */}
+                            <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
+                                <h3 className="font-black text-sm text-slate-800 mb-4 flex items-center gap-2">
+                                    <History className="text-indigo-500" size={16} /> ประวัติการมาเรียนของนักเรียน
+                                </h3>
+
+                                {isLoadingSingleStudentAttendance ? (
+                                    <div className="py-8 text-center">
+                                        <Loader className="animate-spin text-indigo-500 mx-auto mb-2" size={24} />
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">กำลังโหลดประวัติการมาเรียน...</p>
+                                    </div>
+                                ) : singleStudentAttendance.length === 0 ? (
+                                    <div className="text-center py-8 text-slate-400 italic text-sm bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                                        ยังไม่มีประวัติการมาเรียน
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {/* Simple Stats Summary */}
+                                        {(() => {
+                                            const stats = {
+                                                present: singleStudentAttendance.filter(a => a.status === 'Present').length,
+                                                late: singleStudentAttendance.filter(a => a.status === 'Late').length,
+                                                sick: singleStudentAttendance.filter(a => a.status === 'Sick').length,
+                                                absent: singleStudentAttendance.filter(a => a.status === 'Absent').length,
+                                            };
+                                            const totalDays = singleStudentAttendance.length;
+                                            const rate = totalDays > 0 ? ((stats.present / totalDays) * 100).toFixed(1) : '100.0';
+
+                                            return (
+                                                <div className="space-y-2">
+                                                    <div className="grid grid-cols-4 gap-1 text-center">
+                                                        <div className="p-1.5 bg-emerald-50 rounded-lg">
+                                                            <span className="block text-[8px] font-bold text-emerald-600">มา</span>
+                                                            <span className="block text-xs font-black text-emerald-700">{stats.present}</span>
+                                                        </div>
+                                                        <div className="p-1.5 bg-amber-50 rounded-lg">
+                                                            <span className="block text-[8px] font-bold text-amber-600">สาย</span>
+                                                            <span className="block text-xs font-black text-amber-700">{stats.late}</span>
+                                                        </div>
+                                                        <div className="p-1.5 bg-blue-50 rounded-lg">
+                                                            <span className="block text-[8px] font-bold text-blue-600">ลา</span>
+                                                            <span className="block text-xs font-black text-blue-700">{stats.sick}</span>
+                                                        </div>
+                                                        <div className="p-1.5 bg-rose-50 rounded-lg">
+                                                            <span className="block text-[8px] font-bold text-rose-600">ขาด</span>
+                                                            <span className="block text-xs font-black text-rose-700">{stats.absent}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="p-2 bg-indigo-50/50 rounded-xl flex justify-between items-center text-[11px]">
+                                                        <span className="font-bold text-slate-500">ร้อยละการเข้าเรียน:</span>
+                                                        <span className="font-black text-indigo-600">{rate}%</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+
+                                        {/* Scrollable Date List */}
+                                        <div className="space-y-1.5 max-h-[220px] overflow-y-auto no-scrollbar pr-1">
+                                            {singleStudentAttendance.map(record => {
+                                                let badgeClass = 'bg-slate-100 text-slate-600';
+                                                let statusText = 'ไม่ทราบ';
+                                                if (record.status === 'Present') { badgeClass = 'bg-emerald-100 text-emerald-700'; statusText = 'มาเรียน'; }
+                                                if (record.status === 'Late') { badgeClass = 'bg-amber-100 text-amber-700'; statusText = 'สาย'; }
+                                                if (record.status === 'Sick') { badgeClass = 'bg-blue-100 text-blue-700'; statusText = 'ลา'; }
+                                                if (record.status === 'Absent') { badgeClass = 'bg-rose-100 text-rose-700'; statusText = 'ขาด'; }
+
+                                                return (
+                                                    <div key={record.id || record.date} className="p-2 bg-slate-50 rounded-xl border border-slate-100/50 flex justify-between items-center text-xs">
+                                                        <span className="font-bold text-slate-600">
+                                                            {formatToThaiDate(record.date)}
+                                                        </span>
+                                                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${badgeClass}`}>
+                                                            {statusText}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
