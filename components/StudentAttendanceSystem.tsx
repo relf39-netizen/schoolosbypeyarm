@@ -2003,6 +2003,33 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                         </button>
                     </div>
 
+                    {/* Prominent Record Attendance Button for Mobile & Desktop */}
+                    <div className="bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-700 p-5 md:p-6 rounded-2xl md:rounded-3xl text-white shadow-xl shadow-indigo-100 dark:shadow-none border border-indigo-500/10 flex flex-col sm:flex-row justify-between items-center gap-4 transition-all hover:scale-[1.01] duration-200">
+                        <div className="flex items-center gap-3 text-left">
+                            <div className="p-3 bg-white/10 rounded-xl backdrop-blur-md shrink-0">
+                                <UserCheck size={24} className="text-white" />
+                            </div>
+                            <div>
+                                <h4 className="font-extrabold text-base md:text-lg text-white">บันทึกการมาเรียนของนักเรียนวันนี้</h4>
+                                <p className="text-white/80 font-bold text-xs mt-1">
+                                    {selectedClass ? `ชั้นเรียนปัจจุบัน: ห้อง ${selectedClass}` : 'กรุณาเลือกชั้นเรียนเพื่อบันทึก'} | วันที่: {formatToThaiDate(selectedDate)}
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={initRecordMode}
+                            disabled={!selectedClass}
+                            className={`w-full sm:w-auto px-6 py-3 rounded-xl font-black text-xs transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg ${
+                                selectedClass 
+                                    ? 'bg-white text-indigo-600 hover:bg-slate-50 shadow-white/10 cursor-pointer' 
+                                    : 'bg-white/50 text-white/50 cursor-not-allowed'
+                            }`}
+                        >
+                            <Save size={16} />
+                            <span>เริ่มต้นบันทึกการมาเรียน</span>
+                        </button>
+                    </div>
+
                     {/* Main Actions */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="md:col-span-2 bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
@@ -2352,145 +2379,83 @@ const StudentAttendanceSystem: React.FC<StudentAttendanceSystemProps> = ({ curre
                                     if (currentStatus === 'Sick') statusBgClass = 'border-blue-500/25 bg-blue-50/5 dark:bg-blue-950/5 shadow-sm shadow-blue-50/10';
                                     if (currentStatus === 'Absent') statusBgClass = 'border-rose-500/25 bg-rose-50/5 dark:bg-rose-950/5 shadow-sm shadow-rose-50/10';
 
-                                    const isSwiped = swipedStudentId === student.id;
-
                                     return (
                                         <div 
                                             key={student.id} 
-                                            className="relative overflow-hidden rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-100 dark:border-slate-850 shadow-sm"
+                                            className={`flex items-center justify-between p-2 md:p-3 rounded-2xl border transition-all duration-200 gap-2 ${statusBgClass}`}
                                         >
-                                            {/* Left Swipe Actions revealed behind card */}
-                                            <div className="absolute right-0 top-0 bottom-0 flex items-center pr-2 gap-1 z-0">
-                                                <button 
-                                                    onClick={() => {
-                                                        setEditingStudent(student);
-                                                        setEditName(student.name);
-                                                        setEditStudentId(student.studentId || '');
-                                                    }} 
-                                                    className="flex flex-col items-center justify-center w-11 h-11 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-sm transition-all active:scale-95"
-                                                    title="แก้ไขข้อมูล"
-                                                >
-                                                    <Edit size={13} />
-                                                    <span className="text-[8px] font-bold mt-0.5">แก้ไข</span>
-                                                </button>
-                                                <button 
-                                                    onClick={() => {
-                                                        setSelectedStudentForInfo(student);
-                                                        setViewMode('STUDENT_INFO');
-                                                    }} 
-                                                    className="flex flex-col items-center justify-center w-11 h-11 bg-sky-500 hover:bg-sky-600 text-white rounded-xl shadow-sm transition-all active:scale-95"
-                                                    title="ดูประวัติการมาเรียน"
-                                                >
-                                                    <History size={13} />
-                                                    <span className="text-[8px] font-bold mt-0.5">ประวัติ</span>
-                                                </button>
-                                                <button 
-                                                    onClick={() => {
-                                                        setNotesStudent(student);
-                                                        const key = `student_note_${currentUser.schoolId}_${student.id}_${selectedDate}`;
-                                                        setNoteText(localStorage.getItem(key) || '');
-                                                    }} 
-                                                    className={`flex flex-col items-center justify-center w-11 h-11 text-white rounded-xl shadow-sm transition-all active:scale-95 ${note ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-amber-500 hover:bg-amber-600'}`}
-                                                    title="เพิ่มหมายเหตุ"
-                                                >
-                                                    <FileText size={13} />
-                                                    <span className="text-[8px] font-bold mt-0.5">{note ? 'มีโน้ต' : 'โน้ต'}</span>
-                                                </button>
-                                            </div>
-
-                                            {/* Draggable/Togglable Foreground Card */}
-                                            <motion.div 
-                                                drag="x"
-                                                dragConstraints={{ left: -140, right: 0 }}
-                                                dragElastic={0.05}
-                                                dragMomentum={false}
-                                                onDragStart={() => setSwipedStudentId(student.id)}
-                                                animate={{ x: isSwiped ? -140 : 0 }}
-                                                className={`relative z-10 flex items-center justify-between p-2 md:p-2.5 rounded-2xl border transition-all duration-200 cursor-grab active:cursor-grabbing gap-2 ${statusBgClass}`}
-                                            >
-                                                {/* Left Profile details */}
-                                                <div 
-                                                    onClick={() => setSwipedStudentId(isSwiped ? null : student.id)} 
-                                                    className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer select-none"
-                                                >
-                                                    <span className="text-[10px] font-bold text-slate-300 dark:text-slate-600 w-4 shrink-0 text-center leading-none">
-                                                        {idx + 1}
-                                                    </span>
-                                                    <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-slate-800 flex items-center justify-center font-bold text-indigo-500 dark:text-indigo-400 shadow-sm border border-slate-100/50 dark:border-slate-700 text-sm overflow-hidden shrink-0">
-                                                        {student.photoUrl ? (
-                                                            <img 
-                                                                src={getDirectDriveUrl(student.photoUrl)} 
-                                                                className="w-full h-full object-cover" 
-                                                                alt={student.name} 
-                                                                referrerPolicy="no-referrer" 
-                                                            />
-                                                        ) : (
-                                                            student.name[0]
-                                                        )}
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <div className="flex items-center gap-1">
-                                                            <p className="font-semibold text-slate-700 dark:text-slate-200 text-xs md:text-sm truncate">
-                                                                {student.name}
-                                                            </p>
-                                                            {note && (
-                                                                <span className="inline-block w-1.5 h-1.5 bg-emerald-500 rounded-full" title="มีหมายเหตุ"></span>
-                                                            )}
-                                                        </div>
-                                                        <p className="text-[9px] font-medium text-slate-400 dark:text-slate-500 leading-none mt-0.5 uppercase tracking-wider">
-                                                            ID: {student.studentId || student.id.slice(0, 5)} {student.gender ? `• ${student.gender}` : ''}
+                                            {/* Left Profile details */}
+                                            <div className="flex items-center gap-2 min-w-0 flex-1 select-none">
+                                                <span className="text-[10px] font-bold text-slate-300 dark:text-slate-600 w-4 shrink-0 text-center leading-none">
+                                                    {idx + 1}
+                                                </span>
+                                                <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-slate-800 flex items-center justify-center font-bold text-indigo-500 dark:text-indigo-400 shadow-sm border border-slate-100/50 dark:border-slate-700 text-sm overflow-hidden shrink-0">
+                                                    {student.photoUrl ? (
+                                                        <img 
+                                                            src={getDirectDriveUrl(student.photoUrl)} 
+                                                            className="w-full h-full object-cover" 
+                                                            alt={student.name} 
+                                                            referrerPolicy="no-referrer" 
+                                                        />
+                                                    ) : (
+                                                        student.name[0]
+                                                    )}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-1">
+                                                        <p className="font-bold text-slate-700 dark:text-slate-200 text-xs md:text-sm truncate">
+                                                            {student.name}
                                                         </p>
                                                     </div>
+                                                    <p className="text-[9px] font-medium text-slate-400 dark:text-slate-500 leading-none mt-0.5 uppercase tracking-wider">
+                                                        ID: {student.studentId || student.id.slice(0, 5)} {student.gender ? `• ${student.gender}` : ''}
+                                                    </p>
                                                 </div>
+                                            </div>
 
-                                                {/* Segmented Buttons for quick attendance status */}
-                                                <div className="flex items-center bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-xl border border-slate-200/50 dark:border-slate-700/50 shrink-0 select-none">
-                                                    <button
-                                                        onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Present' }))}
-                                                        className={`px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all duration-150 flex items-center justify-center gap-0.5 ${
-                                                            currentStatus === 'Present'
-                                                                ? 'bg-emerald-500 text-white shadow-sm scale-105'
-                                                                : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                                                        }`}
-                                                    >
-                                                        <span>✓</span>
-                                                        <span className="hidden xs:inline">มา</span>
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Late' }))}
-                                                        className={`px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all duration-150 flex items-center justify-center gap-0.5 ${
-                                                            currentStatus === 'Late'
-                                                                ? 'bg-amber-500 text-white shadow-sm scale-105'
-                                                                : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                                                        }`}
-                                                    >
-                                                        <span>🕘</span>
-                                                        <span className="hidden xs:inline">สาย</span>
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Sick' }))}
-                                                        className={`px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all duration-150 flex items-center justify-center gap-0.5 ${
-                                                            currentStatus === 'Sick'
-                                                                ? 'bg-sky-500 text-white shadow-sm scale-105'
-                                                                : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                                                        }`}
-                                                    >
-                                                        <span>📄</span>
-                                                        <span className="hidden xs:inline">ลา</span>
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Absent' }))}
-                                                        className={`px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all duration-150 flex items-center justify-center gap-0.5 ${
-                                                            currentStatus === 'Absent'
-                                                                ? 'bg-rose-500 text-white shadow-sm scale-105'
-                                                                : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-                                                        }`}
-                                                    >
-                                                        <span>✖</span>
-                                                        <span className="hidden xs:inline">ขาด</span>
-                                                    </button>
-                                                </div>
-                                            </motion.div>
+                                            {/* Segmented Buttons for quick attendance status - always showing full text on mobile */}
+                                            <div className="flex items-center bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-xl border border-slate-200/50 dark:border-slate-700/50 shrink-0 select-none">
+                                                <button
+                                                    onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Present' }))}
+                                                    className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all duration-150 flex items-center justify-center gap-0.5 ${
+                                                        currentStatus === 'Present'
+                                                            ? 'bg-emerald-500 text-white shadow-sm scale-105'
+                                                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                                    }`}
+                                                >
+                                                    <span>มา</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Late' }))}
+                                                    className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all duration-150 flex items-center justify-center gap-0.5 ${
+                                                        currentStatus === 'Late'
+                                                            ? 'bg-amber-500 text-white shadow-sm scale-105'
+                                                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                                    }`}
+                                                >
+                                                    <span>สาย</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Sick' }))}
+                                                    className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all duration-150 flex items-center justify-center gap-0.5 ${
+                                                        currentStatus === 'Sick'
+                                                            ? 'bg-sky-500 text-white shadow-sm scale-105'
+                                                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                                    }`}
+                                                >
+                                                    <span>ลา</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => setTempAttendance(prev => ({ ...prev, [student.id]: 'Absent' }))}
+                                                    className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition-all duration-150 flex items-center justify-center gap-0.5 ${
+                                                        currentStatus === 'Absent'
+                                                            ? 'bg-rose-500 text-white shadow-sm scale-105'
+                                                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                                    }`}
+                                                >
+                                                    <span>ขาด</span>
+                                                </button>
+                                            </div>
                                         </div>
                                     );
                                 });
