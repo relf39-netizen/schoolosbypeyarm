@@ -63,3 +63,16 @@ root.render(
     <App />
   </ErrorBoundary>
 );
+
+// Register PWA Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then((reg) => {
+        console.log('SchoolOS Service Worker registered with scope:', reg.scope);
+      })
+      .catch((err) => {
+        console.error('SchoolOS Service Worker registration failed:', err);
+      });
+  });
+}

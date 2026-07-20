@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { MOCK_TEACHERS, MOCK_SCHOOLS } from './constants';
 import { supabase, isConfigured as isSupabaseConfigured } from './supabaseClient';
+import PWAInstallPrompt from './components/PWAInstallPrompt';
 
 const SESSION_KEY = 'schoolos_session_v1';
 const APP_LOGO_URL = "https://img2.pic.in.th/pic/9c2e0f8ba684e3441fc58d880fdf143d.png";
@@ -700,6 +701,7 @@ const App: React.FC = () => {
                     <div className="hidden md:block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">ลิขสิทธิ์โดย สยาม  เชียงเครือ</div>
                 </div>
             </footer>
+            <PWAInstallPrompt />
         </div>
     );
 };

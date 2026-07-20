@@ -1781,6 +1781,17 @@ async function startServer() {
     });
   });
 
+  // Serve PWA assets directly
+  app.get('/manifest.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.sendFile(path.join(process.cwd(), 'manifest.json'));
+  });
+
+  app.get('/sw.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript');
+    res.sendFile(path.join(process.cwd(), 'sw.js'));
+  });
+
   // Serve static files from dist folder
   const distPath = path.join(process.cwd(), 'dist');
   
