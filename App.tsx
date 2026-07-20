@@ -25,7 +25,7 @@ import { supabase, isConfigured as isSupabaseConfigured } from './supabaseClient
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 
 const SESSION_KEY = 'schoolos_session_v1';
-const APP_LOGO_URL = "https://img2.pic.in.th/pic/9c2e0f8ba684e3441fc58d880fdf143d.png";
+const APP_LOGO_URL = "/logo-192.jpg";
 
 const App: React.FC = () => {
     // --- Global Data State ---

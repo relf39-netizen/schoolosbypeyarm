@@ -3,7 +3,7 @@ import React from 'react';
 import { SystemView, Teacher } from '../types';
 import { Home, FileText, UserMinus, DollarSign, MapPin, LogOut, X, CalendarRange, Settings, UserCircle, GraduationCap, Calendar } from 'lucide-react';
 
-const APP_LOGO_URL = "https://img2.pic.in.th/pic/9c2e0f8ba684e3441fc58d880fdf143d.png";
+const APP_LOGO_URL = "/logo-192.jpg";
 
 interface SidebarProps {
     currentView: SystemView;

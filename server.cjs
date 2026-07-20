@@ -1792,6 +1792,26 @@ async function startServer() {
     res.sendFile(path.join(process.cwd(), 'sw.js'));
   });
 
+  app.get('/logo-192.jpg', (req, res) => {
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.sendFile(path.join(process.cwd(), 'logo-192.jpg'));
+  });
+
+  app.get('/logo-512.jpg', (req, res) => {
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.sendFile(path.join(process.cwd(), 'logo-512.jpg'));
+  });
+
+  app.get('/logo-192.png', (req, res) => {
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.sendFile(path.join(process.cwd(), 'logo-192.png'));
+  });
+
+  app.get('/logo-512.png', (req, res) => {
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.sendFile(path.join(process.cwd(), 'logo-512.png'));
+  });
+
   // Serve static files from dist folder
   const distPath = path.join(process.cwd(), 'dist');
   
