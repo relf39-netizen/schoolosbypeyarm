@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Download, Smartphone, Chrome, X, Share, PlusSquare, Info, CheckCircle, Star, Copy, ExternalLink, AlertTriangle } from 'lucide-react';
 
-const PWAInstallPrompt: React.FC = () => {
+interface PWAInstallPromptProps {
+    appName?: string;
+    appLogoUrl?: string;
+}
+
+const PWAInstallPrompt: React.FC<PWAInstallPromptProps> = ({ appName, appLogoUrl }) => {
     const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
     const [isInstalled, setIsInstalled] = useState(false);
     const [isIOS, setIsIOS] = useState(false);
@@ -146,7 +151,7 @@ const PWAInstallPrompt: React.FC = () => {
                     </div>
                     <div>
                         <h4 className="text-xs font-black tracking-wider text-blue-400 uppercase">MOBILE INSTALLATION</h4>
-                        <h3 className="text-sm font-black text-white">ติดตั้งแอปพลิเคชัน SchoolOS</h3>
+                        <h3 className="text-sm font-black text-white">ติดตั้งแอปพลิเคชัน {appName || "SchoolOS"}</h3>
                     </div>
                 </div>
                 <button 
@@ -243,7 +248,7 @@ const PWAInstallPrompt: React.FC = () => {
                 {activeTab === 'AUTO' && (
                     <div className="space-y-4">
                         <div className="text-xs font-medium text-slate-600 leading-relaxed">
-                            เปลี่ยนระบบเว็บไซต์ให้เป็น <span className="font-bold text-blue-600">แอปพลิเคชัน SchoolOS แท้</span> บนโทรศัพท์มือถือของคุณ เพื่อการใช้งานแบบเต็มหน้าจอ รวดเร็ว ประหยัดเน็ต และปรากฏไอคอนแอปเดี่ยวบนหน้าจอโทรศัพท์เหมือนติดตั้งจาก Store!
+                            เปลี่ยนระบบเว็บไซต์ให้เป็น <span className="font-bold text-blue-600">แอปพลิเคชัน {appName || "SchoolOS"} แท้</span> บนโทรศัพท์มือถือของคุณ เพื่อการใช้งานแบบเต็มหน้าจอ รวดเร็ว ประหยัดเน็ต และปรากฏไอคอนแอปเดี่ยวบนหน้าจอโทรศัพท์เหมือนติดตั้งจาก Store!
                         </div>
 
                         {deferredPrompt ? (
@@ -269,9 +274,9 @@ const PWAInstallPrompt: React.FC = () => {
                                     </div>
                                     <div className="font-medium space-y-1.5 pl-4 list-decimal block text-[11px] text-slate-700">
                                         <div>1. ตรวจสอบว่าเปิดเว็บนี้ในแอป <span className="font-bold text-slate-900">Google Chrome</span> หลักของเครื่องแล้ว (ไม่ใช่อยู่ในไลน์)</div>
-                                        <div>2. สังเกตปุ่ม <span className="font-bold text-blue-600">จุดสามจุด (⁝)</span> ที่ขวาบนของ Google Chrome</div>
+                                        <div>2. สังเกตปุ่ม <span className="font-bold text-blue-600">จุดสามจุด (⁝)</span> ที่ขวาบน of Google Chrome</div>
                                         <div>3. กดเลือกเมนู <span className="font-bold text-blue-600">"ติดตั้งแอปพลิเคชัน" (Install App)</span> หรือ <span className="font-bold text-blue-600">"เพิ่มลงในหน้าจอหลัก" (Add to Home screen)</span></div>
-                                        <div>4. กดปุ่มยืนยัน <span className="font-bold text-slate-900">"ติดตั้ง"</span> ระบบจะติดตั้งแอปพลิเคชันพร้อมแสดงไอคอน SchoolOS บนหน้าจอทันที!</div>
+                                        <div>4. กดปุ่มยืนยัน <span className="font-bold text-slate-900">"ติดตั้ง"</span> ระบบจะติดตั้งแอปพลิเคชันพร้อมแสดงไอคอน {appName || "SchoolOS"} บนหน้าจอทันที!</div>
                                     </div>
                                 </div>
                             </div>
@@ -305,19 +310,19 @@ const PWAInstallPrompt: React.FC = () => {
                             <div className="flex items-start gap-3">
                                 <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-[10px] shrink-0 mt-0.5 shadow-md shadow-blue-500/20">3</div>
                                 <div className="space-y-1">
-                                    <span>เลื่อนแถบเมนูขึ้นแล้วเลือกคำว่า <span className="font-bold text-blue-600">"เพิ่มไปยังหน้าจอโฮม" (Add to Home Screen)</span> ➕</span>
+                                    <span>เลื่อนแถบเมนูขึ้นแล้วเลือกคำว่า <span className="font-bold text-blue-600 animate-pulse">"เพิ่มไปยังหน้าจอโฮม" (Add to Home Screen)</span> ➕</span>
                                 </div>
                             </div>
                             <div className="flex items-start gap-3">
                                 <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-[10px] shrink-0 mt-0.5 shadow-md shadow-blue-500/20">4</div>
                                 <div>
-                                    กดปุ่มคำว่า <span className="font-bold text-slate-900">"เพิ่ม" (Add)</span> ที่มุมขวาบน เพื่อนำแอป SchoolOS ไปสร้างเป็นแอปเดี่ยวบนหน้าจอมือถือของคุณทันที
+                                    กดปุ่มคำว่า <span className="font-bold text-slate-900">"เพิ่ม" (Add)</span> ที่มุมขวาบน เพื่อนำแอป {appName || "SchoolOS"} ไปสร้างเป็นแอปเดี่ยวบนหน้าจอมือถือของคุณทันที
                                 </div>
                             </div>
                         </div>
 
                         <div className="text-[10px] text-slate-400 font-bold text-center leading-relaxed">
-                            * เมื่อเพิ่มสำเร็จ แอปจะกลายเป็นไอคอนแอป SchoolOS แท้จริงที่เปิดทำงานแบบจอไร้ขอบ (Full Screen) เหมือนกับแอปโหลดจาก App Store!
+                            * เมื่อเพิ่มสำเร็จ แอปจะกลายเป็นไอคอนแอป {appName || "SchoolOS"} แท้จริงที่เปิดทำงานแบบจอไร้ขอบ (Full Screen) เหมือนกับแอปโหลดจาก App Store!
                         </div>
                     </div>
                 )}

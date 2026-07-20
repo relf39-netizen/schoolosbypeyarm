@@ -3,7 +3,7 @@ import React from 'react';
 import { SystemView, Teacher } from '../types';
 import { Home, FileText, UserMinus, DollarSign, MapPin, LogOut, X, CalendarRange, Settings, UserCircle, GraduationCap, Calendar } from 'lucide-react';
 
-const APP_LOGO_URL = "/logo-192.jpg";
+const DEFAULT_LOGO_URL = "/logo-192.jpg";
 
 interface SidebarProps {
     currentView: SystemView;
@@ -14,9 +14,11 @@ interface SidebarProps {
     allTeachers: Teacher[];
     onSwitchUser: (teacherId: string) => void;
     schoolLogo?: string;
+    appName?: string;
+    appLogoUrl?: string;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isMobileOpen, toggleMobile, currentUser, allTeachers, onSwitchUser, schoolLogo }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isMobileOpen, toggleMobile, currentUser, allTeachers, onSwitchUser, schoolLogo, appName, appLogoUrl }) => {
     
     const menuItems = [
         { id: SystemView.DASHBOARD, label: 'ภาพรวม', icon: Home, visible: true },
@@ -45,8 +47,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isMobileOp
             <div className={`${baseClasses} ${mobileClasses} flex flex-col shadow-xl`}>
                 <div className="h-16 flex items-center justify-between px-6 bg-slate-800 shrink-0">
                     <div className="flex items-center space-x-3">
-                        <img src={schoolLogo || APP_LOGO_URL} alt="Logo" className="w-8 h-8 rounded-lg object-contain bg-white shadow-sm" />
-                        <span className="text-xl font-bold tracking-tight">SchoolOS</span>
+                        <img src={schoolLogo || appLogoUrl || DEFAULT_LOGO_URL} alt="Logo" className="w-8 h-8 rounded-lg object-contain bg-white shadow-sm" />
+                        <span className="text-xl font-bold tracking-tight">{appName || "SchoolOS"}</span>
                     </div>
                     <button onClick={toggleMobile} className="lg:hidden">
                         <X size={24} />

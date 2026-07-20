@@ -432,12 +432,20 @@ async function startServer() {
           vice_director_signature_date VARCHAR(255),
           target_teachers JSON,
           acknowledged_by JSON
+        )`,
+        `CREATE TABLE IF NOT EXISTS system_settings (
+          setting_key VARCHAR(255) PRIMARY KEY,
+          setting_value TEXT
         )`
       ];
 
       for (const sql of schema) {
         await query(sql);
       }
+
+      // Seed default system settings
+      await query("INSERT IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)", ['app_name', 'SchoolOS']);
+      await query("INSERT IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)", ['app_logo_url', '/logo-192.jpg']);
 
       // Migration: Add missing columns
       const migrations = [
@@ -1573,6 +1581,68 @@ async function startServer() {
     }
   });
 
+  // System Settings GET and POST endpoints
+  app.get('/api/system-settings', async (req, res) => {
+    try {
+      let appName = 'SchoolOS';
+      let appLogoUrl = '/logo-192.jpg';
+
+      const nameRows = await query("SELECT setting_value FROM system_settings WHERE setting_key = 'app_name'");
+      if (nameRows && nameRows.length > 0) {
+        appName = nameRows[0].setting_value;
+      }
+
+      const logoRows = await query("SELECT setting_value FROM system_settings WHERE setting_key = 'app_logo_url'");
+      if (logoRows && logoRows.length > 0) {
+        appLogoUrl = logoRows[0].setting_value;
+      }
+
+      res.json({ appName, appLogoUrl });
+    } catch (err) {
+      res.json({ appName: 'SchoolOS', appLogoUrl: '/logo-192.jpg' });
+    }
+  });
+
+  app.post('/api/system-settings', async (req, res) => {
+    const { appName, appIcon } = req.body;
+    try {
+      if (appName) {
+        await query("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)", ['app_name', appName]);
+      }
+
+      if (appIcon) {
+        // appIcon is a base64 string, potentially prefixed with data:image/...;base64,
+        let cleanBase64 = appIcon;
+        if (appIcon.includes(',')) {
+          cleanBase64 = appIcon.split(',')[1];
+        }
+        const buffer = Buffer.from(cleanBase64, 'base64');
+
+        // Write to root
+        fs.writeFileSync(path.join(process.cwd(), 'logo-192.jpg'), buffer);
+        fs.writeFileSync(path.join(process.cwd(), 'logo-512.jpg'), buffer);
+        fs.writeFileSync(path.join(process.cwd(), 'logo-192.png'), buffer);
+        fs.writeFileSync(path.join(process.cwd(), 'logo-512.png'), buffer);
+
+        // Also write to dist/ if it exists
+        const distPath = path.join(process.cwd(), 'dist');
+        if (fs.existsSync(distPath)) {
+          fs.writeFileSync(path.join(distPath, 'logo-192.jpg'), buffer);
+          fs.writeFileSync(path.join(distPath, 'logo-512.jpg'), buffer);
+          fs.writeFileSync(path.join(distPath, 'logo-192.png'), buffer);
+          fs.writeFileSync(path.join(distPath, 'logo-512.png'), buffer);
+        }
+
+        await query("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)", ['app_logo_url', '/logo-192.jpg']);
+      }
+
+      res.json({ success: true, message: 'บันทึกการตั้งค่าระบบเรียบร้อยแล้ว' });
+    } catch (err) {
+      console.error('Failed to save system settings:', err);
+      res.status(500).json({ error: 'ไม่สามารถบันทึกการตั้งค่าระบบได้: ' + (err.message || String(err)) });
+    }
+  });
+
   // Database Initialization (Manual Trigger)
   app.post('/api/init-db', async (req, res) => {
     try {
@@ -1974,9 +2044,66 @@ async function startServer() {
   });
 
   // Serve PWA assets directly
-  app.get('/manifest.json', (req, res) => {
+  app.get('/manifest.json', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
-    res.sendFile(path.join(process.cwd(), 'manifest.json'));
+    try {
+      let appName = 'SchoolOS';
+      const rows = await query("SELECT setting_value FROM system_settings WHERE setting_key = 'app_name'");
+      if (rows && rows.length > 0) {
+        appName = rows[0].setting_value;
+      }
+      
+      const manifest = {
+        "short_name": appName,
+        "name": appName + " - ระบบบริหารจัดการโรงเรียน",
+        "start_url": "/",
+        "background_color": "#0f172a",
+        "display": "standalone",
+        "orientation": "portrait",
+        "theme_color": "#1e293b",
+        "icons": [
+          {
+            "src": "/logo-192.jpg",
+            "sizes": "192x192",
+            "type": "image/jpeg",
+            "purpose": "any"
+          },
+          {
+            "src": "/logo-192.jpg",
+            "sizes": "192x192",
+            "type": "image/jpeg",
+            "purpose": "maskable"
+          },
+          {
+            "src": "/logo-512.jpg",
+            "sizes": "512x512",
+            "type": "image/jpeg",
+            "purpose": "any"
+          },
+          {
+            "src": "/logo-512.jpg",
+            "sizes": "512x512",
+            "type": "image/jpeg",
+            "purpose": "maskable"
+          },
+          {
+            "src": "/logo-192.png",
+            "sizes": "192x192",
+            "type": "image/jpeg",
+            "purpose": "any"
+          },
+          {
+            "src": "/logo-512.png",
+            "sizes": "512x512",
+            "type": "image/jpeg",
+            "purpose": "any"
+          }
+        ]
+      };
+      res.json(manifest);
+    } catch (e) {
+      res.sendFile(path.join(process.cwd(), 'manifest.json'));
+    }
   });
 
   app.get('/sw.js', (req, res) => {

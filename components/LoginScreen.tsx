@@ -10,9 +10,11 @@ interface LoginScreenProps {
     onLogin: (user: Teacher) => void;
     onRegister: (schoolId: string, id: string, name: string) => void;
     onSuperAdminLogin: () => void;
+    appName?: string;
+    appLogoUrl?: string;
 }
 
-const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, onRegister, onSuperAdminLogin }) => {
+const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, onRegister, onSuperAdminLogin, appName, appLogoUrl }) => {
     const [mode, setMode] = useState<'LOGIN' | 'REGISTER' | 'SUPER_ADMIN'>('LOGIN');
     
     // Login State
@@ -179,10 +181,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
         <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sarabun overflow-y-auto">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden my-auto border-t-8 border-blue-600">
                 <div className="bg-slate-900 p-10 text-center text-white relative">
-                    <div className="w-20 h-20 bg-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-blue-500/20 transform rotate-3">
-                        <GraduationCap size={48} className="text-white" />
+                    <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-blue-500/20 transform rotate-3 overflow-hidden p-2">
+                        <img src={appLogoUrl || "/logo-192.jpg"} alt="Logo" className="w-full h-full object-contain" />
                     </div>
-                    <h1 className="text-4xl font-black tracking-tight mb-2">SchoolOS</h1>
+                    <h1 className="text-4xl font-black tracking-tight mb-2">{appName || "SchoolOS"}</h1>
                     <p className="text-blue-400 text-xs font-black uppercase tracking-[0.2em] mb-4">Smart Management Platform</p>
                     <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
                         <p className="text-sm italic font-medium text-slate-300 leading-relaxed">

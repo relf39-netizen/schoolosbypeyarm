@@ -6,7 +6,8 @@ import {
     Search, Users, Power, PowerOff, 
     ArrowLeft, Edit, Key, User as UserIcon, Eye, EyeOff,
     Clock, Check, ShieldPlus, UserMinus,
-    Database, RefreshCw, Zap, ShieldAlert
+    Database, RefreshCw, Zap, ShieldAlert,
+    Upload, Image, Smartphone, Info
 } from 'lucide-react';
 import { supabase, isConfigured as isSupabaseConfigured } from '../supabaseClient';
 
@@ -26,13 +27,20 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     schools, teachers, onCreateSchool, onUpdateSchool, onDeleteSchool, 
     onUpdateTeacher, onDeleteTeacher, onLogout, onEnterSchool
 }) => {
-    const [activeTab, setActiveTab] = useState<'SCHOOLS' | 'PENDING' | 'ACCOUNT' | 'DATABASE'>('SCHOOLS');
+    const [activeTab, setActiveTab] = useState<'SCHOOLS' | 'PENDING' | 'ACCOUNT' | 'DATABASE' | 'SYSTEM_SETTINGS'>('SCHOOLS');
     const [showForm, setShowForm] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
     const [formData, setFormData] = useState<Partial<School>>({ id: '', name: '' });
     const [isSavingSchool, setIsSavingSchool] = useState(false);
     const [schoolSearch, setSchoolSearch] = useState('');
     const [teacherSearch, setTeacherSearch] = useState('');
+    
+    // System Settings State
+    const [sysAppName, setSysAppName] = useState('');
+    const [sysAppIconBase64, setSysAppIconBase64] = useState('');
+    const [sysAppIconPreview, setSysAppIconPreview] = useState('');
+    const [isSavingSystemSettings, setIsSavingSystemSettings] = useState(false);
+    const [isLoadingSystemSettings, setIsLoadingSystemSettings] = useState(false);
     
     // Account Management State
     const [superAdminData, setSuperAdminData] = useState({ username: '', password: '' });
@@ -125,6 +133,72 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             alert("ขัดข้อง: " + err.message);
         } finally {
             setIsTestingDbConfig(false);
+        }
+    };
+
+    // System Settings Fetch & Action Handlers
+    useEffect(() => {
+        const fetchSettings = async () => {
+            setIsLoadingSystemSettings(true);
+            try {
+                const res = await fetch('/api/system-settings');
+                const data = await res.json();
+                if (data.appName) {
+                    setSysAppName(data.appName);
+                }
+                if (data.appLogoUrl) {
+                    setSysAppIconPreview(data.appLogoUrl);
+                }
+            } catch (err) {
+                console.error("Error fetching system settings:", err);
+            } finally {
+                setIsLoadingSystemSettings(false);
+            }
+        };
+        fetchSettings();
+    }, [activeTab]);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+            alert('กรุณาเลือกไฟล์รูปภาพเท่านั้น (PNG/JPG/JPEG)');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64String = reader.result as string;
+            setSysAppIconBase64(base64String);
+            setSysAppIconPreview(base64String);
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleSaveSystemSettings = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSavingSystemSettings(true);
+        try {
+            const res = await fetch('/api/system-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    appName: sysAppName,
+                    appIcon: sysAppIconBase64
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert('บันทึกการตั้งค่าระบบเรียบร้อยแล้ว! แอปพลิเคชันได้รับการตั้งค่าและปรับเปลี่ยนไอคอนกับชื่อแอปโดยสมบูรณ์เรียบร้อยแล้ว');
+                window.location.reload();
+            } else {
+                alert(data.error || 'บันทึกการตั้งค่าระบบล้มเหลว');
+            }
+        } catch (err: any) {
+            alert('เกิดข้อผิดพลาดในการบันทึก: ' + err.message);
+        } finally {
+            setIsSavingSystemSettings(false);
         }
     };
 
@@ -346,14 +420,15 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                             <span className="text-[9px] text-blue-400 font-bold uppercase tracking-widest">Platform Core Dashboard</span>
                         </div>
                     </div>
-                    <div className="hidden md:flex bg-slate-800 p-1 rounded-xl">
-                        <button onClick={() => { setActiveTab('SCHOOLS'); setSelectedSchoolId(null); }} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'SCHOOLS' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>จัดการโรงเรียน</button>
-                        <button onClick={() => { setActiveTab('PENDING'); setSelectedSchoolId(null); }} className={`relative px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'PENDING' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>
+                    <div className="flex bg-slate-800 p-1 rounded-xl overflow-x-auto scrollbar-none gap-1 max-w-[65vw] md:max-w-none">
+                        <button onClick={() => { setActiveTab('SCHOOLS'); setSelectedSchoolId(null); }} className={`px-4 py-2 shrink-0 rounded-lg text-xs md:text-sm font-bold transition-all ${activeTab === 'SCHOOLS' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>จัดการโรงเรียน</button>
+                        <button onClick={() => { setActiveTab('PENDING'); setSelectedSchoolId(null); }} className={`relative px-4 py-2 shrink-0 rounded-lg text-xs md:text-sm font-bold transition-all ${activeTab === 'PENDING' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>
                             คำขอแอดมินใหม่
                             {pendingGlobalUsers.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full animate-pulse">{pendingGlobalUsers.length}</span>}
                         </button>
-                        <button onClick={() => { setActiveTab('ACCOUNT'); setSelectedSchoolId(null); }} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'ACCOUNT' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>ตั้งค่าบัญชี</button>
-                        <button onClick={() => { setActiveTab('DATABASE'); setSelectedSchoolId(null); }} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'DATABASE' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>จัดการฐานข้อมูล</button>
+                        <button onClick={() => { setActiveTab('ACCOUNT'); setSelectedSchoolId(null); }} className={`px-4 py-2 shrink-0 rounded-lg text-xs md:text-sm font-bold transition-all ${activeTab === 'ACCOUNT' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>ตั้งค่าบัญชี</button>
+                        <button onClick={() => { setActiveTab('DATABASE'); setSelectedSchoolId(null); }} className={`px-4 py-2 shrink-0 rounded-lg text-xs md:text-sm font-bold transition-all ${activeTab === 'DATABASE' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>จัดการฐานข้อมูล</button>
+                        <button onClick={() => { setActiveTab('SYSTEM_SETTINGS'); setSelectedSchoolId(null); }} className={`px-4 py-2 shrink-0 rounded-lg text-xs md:text-sm font-bold transition-all ${activeTab === 'SYSTEM_SETTINGS' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400'}`}>ตั้งค่าระบบ</button>
                     </div>
                     <button onClick={onLogout} className="p-2 text-slate-400 hover:text-red-400 transition-colors flex items-center gap-2 font-bold">
                         <span className="text-xs">LOGOUT</span>
@@ -567,6 +642,165 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                                     <div className="flex justify-between items-center">
                                         <span className="text-[10px] font-black text-slate-400 uppercase">Database Engine</span>
                                         <span className="text-xs font-black text-blue-600">MySQL 8.0</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'SYSTEM_SETTINGS' && (
+                    <div className="animate-fade-in max-w-4xl mx-auto space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {/* Left panel: Branding Form */}
+                            <div className="md:col-span-2 bg-white rounded-[2rem] shadow-xl border border-slate-200 p-8 space-y-6">
+                                <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+                                    <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shadow-inner">
+                                        <Smartphone size={20} />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-lg font-black text-slate-800">ตั้งค่าชื่อและโลโก้แอปพลิเคชัน</h2>
+                                        <p className="text-xs text-slate-400 font-bold">กำหนดแบรนดิ้งที่จะไปแสดงบนหน้าจอมือถือและ PWA</p>
+                                    </div>
+                                </div>
+
+                                {isLoadingSystemSettings ? (
+                                    <div className="py-20 flex flex-col items-center justify-center gap-3 text-slate-400">
+                                        <Loader2 size={36} className="animate-spin text-blue-600" />
+                                        <span className="text-xs font-black">กำลังโหลดข้อมูลการตั้งค่าระบบ...</span>
+                                    </div>
+                                ) : (
+                                    <form onSubmit={handleSaveSystemSettings} className="space-y-6">
+                                        {/* App Name Input */}
+                                        <div className="space-y-2">
+                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                                                ชื่อแอปพลิเคชัน (Application Name)
+                                            </label>
+                                            <div className="relative">
+                                                <input
+                                                    type="text"
+                                                    required
+                                                    value={sysAppName}
+                                                    onChange={e => setSysAppName(e.target.value)}
+                                                    placeholder="เช่น SchoolOS"
+                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold transition-all text-sm"
+                                                />
+                                            </div>
+                                            <p className="text-[10px] text-slate-400 leading-relaxed pl-1">
+                                                * ชื่อนี้จะไปปรากฏเป็นชื่อแอปพลิเคชันใต้ไอคอนบนหน้าจอโทรศัพท์มือถือเมื่อทำการติดตั้งแบบ PWA
+                                            </p>
+                                        </div>
+
+                                        {/* App Icon Upload */}
+                                        <div className="space-y-3">
+                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                                                ไอคอนแอปพลิเคชัน (Application Icon)
+                                            </label>
+
+                                            <div className="flex flex-col sm:flex-row items-center gap-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                                {/* Preview Container */}
+                                                <div className="relative group shrink-0">
+                                                    <div className="w-24 h-24 rounded-2xl bg-white border border-slate-200 shadow-md flex items-center justify-center overflow-hidden">
+                                                        {sysAppIconPreview ? (
+                                                            <img
+                                                                src={sysAppIconPreview}
+                                                                alt="App Icon Preview"
+                                                                className="w-full h-full object-cover"
+                                                                referrerPolicy="no-referrer"
+                                                            />
+                                                        ) : (
+                                                            <div className="text-slate-300 flex flex-col items-center gap-1">
+                                                                <Image size={24} />
+                                                                <span className="text-[9px] font-bold">ไม่มีไอคอน</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest">
+                                                        Preview
+                                                    </span>
+                                                </div>
+
+                                                {/* File Selector */}
+                                                <div className="flex-1 space-y-2 text-center sm:text-left w-full">
+                                                    <div className="relative">
+                                                        <input
+                                                            type="file"
+                                                            id="sysAppIconInput"
+                                                            accept="image/png, image/jpeg, image/jpg"
+                                                            onChange={handleFileChange}
+                                                            className="hidden"
+                                                        />
+                                                        <label
+                                                            htmlFor="sysAppIconInput"
+                                                            className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:border-blue-500 hover:text-blue-600 rounded-xl text-xs font-black cursor-pointer shadow-sm transition-all active:scale-95"
+                                                        >
+                                                            <Upload size={14} />
+                                                            เลือกรูปภาพไอคอนใหม่
+                                                        </label>
+                                                    </div>
+                                                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                                                        รองรับไฟล์รูปภาพแบบสี่เหลี่ยมจัตุรัส (.png, .jpg, .jpeg) แนะนำขนาดอย่างน้อย 512x512 พิกเซล เพื่อให้ไอคอนคมชัดทุกหน้าจอโทรศัพท์มือถือ
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Actions */}
+                                        <button
+                                            type="submit"
+                                            disabled={isSavingSystemSettings || !sysAppName}
+                                            className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-sm shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                                        >
+                                            {isSavingSystemSettings ? (
+                                                <>
+                                                    <Loader2 className="animate-spin" size={18} />
+                                                    กำลังบันทึกและอัปเดตไฟล์ระบบ...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Save size={18} />
+                                                    บันทึกและปรับเปลี่ยนแบรนดิ้งแอปพลิเคชัน
+                                                </>
+                                            )}
+                                        </button>
+                                    </form>
+                                )}
+                            </div>
+
+                            {/* Right panel: Information and PWA status */}
+                            <div className="space-y-6">
+                                <div className="bg-slate-900 text-white rounded-[2rem] p-6 shadow-xl space-y-4">
+                                    <h3 className="text-sm font-black flex items-center gap-2 text-blue-400">
+                                        <Smartphone size={16} /> ข้อมูลระบบการติดตั้ง (PWA)
+                                    </h3>
+                                    <div className="text-[11px] text-slate-300 space-y-3 leading-relaxed">
+                                        <p>
+                                            เมื่อผู้ดูแลระบบปรับปรุง <span className="font-bold text-white">ชื่อแอป</span> และ <span className="font-bold text-white">ไอคอนแอป</span> ระบบหลังบ้านจะดึงข้อมูลไปทำการปรับปรุงไฟล์เหล่านี้โดยอัตโนมัติ:
+                                        </p>
+                                        <div className="space-y-2 pl-3 border-l-2 border-blue-500/50">
+                                            <div>
+                                                <span className="font-black text-blue-300 block">1. Dynamic manifest.json</span>
+                                                <span>ไฟล์โครงสร้างที่เบราว์เซอร์ใช้ตรวจจับเพื่อขึ้นปุ่มติดตั้งแอป</span>
+                                            </div>
+                                            <div>
+                                                <span className="font-black text-blue-300 block">2. Web App Icons</span>
+                                                <span>เขียนรูปภาพทับไฟล์ไอคอนระบบเพื่อให้ไอคอนตอนสร้างทางลัดบนมือถือเป็นรูปภาพแบรนด์ของคุณเอง</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-amber-50/75 border border-amber-100 rounded-[2rem] p-6 space-y-3">
+                                    <h3 className="text-xs font-black text-amber-800 flex items-center gap-1.5">
+                                        <Info size={14} className="text-amber-600" /> คำแนะนำสำหรับแอดมิน
+                                    </h3>
+                                    <div className="text-[11px] text-slate-600 space-y-2.5 leading-relaxed">
+                                        <p>
+                                            หลังจากแก้ไขชื่อและโลโก้แล้ว หากมือถือเครื่องเก่าเคยเปิดระบบไปแล้ว อาจจะยังคงเห็นโลโก้หรือชื่อเดิมเนื่องจาก <span className="font-bold text-amber-900">การเก็บแคช (Cache) ของเบราว์เซอร์มือถือ</span>
+                                        </p>
+                                        <p className="font-bold text-amber-900">
+                                            วิธีแก้: ให้ปิดเว็บบนมือถือทั้งหมด เคลียร์ประวัติการเข้าชมเว็บล่าสุด หรือทดสอบเปิดผ่านโหมดไม่ระบุตัวตน (Incognito) จะทำให้ชื่อและโลโก้ใหม่แสดงขึ้นทันที!
+                                        </p>
                                     </div>
                                 </div>
                             </div>
