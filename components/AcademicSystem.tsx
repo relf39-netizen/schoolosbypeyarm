@@ -6,7 +6,7 @@ import {
     Save, ChevronLeft, Award, Database, Loader, Cloud, RefreshCw,
     Calendar, FileText, Plus, Trash2, ExternalLink, FileUp, Info,
     LayoutDashboard, CheckCircle, Clock, BookOpen, Target, ArrowRight,
-    CalendarPlus, AlertCircle, X, UserCheck, UsersRound, Printer
+    CalendarPlus, AlertCircle, X, UserCheck, UsersRound, Printer, Star, Check
 } from 'lucide-react';
 import { 
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
@@ -136,6 +136,7 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
     const [isUploading, setIsUploading] = useState(false);
 
     const [selectedYear, setSelectedYear] = useState<string>(CURRENT_SCHOOL_YEAR);
+    const [dbCurrentYear, setDbCurrentYear] = useState<string | null>(null);
     const [availableYears, setAvailableYears] = useState<string[]>(['2565', '2566', '2567', '2568']);
     const [showAddYearModal, setShowAddYearModal] = useState(false);
     const [newYearInput, setNewYearInput] = useState('');
@@ -240,7 +241,25 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
                 mappedScores.forEach((s: any) => years.add(s.year));
                 mappedCal.forEach(c => years.add(c.year));
                 mappedSar.forEach(s => years.add(s.year));
+
+                // Fetch from academic_years table
+                const { data: dbYearsData } = await supabase.from('academic_years').select('*').eq('school_id', currentUser.schoolId);
+                let currentYearFromDb = null;
+                if (dbYearsData && dbYearsData.length > 0) {
+                    dbYearsData.forEach((y: any) => {
+                        years.add(y.year);
+                        if (y.is_current) {
+                            currentYearFromDb = y.year;
+                        }
+                    });
+                }
+
                 setAvailableYears(Array.from(years).sort((a,b) => parseInt(b) - parseInt(a)));
+
+                if (currentYearFromDb) {
+                    setDbCurrentYear(currentYearFromDb);
+                    setSelectedYear(currentYearFromDb);
+                }
 
             } catch (err) {
                 console.error("Database Fetch Error:", err);
@@ -271,6 +290,53 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
             case 'ONET_M3':
             case 'ONET': return ['Thai', 'Math', 'Science', 'English'];
             default: return [];
+        }
+    };
+
+    const handleSetCurrentYear = async () => {
+        if (!isConfigured || !supabase) return;
+        setIsSaving(true);
+        try {
+            // 1. Set all to is_current = false for this school
+            await supabase
+                .from('academic_years')
+                .update({ is_current: false })
+                .eq('school_id', currentUser.schoolId);
+
+            // 2. See if selectedYear exists
+            const { data: existing } = await supabase
+                .from('academic_years')
+                .select('*')
+                .eq('school_id', currentUser.schoolId)
+                .eq('year', selectedYear);
+
+            if (existing && existing.length > 0) {
+                // Update
+                const { error } = await supabase
+                    .from('academic_years')
+                    .update({ is_current: true })
+                    .eq('school_id', currentUser.schoolId)
+                    .eq('year', selectedYear);
+                if (error) throw error;
+            } else {
+                // Insert
+                const { error } = await supabase
+                    .from('academic_years')
+                    .insert([{
+                        school_id: currentUser.schoolId,
+                        year: selectedYear,
+                        is_current: true
+                    }]);
+                if (error) throw error;
+            }
+
+            setDbCurrentYear(selectedYear);
+            alert(`ตั้งค่าปีการศึกษา ${selectedYear} เป็นปีการศึกษาปัจจุบันเรียบร้อยแล้ว`);
+        } catch (err: any) {
+            console.error("Error setting current year:", err);
+            alert("เกิดข้อผิดพลาดในการตั้งค่าปีการศึกษาปัจจุบัน: " + (err.message || String(err)));
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -720,6 +786,19 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
                         <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="px-4 py-2 border rounded-xl font-black bg-white outline-none focus:ring-2 ring-indigo-500/20">
                             {availableYears.map(y => <option key={y} value={y}>ปีการศึกษา {y}</option>)}
                         </select>
+                        {selectedYear === dbCurrentYear ? (
+                            <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shrink-0 shadow-sm">
+                                <Check size={14} className="text-emerald-500"/> ปีการศึกษาปัจจุบัน
+                            </span>
+                        ) : isAcademicAdmin ? (
+                            <button
+                                onClick={handleSetCurrentYear}
+                                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-100 px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shrink-0 shadow-sm"
+                                title="กำหนดปีนี้เป็นปีการศึกษาปัจจุบันของโรงเรียน"
+                            >
+                                <Star size={14} className="text-indigo-500"/> กำหนดเป็นปีการศึกษาปัจจุบัน
+                            </button>
+                        ) : null}
                         {isAcademicAdmin && <button onClick={() => setShowCalendarForm(true)} className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all text-sm flex-1 md:flex-none"><Plus size={18}/> เพิ่มกิจกรรม</button>}
                     </div>
                 </div>
