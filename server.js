@@ -200,6 +200,7 @@ async function startServer() {
           telegram_bot_username VARCHAR(255),
           app_base_url TEXT,
           official_garuda_base_64 LONGTEXT,
+          school_logo_base_64 LONGTEXT,
           officer_department VARCHAR(255),
           internal_departments JSON,
           external_agencies JSON,
@@ -508,6 +509,7 @@ async function startServer() {
           table: 'school_configs',
           columns: [
             { name: 'official_garuda_base_64', type: 'LONGTEXT' },
+            { name: 'school_logo_base_64', type: 'LONGTEXT' },
             { name: 'officer_department', type: 'VARCHAR(255)' },
             { name: 'internal_departments', type: 'JSON' },
             { name: 'external_agencies', type: 'JSON' },

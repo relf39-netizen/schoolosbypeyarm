@@ -272,6 +272,7 @@ CREATE TABLE IF NOT EXISTS school_configs (
   telegram_bot_username VARCHAR(255),
   app_base_url TEXT,
   official_garuda_base_64 LONGTEXT,
+  school_logo_base_64 LONGTEXT,
   officer_department VARCHAR(255),
   internal_departments JSON,
   external_agencies JSON,

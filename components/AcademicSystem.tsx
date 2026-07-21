@@ -691,8 +691,8 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
         const hiddenNormalWeeks = calendarEvents.filter(e => e.year === selectedYear && e.eventType === 'NORMAL_WEEK');
 
         const handleOpenPrintModal = () => {
-            const schoolName = sysConfig?.schoolName || 'บ้านศรีบุญเรือง';
-            const district = sysConfig?.officerDepartment || 'สำนักงานเขตพื้นที่การศึกษาประถมศึกษาน่าน เขต 1';
+            const schoolName = sysConfig?.schoolName && sysConfig.schoolName !== 'บ้านศรีบุญเรือง' ? sysConfig.schoolName : 'พัฒนาวิชาการ';
+            const district = sysConfig?.officerDepartment && sysConfig.officerDepartment !== 'สำนักงานเขตพื้นที่การศึกษาประถมศึกษาน่าน เขต 1' ? sysConfig.officerDepartment : 'สำนักงานเขตพื้นที่การศึกษาประถมศึกษาบุรีรัมย์เขต 3';
             setPrintSchoolName(schoolName);
             setPrintDistrict(district);
             setPrintYear(selectedYear);
@@ -996,8 +996,17 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
                                         }
                                     `}</style>
                                     
-                                    {/* Page Numbering header */}
-                                    <div className="text-right text-sm font-bold mb-6">1</div>
+                                    {/* School Logo */}
+                                    {sysConfig?.schoolLogoBase64 && (
+                                        <div className="flex justify-center mb-6">
+                                            <img 
+                                                src={sysConfig.schoolLogoBase64} 
+                                                className="h-20 w-20 object-contain" 
+                                                alt="School Logo" 
+                                                referrerPolicy="no-referrer"
+                                            />
+                                        </div>
+                                    )}
                                     
                                     {/* Document Header */}
                                     <div className="text-center space-y-1.5">

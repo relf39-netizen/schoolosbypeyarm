@@ -475,6 +475,7 @@ function setTelegramWebhook() {
                              telegramBotUsername: data.telegram_bot_username || '',
                              appBaseUrl: data.app_base_url || '',
                              officialGarudaBase64: data.official_garuda_base_64 || '',
+                             schoolLogoBase64: data.school_logo_base_64 || '',
                              directorSignatureBase64: data.director_signature_base_64 || '',
                              directorSignatureScale: data.director_signature_scale || 1.0,
                              directorSignatureYOffset: data.director_signature_y_offset || 0,
@@ -1224,6 +1225,7 @@ function setTelegramWebhook() {
                 telegram_bot_username: config.telegramBotUsername,
                 app_base_url: config.appBaseUrl,
                 official_garuda_base_64: config.officialGarudaBase64,
+                school_logo_base_64: config.schoolLogoBase64 || '',
                 director_signature_base_64: config.directorSignatureBase64,
                 director_signature_scale: config.directorSignatureScale,
                 director_signature_y_offset: config.directorSignatureYOffset
@@ -1964,6 +1966,44 @@ function setTelegramWebhook() {
                                                             }
                                                         }}
                                                         className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 transition-all"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="lg:col-span-2">
+                                        <div className="bg-white p-6 rounded-2xl border border-slate-100 space-y-6 shadow-sm">
+                                            <h5 className="font-black text-slate-800 flex items-center gap-3 uppercase text-[10px] tracking-widest">
+                                                <Image size={20} className="text-emerald-500"/> โลโก้โรงเรียน (สำหรับปฏิทินปฏิบัติงานวิชาการและรายงาน)
+                                            </h5>
+                                            <div className="flex flex-col md:flex-row gap-6 items-center">
+                                                <div className="w-24 h-24 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center overflow-hidden shrink-0">
+                                                    {config.schoolLogoBase64 ? (
+                                                        <img src={config.schoolLogoBase64} className="w-full h-full object-contain" alt="School Logo" />
+                                                    ) : (
+                                                        <span className="text-[10px] text-slate-300 font-bold">ไม่มีรูป</span>
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 space-y-3">
+                                                    <p className="text-[10px] text-slate-400 font-bold leading-relaxed">
+                                                        แนะนำรูปภาพประเภท PNG พื้นหลังโปร่งใส หรือรูปทรงกลม/สี่เหลี่ยมจัตุรัส <br/>
+                                                        รูปนี้จะใช้แสดงในรายงานปฏิทินปฏิบัติงานวิชาการและเอกสารพิมพ์ต่างๆ
+                                                    </p>
+                                                    <input 
+                                                        type="file" 
+                                                        accept="image/*"
+                                                        onChange={async (e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (file) {
+                                                                const reader = new FileReader();
+                                                                reader.onload = (event) => {
+                                                                    const base64 = event.target?.result as string;
+                                                                    setConfig({ ...config, schoolLogoBase64: base64 });
+                                                                };
+                                                                reader.readAsDataURL(file);
+                                                            }
+                                                        }}
+                                                        className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 transition-all"
                                                     />
                                                 </div>
                                             </div>
