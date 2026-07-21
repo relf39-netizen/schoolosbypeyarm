@@ -275,6 +275,9 @@ export interface AcademicCalendarEvent {
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   description?: string;
+  eventType?: 'SPECIAL_EVENT' | 'NORMAL_WEEK' | 'SCHOOL_BREAK';
+  responsible?: string;
+  realDescription?: string;
 }
 
 export type SARType = 'EARLY_CHILDHOOD' | 'BASIC';

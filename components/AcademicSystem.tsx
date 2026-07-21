@@ -6,13 +6,116 @@ import {
     Save, ChevronLeft, Award, Database, Loader, Cloud, RefreshCw,
     Calendar, FileText, Plus, Trash2, ExternalLink, FileUp, Info,
     LayoutDashboard, CheckCircle, Clock, BookOpen, Target, ArrowRight,
-    CalendarPlus, AlertCircle, X, UserCheck, UsersRound
+    CalendarPlus, AlertCircle, X, UserCheck, UsersRound, Printer
 } from 'lucide-react';
 import { 
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
     LineChart as RechartsLineChart, Line, Cell
 } from 'recharts';
 import { supabase, isConfigured } from '../supabaseClient';
+
+const thMonthsFull = [
+    "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+    "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+];
+
+const formatThaiPrintDate = (startStr: string, endStr: string) => {
+    if (!startStr) return '-';
+    const startDate = new Date(startStr);
+    const endDate = endStr ? new Date(endStr) : startDate;
+    
+    const startDay = startDate.getDate();
+    const startMonth = startDate.getMonth();
+    const startYear = startDate.getFullYear() + 543;
+    
+    const endDay = endDate.getDate();
+    const endMonth = endDate.getMonth();
+    const endYear = endDate.getFullYear() + 543;
+    
+    if (startStr === endStr || !endStr) {
+        return `${startDay} ${thMonthsFull[startMonth]} ${startYear}`;
+    }
+    
+    if (startYear === endYear) {
+        if (startMonth === endMonth) {
+            return `${startDay}-${endDay} ${thMonthsFull[startMonth]} ${startYear}`;
+        } else {
+            return `${startDay} ${thMonthsFull[startMonth]} - ${endDay} ${thMonthsFull[endMonth]} ${startYear}`;
+        }
+    } else {
+        return `${startDay} ${thMonthsFull[startMonth]} ${startYear} - ${endDay} ${thMonthsFull[endMonth]} ${endYear}`;
+    }
+};
+
+const parseCalDescription = (desc: string | null | undefined) => {
+    if (!desc) {
+        return { 
+            eventType: 'SPECIAL_EVENT' as 'SPECIAL_EVENT' | 'NORMAL_WEEK' | 'SCHOOL_BREAK', 
+            responsible: 'ครูทุกคน', 
+            realDescription: '' 
+        };
+    }
+    try {
+        const trimmed = desc.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            const parsed = JSON.parse(trimmed);
+            return {
+                eventType: (parsed.type || 'SPECIAL_EVENT') as 'SPECIAL_EVENT' | 'NORMAL_WEEK' | 'SCHOOL_BREAK',
+                responsible: parsed.responsible || 'ครูทุกคน',
+                realDescription: parsed.detail || ''
+            };
+        }
+    } catch (e) {
+        // Fallback to plain text
+    }
+    return { 
+        eventType: 'SPECIAL_EVENT' as 'SPECIAL_EVENT' | 'NORMAL_WEEK' | 'SCHOOL_BREAK', 
+        responsible: 'ครูทุกคน', 
+        realDescription: desc 
+    };
+};
+
+const groupEventsForPrinting = (events: AcademicCalendarEvent[]) => {
+    // 1. Sort events chronologically by startDate, then endDate
+    const sorted = [...events].sort((a, b) => {
+        const compareStart = a.startDate.localeCompare(b.startDate);
+        if (compareStart !== 0) return compareStart;
+        return a.endDate.localeCompare(b.endDate);
+    });
+
+    // 2. Group by same startDate and endDate, and keep breaks/normal weeks categorized
+    const groups: {
+        startDate: string;
+        endDate: string;
+        datesText: string;
+        isBreak: boolean;
+        isNormalWeek: boolean;
+        events: AcademicCalendarEvent[];
+    }[] = [];
+    
+    sorted.forEach(evt => {
+        const key = `${evt.startDate}_${evt.endDate}_${evt.eventType === 'SCHOOL_BREAK' ? 'break' : 'normal'}`;
+        const existing = groups.find(g => {
+            const gKey = `${g.startDate}_${g.endDate}_${g.isBreak ? 'break' : 'normal'}`;
+            return gKey === key;
+        });
+        
+        if (existing) {
+            existing.events.push(evt);
+        } else {
+            groups.push({
+                startDate: evt.startDate,
+                endDate: evt.endDate,
+                datesText: formatThaiPrintDate(evt.startDate, evt.endDate),
+                isBreak: evt.eventType === 'SCHOOL_BREAK',
+                isNormalWeek: evt.eventType === 'NORMAL_WEEK',
+                events: [evt]
+            });
+        }
+    });
+
+    return groups;
+};
 
 interface AcademicSystemProps {
     currentUser: Teacher;
@@ -46,7 +149,23 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
 
     // Forms for new features
     const [showCalendarForm, setShowCalendarForm] = useState(false);
-    const [newCalEvent, setNewCalEvent] = useState({ title: '', startDate: '', endDate: '', year: CURRENT_SCHOOL_YEAR, description: '' });
+    const [newCalEvent, setNewCalEvent] = useState({ 
+        title: '', 
+        startDate: '', 
+        endDate: '', 
+        year: CURRENT_SCHOOL_YEAR, 
+        eventType: 'SPECIAL_EVENT' as 'SPECIAL_EVENT' | 'NORMAL_WEEK' | 'SCHOOL_BREAK',
+        responsible: 'ครูทุกคน',
+        detail: ''
+    });
+
+    // Print states for formatting according to the provided images
+    const [showPrintModal, setShowPrintModal] = useState(false);
+    const [printSchoolName, setPrintSchoolName] = useState('');
+    const [printDistrict, setPrintDistrict] = useState('');
+    const [printYear, setPrintYear] = useState('');
+    const [printIntro, setPrintIntro] = useState('');
+    const [printNote, setPrintNote] = useState('1. รายงานเงินคงเหลือ/ทะเบียนคุมเงินนอกฯ/ทะเบียนคุมพัสดุ/เอกสารจัดซื้อจัดจ้างทุกประเภท ส่งผู้อำนวยการโรงเรียนตรวจสอบความถูกต้อง ไม่เกินวันที่ 10 ของทุกเดือน');
     const [showSarForm, setShowSarForm] = useState(false);
     const [newSar, setNewSar] = useState({ year: CURRENT_SCHOOL_YEAR, type: 'BASIC' as SARType });
 
@@ -88,15 +207,21 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
                 setTestScores(mappedScores);
 
                 const { data: calData } = await supabase.from('academic_calendar').select('*').eq('school_id', currentUser.schoolId).order('start_date', { ascending: true });
-                const mappedCal: AcademicCalendarEvent[] = calData ? calData.map((d: any) => ({ 
-                    id: d.id.toString(), 
-                    schoolId: d.school_id, 
-                    year: d.year, 
-                    title: d.title, 
-                    startDate: d.start_date, 
-                    endDate: d.end_date || d.start_date, 
-                    description: d.description 
-                })) : [];
+                const mappedCal: AcademicCalendarEvent[] = calData ? calData.map((d: any) => {
+                    const parsed = parseCalDescription(d.description);
+                    return { 
+                        id: d.id.toString(), 
+                        schoolId: d.school_id, 
+                        year: d.year, 
+                        title: d.title, 
+                        startDate: d.start_date, 
+                        endDate: d.end_date || d.start_date, 
+                        description: d.description,
+                        eventType: parsed.eventType,
+                        responsible: parsed.responsible,
+                        realDescription: parsed.realDescription
+                    };
+                }) : [];
                 setCalendarEvents(mappedCal);
 
                 const { data: sarData } = await supabase.from('academic_sar').select('*').eq('school_id', currentUser.schoolId).order('year', { ascending: false });
@@ -202,18 +327,31 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
         }
         setIsSaving(true);
         try {
+            const packedDescription = JSON.stringify({
+                type: newCalEvent.eventType,
+                responsible: newCalEvent.responsible,
+                detail: newCalEvent.detail
+            });
             const { error } = await supabase.from('academic_calendar').insert([{
                 school_id: currentUser.schoolId, 
                 year: newCalEvent.year, 
                 title: newCalEvent.title, 
                 start_date: newCalEvent.startDate,
                 end_date: newCalEvent.endDate || newCalEvent.startDate,
-                description: newCalEvent.description
+                description: packedDescription
             }]);
             
             if (!error) { 
                 alert("บันทึกกิจกรรมเรียบร้อยแล้ว");
-                setNewCalEvent({ title: '', startDate: '', endDate: '', year: selectedYear, description: '' }); 
+                setNewCalEvent({ 
+                    title: '', 
+                    startDate: '', 
+                    endDate: '', 
+                    year: selectedYear, 
+                    eventType: 'SPECIAL_EVENT',
+                    responsible: 'ครูทุกคน',
+                    detail: ''
+                }); 
                 setShowCalendarForm(false); 
                 await loadData(); 
             } else {
@@ -549,7 +687,19 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
     };
 
     const renderCalendar = () => {
-        const filteredEvents = calendarEvents.filter(e => e.year === selectedYear);
+        const filteredEvents = calendarEvents.filter(e => e.year === selectedYear && e.eventType !== 'NORMAL_WEEK');
+        const hiddenNormalWeeks = calendarEvents.filter(e => e.year === selectedYear && e.eventType === 'NORMAL_WEEK');
+
+        const handleOpenPrintModal = () => {
+            const schoolName = sysConfig?.schoolName || 'บ้านศรีบุญเรือง';
+            const district = sysConfig?.officerDepartment || 'สำนักงานเขตพื้นที่การศึกษาประถมศึกษาน่าน เขต 1';
+            setPrintSchoolName(schoolName);
+            setPrintDistrict(district);
+            setPrintYear(selectedYear);
+            setPrintIntro(`โรงเรียน${schoolName} ได้กำหนดปฏิทินปฏิบัติงานประจำปีการศึกษา ${selectedYear} เพื่อเป็นแนวทางในการปฏิบัติงานและถือปฏิบัติ ดังนี้`);
+            setShowPrintModal(true);
+        };
+
         return (
             <div className="space-y-6 pb-20 animate-fade-in">
                 <div className="flex flex-col md:flex-row justify-between items-center gap-4">
@@ -560,13 +710,33 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
                             <p className="text-slate-400 text-xs font-bold">ปีการศึกษา {selectedYear}</p>
                         </div>
                     </div>
-                    <div className="flex gap-3 w-full md:w-auto">
+                    <div className="flex flex-wrap gap-3 w-full md:w-auto">
+                        <button 
+                            onClick={handleOpenPrintModal} 
+                            className="bg-emerald-50 text-emerald-600 border border-emerald-100 px-5 py-2 rounded-xl font-black text-sm hover:bg-emerald-100 transition-all flex items-center justify-center gap-2"
+                        >
+                            <Printer size={16}/> พิมพ์ปฏิทิน (Print)
+                        </button>
                         <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="px-4 py-2 border rounded-xl font-black bg-white outline-none focus:ring-2 ring-indigo-500/20">
                             {availableYears.map(y => <option key={y} value={y}>ปีการศึกษา {y}</option>)}
                         </select>
                         {isAcademicAdmin && <button onClick={() => setShowCalendarForm(true)} className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all text-sm flex-1 md:flex-none"><Plus size={18}/> เพิ่มกิจกรรม</button>}
                     </div>
                 </div>
+
+                {/* Banner notice explaining Open School Weeks behaviour */}
+                {hiddenNormalWeeks.length > 0 && (
+                    <div className="p-4 bg-indigo-50/70 border border-indigo-100 rounded-2xl flex items-start gap-3 text-xs text-indigo-700 font-bold shadow-sm">
+                        <Info size={18} className="shrink-0 text-indigo-500 mt-0.5"/>
+                        <div className="space-y-1">
+                            <div>สัปดาห์เรียนปกติประจำปีการศึกษา {selectedYear} (บันทึกไว้ {hiddenNormalWeeks.length} สัปดาห์)</div>
+                            <p className="text-slate-500 text-[11px] leading-relaxed">
+                                ระบบได้ซ่อนสัปดาห์เรียนปกติบนหน้าจอนี้เพื่อไม่ให้แสดงรายละเอียดที่ยาวเกินความจำเป็นตามหลักกำหนดวันเปิดเรียนปกติ 
+                                แต่ข้อมูลสัปดาห์เรียนปกติดังกล่าวจะถูกจัดเตรียมและจัดหน้าแสดงในการพิมพ์เป็นเอกสารโดยอัตโนมัติ (เช่น "วันที่ 20 - 24 กรกฎาคม 2569 เปิดเรียนตามปกติ")
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
                     <div className="p-4 md:p-8 overflow-x-auto">
@@ -575,12 +745,13 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
                                 <tr>
                                     <th className="p-4 w-[25%]">วันที่ดำเนินการ</th>
                                     <th className="p-4">รายการปฏิบัติงานวิชาการ</th>
+                                    <th className="p-4 w-[20%]">ผู้รับผิดชอบหลัก</th>
                                     {isAcademicAdmin && <th className="p-4 w-20 text-center">จัดการ</th>}
                                 </tr>
                             </thead>
-                            <tbody className="divide-y">
+                            <tbody className="divide-y text-slate-800">
                                 {filteredEvents.length === 0 ? (
-                                    <tr><td colSpan={isAcademicAdmin ? 3 : 2} className="p-20 text-center text-slate-300 font-bold italic">ไม่พบรายการกิจกรรมในปีการศึกษานี้</td></tr>
+                                    <tr><td colSpan={isAcademicAdmin ? 4 : 3} className="p-20 text-center text-slate-300 font-bold italic">ไม่พบรายการกิจกรรมพิเศษ/กิจกรรมวิชาการในปีการศึกษานี้</td></tr>
                                 ) : (
                                     filteredEvents.map(event => (
                                         <tr key={event.id} className="hover:bg-slate-50 transition-all group">
@@ -590,7 +761,23 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
                                                     {getThaiShortDate(event.startDate)} {event.endDate !== event.startDate && ` - ${getThaiShortDate(event.endDate)}`}
                                                 </div>
                                             </td>
-                                            <td className="p-4 font-black text-slate-800">{event.title}</td>
+                                            <td className="p-4 font-black">
+                                                <div className="flex items-center gap-2">
+                                                    <span>{event.title}</span>
+                                                    {event.eventType === 'SCHOOL_BREAK' && (
+                                                        <span className="px-2 bg-red-50 text-red-600 border border-red-100 rounded-full text-[9px] font-extrabold">ปิดภาคเรียน</span>
+                                                    )}
+                                                    {event.eventType === 'SPECIAL_EVENT' && (
+                                                        <span className="px-2 bg-purple-50 text-purple-600 border border-purple-100 rounded-full text-[9px] font-extrabold">กิจกรรม/วันสำคัญ</span>
+                                                    )}
+                                                </div>
+                                                {event.realDescription && (
+                                                    <p className="text-xs text-slate-400 font-bold mt-1 font-sans">{event.realDescription}</p>
+                                                )}
+                                            </td>
+                                            <td className="p-4 text-xs font-bold text-slate-500">
+                                                {event.responsible || 'ครูทุกคน'}
+                                            </td>
                                             {isAcademicAdmin && (
                                                 <td className="p-4 text-center">
                                                     <button onClick={() => handleDeleteCalendarEvent(event.id)} className="p-2 text-slate-300 hover:text-red-500 transition-all"><Trash2 size={16}/></button>
@@ -604,22 +791,300 @@ const AcademicSystem: React.FC<AcademicSystemProps> = ({ currentUser }) => {
                     </div>
                 </div>
 
+                {/* Form to Add Calendar Event */}
                 {showCalendarForm && (
-                    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 backdrop-blur-md">
-                        <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md p-8 animate-scale-up border-4 border-indigo-100">
+                    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 backdrop-blur-md overflow-y-auto">
+                        <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md p-8 animate-scale-up border-4 border-indigo-100 max-h-[90vh] overflow-y-auto my-8">
                             <div className="flex justify-between items-center mb-6">
                                 <h3 className="text-xl font-black text-slate-800 flex items-center gap-2"><Plus className="text-indigo-600"/> เพิ่มกิจกรรมวิชาการ</h3>
                                 <button onClick={() => setShowCalendarForm(false)} className="p-2 hover:bg-slate-50 rounded-full text-slate-400"><X size={20}/></button>
                             </div>
                             <form onSubmit={handleAddCalendarEvent} className="space-y-4">
-                                <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">ชื่อกิจกรรม/รายการ</label><input required placeholder="เช่น สอบปลายภาคเรียนที่ 1..." value={newCalEvent.title} onChange={e=>setNewCalEvent({...newCalEvent, title:e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-indigo-500/20"/></div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">ตั้งแต่วันที่</label><input type="date" required value={newCalEvent.startDate} onChange={e=>setNewCalEvent({...newCalEvent, startDate:e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-indigo-500/20"/></div>
-                                    <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">ถึงวันที่</label><input type="date" required value={newCalEvent.endDate} onChange={e=>setNewCalEvent({...newCalEvent, endDate:e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-indigo-500/20"/></div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">ประเภทรายการ</label>
+                                    <select 
+                                        value={newCalEvent.eventType} 
+                                        onChange={e => {
+                                            const val = e.target.value as 'SPECIAL_EVENT' | 'NORMAL_WEEK' | 'SCHOOL_BREAK';
+                                            let title = newCalEvent.title;
+                                            let responsible = newCalEvent.responsible;
+                                            if (val === 'NORMAL_WEEK') {
+                                                title = 'เปิดเรียนตามปกติ';
+                                                responsible = 'ครูทุกคน';
+                                            } else if (val === 'SCHOOL_BREAK') {
+                                                title = 'ปิดภาคเรียนที่ 1';
+                                                responsible = '-';
+                                            } else {
+                                                title = '';
+                                                responsible = 'ครูทุกคน';
+                                            }
+                                            setNewCalEvent({ ...newCalEvent, eventType: val, title, responsible });
+                                        }} 
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-indigo-500/20"
+                                    >
+                                        <option value="SPECIAL_EVENT">กิจกรรมวิชาการ / กิจกรรมพิเศษ / วันหยุดราชการ</option>
+                                        <option value="NORMAL_WEEK">เปิดเรียนตามปกติ (แสดงเฉพาะในเอกสารพิมพ์)</option>
+                                        <option value="SCHOOL_BREAK">ปิดภาคเรียน</option>
+                                    </select>
                                 </div>
-                                <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">รายละเอียดเพิ่มเติม</label><textarea placeholder="ระบุรายละเอียดโครงการ/กิจกรรม (ถ้ามี)" value={newCalEvent.description} onChange={e=>setNewCalEvent({...newCalEvent, description:e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-indigo-500/20 h-24"/></div>
-                                <div className="flex gap-3 pt-4"><button type="button" onClick={()=>setShowCalendarForm(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs tracking-widest">ยกเลิก</button><button type="submit" disabled={isSaving} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg flex items-center justify-center gap-2">{isSaving?<Loader className="animate-spin" size={18}/>:<Save size={18}/>} บันทึก</button></div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">ชื่อกิจกรรม/รายการ</label>
+                                    <input 
+                                        required 
+                                        placeholder={newCalEvent.eventType === 'NORMAL_WEEK' ? 'เปิดเรียนตามปกติ' : 'เช่น สอบปลายภาคเรียนที่ 1...'} 
+                                        value={newCalEvent.title} 
+                                        onChange={e=>setNewCalEvent({...newCalEvent, title:e.target.value})} 
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-indigo-500/20"
+                                        disabled={newCalEvent.eventType === 'NORMAL_WEEK'}
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">ตั้งแต่วันที่</label>
+                                        <input type="date" required value={newCalEvent.startDate} onChange={e=>setNewCalEvent({...newCalEvent, startDate:e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-indigo-500/20"/>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">ถึงวันที่</label>
+                                        <input type="date" required value={newCalEvent.endDate} onChange={e=>setNewCalEvent({...newCalEvent, endDate:e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-indigo-500/20"/>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">ผู้รับผิดชอบหลัก</label>
+                                    <input 
+                                        required 
+                                        placeholder="เช่น ผอ./ครูทุกคน, งานวัดผล..." 
+                                        value={newCalEvent.responsible} 
+                                        onChange={e=>setNewCalEvent({...newCalEvent, responsible:e.target.value})} 
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-indigo-500/20"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">รายละเอียดเพิ่มเติม</label>
+                                    <textarea 
+                                        placeholder="ระบุรายละเอียดเพิ่มเติม (ถ้ามี)" 
+                                        value={newCalEvent.detail} 
+                                        onChange={e=>setNewCalEvent({...newCalEvent, detail:e.target.value})} 
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-indigo-500/20 h-24"
+                                    />
+                                </div>
+
+                                {newCalEvent.eventType === 'NORMAL_WEEK' && (
+                                    <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-start gap-2.5 text-xs text-indigo-700 font-bold">
+                                        <Info size={16} className="shrink-0 mt-0.5 text-indigo-500"/>
+                                        <span>ระบบจะจัดพิมพ์บันทึกเปิดเรียนตามปกติเป็นรูปแบบสัปดาห์ให้เฉพาะในไฟล์พิมพ์เอกสารเท่านั้น ไม่แสดงในรายละเอียดหน้านี้</span>
+                                    </div>
+                                )}
+
+                                <div className="flex gap-3 pt-4">
+                                    <button type="button" onClick={()=>setShowCalendarForm(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs tracking-widest">ยกเลิก</button>
+                                    <button type="submit" disabled={isSaving} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg flex items-center justify-center gap-2">
+                                        {isSaving ? <Loader className="animate-spin" size={18}/> : <Save size={18}/>} บันทึก
+                                    </button>
+                                </div>
                             </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* Print Calendar Setup and Preview Modal */}
+                {showPrintModal && (
+                    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 backdrop-blur-md overflow-y-auto">
+                        <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl p-6 md:p-8 animate-scale-up border-4 border-indigo-100 max-h-[90vh] overflow-y-auto my-8">
+                            <div className="flex justify-between items-center mb-6 no-print">
+                                <div className="flex items-center gap-2">
+                                    <Printer className="text-indigo-600" size={24}/>
+                                    <h3 className="text-xl font-black text-slate-800">พิมพ์ปฏิทินปฏิบัติงานวิชาการ</h3>
+                                </div>
+                                <button onClick={() => setShowPrintModal(false)} className="p-2 hover:bg-slate-50 rounded-full text-slate-400"><X size={20}/></button>
+                            </div>
+                            
+                            {/* Form settings */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-slate-50 border rounded-2xl no-print text-left">
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 ml-1">ชื่อโรงเรียน</label>
+                                    <input value={printSchoolName} onChange={e => {
+                                        setPrintSchoolName(e.target.value);
+                                        setPrintIntro(`โรงเรียน${e.target.value} ได้กำหนดปฏิทินปฏิบัติงานประจำปีการศึกษา ${printYear} เพื่อเป็นแนวทางในการปฏิบัติงานและถือปฏิบัติ ดังนี้`);
+                                    }} className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20"/>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 ml-1">สังกัดเขตพื้นที่การศึกษา</label>
+                                    <input value={printDistrict} onChange={e => setPrintDistrict(e.target.value)} className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20"/>
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 ml-1">คำอธิบายเปิดหัวเอกสาร</label>
+                                    <textarea value={printIntro} onChange={e => setPrintIntro(e.target.value)} className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20 h-16"/>
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 ml-1">หมายเหตุท้ายเอกสาร</label>
+                                    <textarea value={printNote} onChange={e => setPrintNote(e.target.value)} className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20 h-16"/>
+                                </div>
+                            </div>
+
+                            {/* Document Preview */}
+                            <div className="border border-slate-200 rounded-2xl p-2 md:p-6 bg-slate-100 max-h-[50vh] overflow-y-auto mb-6">
+                                <div className="text-xs text-slate-400 font-bold mb-4 text-center no-print">— ตัวอย่างเอกสารจริง (Print Preview) —</div>
+                                <div id="academic-print-area" className="bg-white p-8 md:p-12 border shadow-sm mx-auto text-black text-left font-serif" style={{ maxWidth: '800px', color: '#000', backgroundColor: '#fff' }}>
+                                    
+                                    {/* Style Tag inside printed component */}
+                                    <style>{`
+                                        @media print {
+                                            body * {
+                                                visibility: hidden !important;
+                                            }
+                                            #academic-print-area, #academic-print-area * {
+                                                visibility: visible !important;
+                                            }
+                                            #academic-print-area {
+                                                position: absolute !important;
+                                                left: 0 !important;
+                                                top: 0 !important;
+                                                width: 100% !important;
+                                                margin: 0 !important;
+                                                padding: 0 !important;
+                                                border: none !important;
+                                                box-shadow: none !important;
+                                                background: white !important;
+                                                color: black !important;
+                                            }
+                                            table {
+                                                width: 100% !important;
+                                                border-collapse: collapse !important;
+                                                margin-top: 15px !important;
+                                            }
+                                            th, td {
+                                                border: 1px solid #000 !important;
+                                                padding: 8px 12px !important;
+                                                font-size: 14px !important;
+                                                color: #000 !important;
+                                                vertical-align: top !important;
+                                                font-family: "Sarabun", "Inter", sans-serif !important;
+                                            }
+                                            th {
+                                                background-color: #f3f4f6 !important;
+                                                font-weight: bold !important;
+                                                text-align: center !important;
+                                                -webkit-print-color-adjust: exact !important;
+                                                print-color-adjust: exact !important;
+                                            }
+                                            @page {
+                                                size: A4;
+                                                margin: 20mm 15mm 20mm 15mm;
+                                            }
+                                        }
+                                        .preview-table {
+                                            width: 100%;
+                                            border-collapse: collapse;
+                                            margin-top: 15px;
+                                        }
+                                        .preview-table th, .preview-table td {
+                                            border: 1px solid #000;
+                                            padding: 8px 12px;
+                                            font-size: 13px;
+                                            color: #000;
+                                            vertical-align: top;
+                                            font-family: sans-serif;
+                                        }
+                                        .preview-table th {
+                                            background-color: #f3f4f6;
+                                            font-weight: bold;
+                                            text-align: center;
+                                        }
+                                    `}</style>
+                                    
+                                    {/* Page Numbering header */}
+                                    <div className="text-right text-sm font-bold mb-6">1</div>
+                                    
+                                    {/* Document Header */}
+                                    <div className="text-center space-y-1.5">
+                                        <h1 className="text-md font-bold md:text-lg">ปฏิทินการปฏิบัติงาน ปีการศึกษา {printYear}</h1>
+                                        <h2 className="text-sm font-bold md:text-md">โรงเรียน{printSchoolName} {printDistrict}</h2>
+                                    </div>
+                                    
+                                    <p className="text-sm mt-6 text-left leading-relaxed text-slate-900 leading-7">
+                                        โรงเรียน{printSchoolName} ได้กำหนดปฏิทินปฏิบัติงานประจำปีการศึกษา {printYear} เพื่อเป็นแนวทางในการปฏิบัติงานและถือปฏิบัติ ดังนี้
+                                    </p>
+                                    
+                                    {/* Table matching the design */}
+                                    <table className="preview-table w-full mt-6">
+                                        <thead>
+                                            <tr>
+                                                <th className="w-[28%] font-bold text-center">วัน/เดือน/ปี</th>
+                                                <th className="w-[52%] font-bold text-center">กิจกรรม</th>
+                                                <th className="w-[20%] font-bold text-center">ผู้รับผิดชอบหลัก</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {groupEventsForPrinting(calendarEvents.filter(e => e.year === selectedYear)).length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={3} className="text-center py-8 text-slate-400 italic">ไม่มีข้อมูลสำหรับปีการศึกษานี้</td>
+                                                </tr>
+                                            ) : (
+                                                groupEventsForPrinting(calendarEvents.filter(e => e.year === selectedYear)).map((group, gIdx) => {
+                                                    if (group.isBreak) {
+                                                        return (
+                                                            <tr key={gIdx}>
+                                                                <td className="text-center whitespace-nowrap">{group.datesText}</td>
+                                                                <td colSpan={2} className="text-center font-bold text-slate-900">***{group.events[0].title}***</td>
+                                                            </tr>
+                                                        );
+                                                    }
+                                                    return (
+                                                        <tr key={gIdx}>
+                                                            <td className="text-center whitespace-nowrap">{group.datesText}</td>
+                                                            <td className="text-left">
+                                                                <div className="space-y-1">
+                                                                    {group.events.map((evt, eIdx) => {
+                                                                        const parsed = parseCalDescription(evt.description);
+                                                                        return (
+                                                                            <div key={eIdx} className="text-slate-900">
+                                                                                -{evt.title}
+                                                                                {parsed.realDescription && <span className="text-[11px] text-slate-500 block pl-3 font-sans">({parsed.realDescription})</span>}
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </td>
+                                                            <td className="text-center text-slate-700">
+                                                                <div className="space-y-1">
+                                                                    {group.events.map((evt, eIdx) => {
+                                                                        const parsed = parseCalDescription(evt.description);
+                                                                        return (
+                                                                            <div key={eIdx}>
+                                                                                {parsed.responsible || 'ครูทุกคน'}
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            )}
+                                        </tbody>
+                                    </table>
+                                    
+                                    {/* Note at bottom */}
+                                    <div className="mt-8 text-left text-xs space-y-1.5 border-t border-dotted border-slate-300 pt-4">
+                                        <div className="font-bold underline">หมายเหตุ</div>
+                                        <div className="pl-2 whitespace-pre-line text-slate-800 leading-relaxed font-sans">
+                                            {printNote}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Actions */}
+                            <div className="flex gap-3 justify-end no-print">
+                                <button onClick={() => setShowPrintModal(false)} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all">ปิด</button>
+                                <button onClick={() => window.print()} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-black text-sm flex items-center gap-2 shadow-lg hover:bg-indigo-700 transition-all">
+                                    <Printer size={16}/> สั่งพิมพ์ปฏิทิน
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}
