@@ -136,7 +136,10 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
 
             const response = await fetch('/api/table/leave_requests', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-School-ID': currentUser.schoolId
+                },
                 body: JSON.stringify(travelData)
             });
 
@@ -161,7 +164,9 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
 
     const fetchOfficialTravels = async () => {
         try {
-            const response = await fetch(`/api/table/leave_requests?school_id=${currentUser.schoolId}&type=OfficialBusiness&status=Approved`);
+            const response = await fetch(`/api/table/leave_requests?school_id=${currentUser.schoolId}&type=OfficialBusiness&status=Approved`, {
+                headers: { 'X-School-ID': currentUser.schoolId }
+            });
             if (response.ok) {
                 const data = await response.json();
                 const mapped = (data || []).map((r: any) => ({
@@ -183,8 +188,12 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
 
     const fetchEvents = async () => {
         try {
-            const directorRes = await fetch(`/api/table/director_events?school_id=${currentUser.schoolId}`);
-            const academicRes = await fetch(`/api/table/academic_calendar?school_id=${currentUser.schoolId}`);
+            const directorRes = await fetch(`/api/table/director_events?school_id=${currentUser.schoolId}`, {
+                headers: { 'X-School-ID': currentUser.schoolId }
+            });
+            const academicRes = await fetch(`/api/table/academic_calendar?school_id=${currentUser.schoolId}`, {
+                headers: { 'X-School-ID': currentUser.schoolId }
+            });
 
             if (!directorRes.ok || !academicRes.ok) throw new Error('Failed to fetch events from MySQL');
 
@@ -235,7 +244,9 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
     useEffect(() => {
         const loadConfigs = async () => {
             try {
-                const response = await fetch(`/api/table/school_configs?school_id=${currentUser.schoolId}`);
+                const response = await fetch(`/api/table/school_configs?school_id=${currentUser.schoolId}`, {
+                    headers: { 'X-School-ID': currentUser.schoolId }
+                });
                 if (response.ok) {
                     const configs = await response.json();
                     const data = configs[0];
@@ -288,7 +299,10 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
                         try {
                             await fetch(`/api/table/director_events?id=${event.id}`, {
                                 method: 'PATCH',
-                                headers: { 'Content-Type': 'application/json' },
+                                headers: { 
+                                    'Content-Type': 'application/json',
+                                    'X-School-ID': currentUser.schoolId
+                                },
                                 body: JSON.stringify({ [updateField]: 1 })
                             });
                         } catch (e) {
@@ -388,7 +402,10 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
             
             const response = await fetch('/api/table/director_events', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-School-ID': currentUser.schoolId
+                },
                 body: JSON.stringify(payload)
             });
             
@@ -432,8 +449,9 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
         }
         if (confirm("คุณแน่ใจหรือไม่ว่าต้องการลบรายการปฏิทินนี้?")) { 
             try {
-                const response = await fetch(`/api/table/director_events?id=${id}`, {
-                    method: 'DELETE'
+                const response = await fetch(`/api/table/director_events?id=${id}&school_id=${currentUser.schoolId}`, {
+                    method: 'DELETE',
+                    headers: { 'X-School-ID': currentUser.schoolId }
                 });
                 if (!response.ok) throw new Error('Failed to delete from MySQL');
                 setEvents(events.filter(e => e.id !== id)); 

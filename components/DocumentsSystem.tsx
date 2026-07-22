@@ -706,36 +706,30 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
             }
 
             let signedUrl = null;
-            if (pdfBase64 && sysConfig?.scriptUrl) {
-                updateTask(taskId, { status: 'uploading', message: 'กำลังบันทึกไฟล์ลงคลาวด์...' });
-                const safeBookNumber = targetDoc.bookNumber.replace(/[\\\/ :*?"<>|]/g, '-');
-                const payload = { 
-                    folderId: sysConfig.driveFolderId.trim(), 
-                    fileName: `${safeBookNumber}_memo.pdf`, 
-                    mimeType: 'application/pdf', 
-                    fileData: getCleanBase64(pdfBase64) 
-                };
-                const upResp = await fetch(sysConfig.scriptUrl.trim(), { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload), redirect: 'follow' });
-                const upResponseText = await upResp.text();
-                if (upResponseText.trim().startsWith('error:')) {
-                    const errMsg = upResponseText.trim().replace('error:', '').trim();
-                    if (errMsg.includes('DriveApp') || errMsg.includes('Permission')) {
-                        throw new Error(`ไม่ได้รับอนุญาตให้เข้าถึง Google Drive (DriveApp Error)\n\nรายละเอียด: ${errMsg}\n\nวิธีแก้ไข:\n1. ไปที่เมนู "ตั้งค่าระบบ" ในแอปนี้\n2. คัดลอกโค้ดสคริปต์ใหม่ (v15.1)\n3. นำไปวางใน Google Apps Script แทนที่ของเดิม\n4. กด "เรียกใช้" ฟังก์ชัน A_RUN_ME_FIRST_initialSetup เพื่อให้สิทธิ์\n5. สำคัญมาก: กด "Deploy" -> "Manage Deployments" -> "Edit" -> เลือก Version เป็น "New Version" แล้วกด Deploy`);
-                    }
-                    throw new Error(errMsg);
-                }
-
-                let upRes;
+            if (pdfBase64 && sysConfig?.scriptUrl?.trim()) {
                 try {
-                    upRes = JSON.parse(upResponseText);
-                } catch (e) {
-                    throw new Error("เซิร์ฟเวอร์ตอบกลับด้วยรูปแบบที่ไม่ถูกต้องระหว่างบันทึกไฟล์: " + upResponseText.substring(0, 100));
+                    updateTask(taskId, { status: 'uploading', message: 'กำลังบันทึกไฟล์ลงคลาวด์...' });
+                    const safeBookNumber = targetDoc.bookNumber.replace(/[\\\/ :*?"<>|]/g, '-');
+                    const payload = { 
+                        folderId: (sysConfig.driveFolderId || '').trim(), 
+                        fileName: `${safeBookNumber}_memo.pdf`, 
+                        mimeType: 'application/pdf', 
+                        fileData: getCleanBase64(pdfBase64) 
+                    };
+                    const upResp = await fetch(sysConfig.scriptUrl.trim(), { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload), redirect: 'follow' });
+                    const upResponseText = await upResp.text();
+                    if (!upResponseText.trim().startsWith('error:')) {
+                        let upRes = JSON.parse(upResponseText);
+                        if (upRes.status === 'success') signedUrl = upRes.viewUrl || upRes.url;
+                    }
+                } catch (upErr: any) {
+                    console.warn("Google Drive upload warning (continuing DB update):", upErr);
                 }
-                if (upRes.status === 'success') signedUrl = upRes.viewUrl || upRes.url;
             }
 
             const nowStr = formatDateTimeThai(new Date());
-            const updateData: any = { status: nextStatus };
+            const targetSchoolId = targetDoc.schoolId || currentUser.schoolId;
+            const updateData: any = { status: nextStatus, school_id: targetSchoolId };
             if (signedUrl) updateData.signed_file_url = signedUrl;
             
             if (isActorVice) { 
@@ -754,7 +748,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                 }
             }
 
-            const { error } = await client.from('documents').update(updateData).eq('id', taskId);
+            const { error } = await client.from('documents').update(updateData).eq('id', taskId).eq('school_id', targetSchoolId);
             if (error) throw error;
 
             const notifyAtts = [...targetDoc.attachments];
@@ -809,7 +803,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
         } catch (e: any) { updateTask(taskId, { status: 'error', message: `ล้มเหลว: ${e.message}` }); }
     };
 
-    const handleDirectorAction = (isNotifyOnly: boolean) => {
+    const handleDirectorAction = async (isNotifyOnly: boolean) => {
         if (!selectedDoc) return;
         
         let finalCommand = command;
@@ -821,7 +815,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
             finalTeachers = teachersInSchool.map(t => t.id);
         }
         
-        processActionWithMemorandum(selectedDoc, finalCommand, finalTeachers, 'Distributed', assignedViceDirId);
+        await processActionWithMemorandum(selectedDoc, finalCommand, finalTeachers, 'Distributed', assignedViceDirId);
         setViewMode('LIST');
     };
 
@@ -830,14 +824,14 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
         
         // ใช้ processActionWithMemorandum เพื่อสร้างบันทึกข้อความ "รับทราบแล้ว"
         // โดยไม่ส่งหาครูคนไหน (targetTeacherIds = []) แต่ยังแจ้งเตือนธุรการตามปกติ
-        processActionWithMemorandum(selectedDoc, "รับทราบแล้ว", [], 'Distributed');
+        await processActionWithMemorandum(selectedDoc, "รับทราบแล้ว", [], 'Distributed');
         setViewMode('LIST');
     };
 
 
-    const handleViceDirectorAction = () => {
+    const handleViceDirectorAction = async () => {
         if (!selectedDoc) return;
-        processActionWithMemorandum(selectedDoc, command, selectedTeachers, 'Distributed');
+        await processActionWithMemorandum(selectedDoc, command, selectedTeachers, 'Distributed');
         setViewMode('LIST');
     };
 

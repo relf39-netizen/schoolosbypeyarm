@@ -128,6 +128,10 @@ const App: React.FC = () => {
                             const user = mappedTeachers.find(t => t.id === session.userId);
                             if (user && !user.isSuspended && user.isApproved) {
                                 setCurrentUser(user);
+                                if (user.schoolId) {
+                                    localStorage.setItem('school_id', user.schoolId);
+                                    localStorage.setItem('user_school_id', user.schoolId);
+                                }
                             }
                         }
                     } catch(e) { localStorage.removeItem(SESSION_KEY); }
@@ -266,11 +270,19 @@ const App: React.FC = () => {
         };
     }, [currentUser?.id]);
 
+    useEffect(() => {
+        if (currentUser?.schoolId && !isSuperAdminMode) {
+            localStorage.setItem('school_id', currentUser.schoolId);
+            localStorage.setItem('user_school_id', currentUser.schoolId);
+        }
+    }, [currentUser?.schoolId, isSuperAdminMode]);
+
     // --- 3. ACTION HANDLERS ---
     const handleLogin = (user: Teacher) => {
         setCurrentUser(user);
         localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id, isSuperAdmin: false }));
         localStorage.setItem('school_id', user.schoolId || '');
+        localStorage.setItem('user_school_id', user.schoolId || '');
     };
 
     const handleLogout = () => {
@@ -281,6 +293,7 @@ const App: React.FC = () => {
         setImpersonatedSchoolId(null);
         localStorage.removeItem(SESSION_KEY);
         localStorage.removeItem('school_id');
+        localStorage.removeItem('user_school_id');
         localStorage.removeItem('impersonated_school_id');
         setCurrentView(SystemView.DASHBOARD);
     };
