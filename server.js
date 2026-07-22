@@ -1293,12 +1293,15 @@ async function startServer() {
 
   // Telegram Webhook Endpoint
   app.post('/api/telegram/webhook/:token', async (req, res) => {
-    const { token } = req.params;
-    const update = req.body;
+    // Send HTTP 200 OK immediately so Telegram marks update_id as processed and does not retry
+    res.status(200).send('OK');
 
-    console.log(`[Telegram] Received update for token ...${token.substring(token.length - 5)}`);
+    try {
+      const { token } = req.params;
+      const update = req.body;
 
-    if (update.message && update.message.text) {
+      if (!update || !update.message || !update.message.text) return;
+
       const { text, chat } = update.message;
       const chatId = chat.id.toString();
 
@@ -1309,33 +1312,34 @@ async function startServer() {
           const userId = parts[1].trim();
           console.log(`[Telegram] User ID [${userId}] linking with Chat ID [${chatId}]`);
 
-          try {
-            // First check if user exists
-            const [user] = await query('SELECT id, name FROM profiles WHERE id = ?', [userId]);
-            
-            if (user) {
-              // Update the profile with the chat ID
-              await query(
-                'UPDATE profiles SET telegram_chat_id = ? WHERE id = ?',
-                [chatId, userId]
-              );
-              console.log(`[Telegram] Successfully linked Chat ID ${chatId} to user ${user.name} (${userId})`);
-              await sendTelegramMessage(token, chatId, `✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nบัญชีของท่าน (คุณ${user.name}) ได้รับการผูกกับระบบโรงเรียนเรียบร้อยแล้ว ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาผ่านช่องทางนี้ครับ`);
-            } else {
-              console.warn(`[Telegram] User ID ${userId} not found in database`);
-              await sendTelegramMessage(token, chatId, `❌ <b>ไม่พบข้อมูลผู้ใช้งาน</b>\n\nไม่พบรหัสผู้ใช้งาน "${userId}" ในระบบ\n\n<b>วิธีแก้ไข:</b>\n1. ตรวจสอบว่าท่านเข้าสู่ระบบในแอปแล้ว\n2. ลองกดปุ่มเชื่อมต่อจากเมนู "ข้อมูลส่วนตัว" อีกครั้งครับ`);
+          // First check if user exists and check current telegram_chat_id
+          const [user] = await query('SELECT id, name, telegram_chat_id FROM profiles WHERE id = ?', [userId]);
+          
+          if (user) {
+            // Check if user is already linked with this exact chatId to prevent duplicate messages
+            if (user.telegram_chat_id === chatId) {
+              console.log(`[Telegram] Chat ID ${chatId} already linked to user ${user.name} (${userId}). Skipping duplicate notification.`);
+              return;
             }
-          } catch (err) {
-            console.error('[Telegram] Error during linking process:', err);
-            await sendTelegramMessage(token, chatId, `⚠️ <b>เกิดข้อผิดพลาด</b>\n\nไม่สามารถบันทึกข้อมูลการเชื่อมต่อได้ในขณะนี้ กรุณาลองใหม่อีกครั้งภายหลังครับ`);
+
+            // Update the profile with the chat ID
+            await query(
+              'UPDATE profiles SET telegram_chat_id = ? WHERE id = ?',
+              [chatId, userId]
+            );
+            console.log(`[Telegram] Successfully linked Chat ID ${chatId} to user ${user.name} (${userId})`);
+            await sendTelegramMessage(token, chatId, `✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nบัญชีของท่าน (คุณ${user.name}) ได้รับการผูกกับระบบโรงเรียนเรียบร้อยแล้ว ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาผ่านช่องทางนี้ครับ`);
+          } else {
+            console.warn(`[Telegram] User ID ${userId} not found in database`);
+            await sendTelegramMessage(token, chatId, `❌ <b>ไม่พบข้อมูลผู้ใช้งาน</b>\n\nไม่พบรหัสผู้ใช้งาน "${userId}" ในระบบ\n\n<b>วิธีแก้ไข:</b>\n1. ตรวจสอบว่าท่านเข้าสู่ระบบในแอปแล้ว\n2. ลองกดปุ่มเชื่อมต่อจากเมนู "ข้อมูลส่วนตัว" อีกครั้งครับ`);
           }
         } else {
           await sendTelegramMessage(token, chatId, `👋 <b>ยินดีต้อนรับสู่ระบบแจ้งเตือน!</b>\n\nกรุณาเริ่มการเชื่อมต่อจากเมนู "ข้อมูลส่วนตัว" ภายในแอปพลิเคชัน เพื่อผูกบัญชีของท่านครับ`);
         }
       }
+    } catch (err) {
+      console.error('[Telegram] Error processing webhook:', err);
     }
-
-    res.sendStatus(200);
   });
 
   // Endpoint to manually trigger webhook setup
@@ -1854,52 +1858,6 @@ async function startServer() {
         if (config.telegram_bot_token && config.app_base_url) {
           setTelegramWebhook(config.telegram_bot_token, config.app_base_url);
         }
-      }
-
-      // --- Telegram Notifications ---
-      try {
-        if (tableName === 'documents' || tableName === 'leave_requests') {
-          const item = Array.isArray(data) ? data[0] : data;
-          const schoolId = item.school_id || item.schoolId;
-          
-          if (schoolId) {
-            // Fetch school config for bot token
-            const [config] = await query('SELECT telegram_bot_token FROM school_configs WHERE school_id = ?', [schoolId]);
-            
-            if (config && config.telegram_bot_token) {
-              let message = '';
-              let recipients = [];
-              
-              if (tableName === 'documents' && item.status !== 'Distributed') {
-                message = `📄 <b>มีหนังสือราชการใหม่</b>\n\n📌 <b>เรื่อง:</b> ${item.title || 'ไม่มีหัวข้อ'}\n🏢 <b>จาก:</b> ${item.from || '-'}\n📅 <b>วันที่:</b> ${item.date || '-'}\n\nกรุณาเข้าสู่ระบบเพื่อตรวจสอบครับ`;
-                // Documents go to Director and Document Officers
-                recipients = await query(
-                  'SELECT telegram_chat_id FROM profiles WHERE school_id = ? AND telegram_chat_id IS NOT NULL AND (roles LIKE ? OR roles LIKE ?)',
-                  [schoolId, '%DIRECTOR%', '%DOCUMENT_OFFICER%']
-                );
-              } else if (tableName === 'leave_requests') {
-                const results = await query('SELECT name FROM profiles WHERE id = ?', [item.teacher_id || item.teacherId]);
-                const teacher = results[0];
-                message = `📝 <b>มีการแจ้งขอลาใหม่</b>\n\n👤 <b>จาก:</b> ${teacher ? teacher.name : (item.teacher_id || 'ไม่ระบุ')}\n📅 <b>วันที่:</b> ${item.start_date || '-'} ถึง ${item.end_date || '-'}\n❓ <b>เหตุผล:</b> ${item.reason || '-'}\n\nกรุณาเข้าสู่ระบบเพื่อพิจารณาครับ`;
-                // Leave requests go to Director and Vice Directors
-                recipients = await query(
-                  'SELECT telegram_chat_id FROM profiles WHERE school_id = ? AND telegram_chat_id IS NOT NULL AND (roles LIKE ? OR roles LIKE ?)',
-                  [schoolId, '%DIRECTOR%', '%VICE_DIRECTOR%']
-                );
-              }
-              
-              if (message && recipients.length > 0) {
-                for (const r of recipients) {
-                  if (r.telegram_chat_id) {
-                    sendTelegramMessage(config.telegram_bot_token, r.telegram_chat_id, message);
-                  }
-                }
-              }
-            }
-          }
-        }
-      } catch (notifyErr) {
-        console.error('Error sending Telegram notification:', notifyErr);
       }
       
       res.json(Array.isArray(data) ? data : [data]);

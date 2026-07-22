@@ -393,6 +393,12 @@ function handleTelegramWebhook(msg) {
       var parts = text.split(" ");
       if (parts.length > 1) {
         var userId = parts[1].trim();
+        // Check if user is already linked with this chatId
+        var checkUser = logToDatabase('profiles', 'get', {}, userId);
+        if (checkUser && checkUser.data && checkUser.data.telegram_chat_id === chatId) {
+          return ContentService.createTextOutput("ok");
+        }
+
         // บันทึก Telegram Chat ID ลงฐานข้อมูล MySQL ผ่าน Bridge
         var res = logToDatabase('profiles', 'update', { telegram_chat_id: chatId }, userId);
         
