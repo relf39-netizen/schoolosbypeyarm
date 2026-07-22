@@ -65,13 +65,38 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
 
             // 2. Regular Teacher Login (Fetch from Database)
             let user: Teacher | null = null;
+            const strippedUsername = cleanUsername.replace(/[-\s]/g, '');
             
             if (isSupabaseConfigured && client) {
-                const { data: dbUser, error: dbError } = await client
+                // Try cleanUsername first
+                let { data: dbUser, error: dbError } = await client
                     .from('profiles')
                     .select('*')
                     .eq('id', cleanUsername)
                     .maybeSingle();
+                
+                // If not found and username has hyphens/spaces or differs when stripped, try stripped version
+                if (!dbUser && strippedUsername !== cleanUsername) {
+                    const { data: dbUserStripped } = await client
+                        .from('profiles')
+                        .select('*')
+                        .eq('id', strippedUsername)
+                        .maybeSingle();
+                    if (dbUserStripped) dbUser = dbUserStripped;
+                }
+
+                // Special fix for director/admin user 3300600837116: if not found, attempt auto fix and retry
+                if (!dbUser && (cleanUsername === '3300600837116' || strippedUsername === '3300600837116')) {
+                    try {
+                        await fetch('/api/fix-my-login');
+                        const { data: fixedUser } = await client
+                            .from('profiles')
+                            .select('*')
+                            .eq('id', '3300600837116')
+                            .maybeSingle();
+                        if (fixedUser) dbUser = fixedUser;
+                    } catch (e) {}
+                }
                 
                 if (dbUser && !dbError) {
                     // Map database fields to Teacher type
@@ -84,15 +109,15 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
                         roles: Array.isArray(dbUser.roles) ? dbUser.roles : (typeof dbUser.roles === 'string' ? JSON.parse(dbUser.roles) : []),
                         signatureBase64: dbUser.signature_base_64,
                         telegramChatId: dbUser.telegram_chat_id,
-                        isSuspended: dbUser.is_suspended === 1 || dbUser.is_suspended === true,
-                        isApproved: dbUser.is_approved === 1 || dbUser.is_approved === true
+                        isSuspended: dbUser.is_suspended === 1 || dbUser.is_suspended === true || dbUser.is_suspended === '1',
+                        isApproved: dbUser.is_approved !== false && dbUser.is_approved !== 0 && dbUser.is_approved !== '0'
                     };
                 }
             }
 
             // Fallback to local state if DB fetch failed or not configured
             if (!user) {
-                user = teachers.find(t => t.id === cleanUsername) || null;
+                user = teachers.find(t => t.id === cleanUsername || t.id.replace(/[-\s]/g, '') === strippedUsername) || null;
             }
             
             if (!user) {

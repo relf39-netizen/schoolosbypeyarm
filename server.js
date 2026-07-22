@@ -1259,18 +1259,40 @@ async function startServer() {
   app.get('/api/fix-my-login', async (req, res) => {
     try {
       const userId = '3300600837116';
-      const [schools] = await query('SELECT id FROM schools LIMIT 1');
+      const [schools] = await pool.query('SELECT id FROM schools LIMIT 1');
       let schoolId = '12345678';
       if (!schools || schools.length === 0) {
-        await query('INSERT INTO schools (id, name) VALUES (?, ?)', [schoolId, 'โรงเรียนตัวอย่าง']);
+        await pool.query('INSERT INTO schools (id, name) VALUES (?, ?)', [schoolId, 'โรงเรียนตัวอย่าง']);
       } else {
         schoolId = schools[0].id;
       }
 
-      await query(
+      // 1. Insert/Update into Central Database Pool
+      await pool.query(
         'INSERT INTO profiles (id, school_id, name, password, position, roles, is_approved) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE password=?, is_approved=1, roles=?',
         [userId, schoolId, 'ผู้ดูแลระบบ', '123456789', 'ผู้อำนวยการ', JSON.stringify(['SYSTEM_ADMIN', 'DIRECTOR']), 1, '123456789', JSON.stringify(['SYSTEM_ADMIN', 'DIRECTOR'])]
       );
+
+      // 2. Also propagate to all registered tenant pools if any exist
+      try {
+        const [configs] = await pool.query('SELECT school_id FROM school_database_configs');
+        if (configs && configs.length > 0) {
+          for (const cfg of configs) {
+            try {
+              const tenantPool = await getPoolForSchool(cfg.school_id);
+              await tenantPool.query(
+                'INSERT INTO profiles (id, school_id, name, password, position, roles, is_approved) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE password=?, is_approved=1, roles=?',
+                [userId, schoolId, 'ผู้ดูแลระบบ', '123456789', 'ผู้อำนวยการ', JSON.stringify(['SYSTEM_ADMIN', 'DIRECTOR']), 1, '123456789', JSON.stringify(['SYSTEM_ADMIN', 'DIRECTOR'])]
+              );
+            } catch (tErr) {
+              console.warn(`[Fix-My-Login Tenant Error school ${cfg.school_id}]`, tErr.message);
+            }
+          }
+        }
+      } catch (tSyncErr) {
+        console.warn('[Fix-My-Login Tenant Propagation Error]', tSyncErr.message);
+      }
+
       res.json({ success: true, message: 'กู้คืนบัญชี 3300600837116 เรียบร้อยแล้ว รหัสผ่านคือ 123456789' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -1597,48 +1619,85 @@ async function startServer() {
       
       let results = await query(sql, params);
 
-      // If profiles query returned 0 results, search across all configured tenant databases
+      // If profiles query returned 0 results, search across Central DB and all tenant databases
       if (tableName === 'profiles' && (!results || results.length === 0)) {
+        // 1. Try Central pool first if request was routed to a tenant pool
         try {
-          const [configs] = await pool.query('SELECT school_id FROM school_database_configs');
-          if (configs && configs.length > 0) {
-            for (const cfg of configs) {
-              try {
-                const tenantPool = await getPoolForSchool(cfg.school_id);
-                const [tenantResults] = await tenantPool.query(sql, params);
-                if (tenantResults && tenantResults.length > 0) {
-                  results = tenantResults;
-                  // Auto-sync found profile(s) to Central DB so future Central queries find them instantly
-                  for (const p of tenantResults) {
-                    try {
-                      await pool.query(
-                        'INSERT INTO profiles (id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, is_suspended, is_approved, assigned_classes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE school_id=?, name=?, password=?, position=?, roles=?, signature_base_64=?, telegram_chat_id=?, is_suspended=?, is_approved=?, assigned_classes=?',
-                        [
-                          p.id, p.school_id, p.name, p.password, p.position, 
-                          typeof p.roles === 'object' ? JSON.stringify(p.roles) : p.roles, 
-                          p.signature_base_64, p.telegram_chat_id, 
-                          p.is_suspended ? 1 : 0, p.is_approved ? 1 : 0, 
-                          typeof p.assigned_classes === 'object' ? JSON.stringify(p.assigned_classes) : p.assigned_classes,
-                          p.school_id, p.name, p.password, p.position, 
-                          typeof p.roles === 'object' ? JSON.stringify(p.roles) : p.roles, 
-                          p.signature_base_64, p.telegram_chat_id, 
-                          p.is_suspended ? 1 : 0, p.is_approved ? 1 : 0, 
-                          typeof p.assigned_classes === 'object' ? JSON.stringify(p.assigned_classes) : p.assigned_classes
-                        ]
-                      );
-                    } catch (syncErr) {
-                      console.warn('[Profile Cross-Search Sync Error]', syncErr.message);
-                    }
-                  }
-                  break;
+          const [centralResults] = await pool.query(sql, params);
+          if (centralResults && centralResults.length > 0) {
+            results = centralResults;
+            const currentTenantPool = tenantStorage.getStore();
+            if (currentTenantPool && currentTenantPool !== pool) {
+              for (const p of centralResults) {
+                try {
+                  await currentTenantPool.query(
+                    'INSERT INTO profiles (id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, is_suspended, is_approved, assigned_classes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE school_id=?, name=?, password=?, position=?, roles=?, signature_base_64=?, telegram_chat_id=?, is_suspended=?, is_approved=?, assigned_classes=?',
+                    [
+                      p.id, p.school_id, p.name, p.password, p.position, 
+                      typeof p.roles === 'object' ? JSON.stringify(p.roles) : p.roles, 
+                      p.signature_base_64, p.telegram_chat_id, 
+                      p.is_suspended ? 1 : 0, p.is_approved ? 1 : 0, 
+                      typeof p.assigned_classes === 'object' ? JSON.stringify(p.assigned_classes) : p.assigned_classes,
+                      p.school_id, p.name, p.password, p.position, 
+                      typeof p.roles === 'object' ? JSON.stringify(p.roles) : p.roles, 
+                      p.signature_base_64, p.telegram_chat_id, 
+                      p.is_suspended ? 1 : 0, p.is_approved ? 1 : 0, 
+                      typeof p.assigned_classes === 'object' ? JSON.stringify(p.assigned_classes) : p.assigned_classes
+                    ]
+                  );
+                } catch (tSyncErr) {
+                  console.warn('[Tenant Profile Sync Error]', tSyncErr.message);
                 }
-              } catch (tErr) {
-                console.warn(`[Profile Cross-Search Tenant Error school ${cfg.school_id}]`, tErr.message);
               }
             }
           }
-        } catch (searchErr) {
-          console.warn('[Profile Cross-Search Error]', searchErr.message);
+        } catch (cErr) {
+          console.warn('[Profile Cross-Search Central Error]', cErr.message);
+        }
+
+        // 2. If Central pool also yielded 0 results, search all configured tenant pools
+        if (!results || results.length === 0) {
+          try {
+            const [configs] = await pool.query('SELECT school_id FROM school_database_configs');
+            if (configs && configs.length > 0) {
+              for (const cfg of configs) {
+                try {
+                  const tenantPool = await getPoolForSchool(cfg.school_id);
+                  const [tenantResults] = await tenantPool.query(sql, params);
+                  if (tenantResults && tenantResults.length > 0) {
+                    results = tenantResults;
+                    // Auto-sync found profile(s) to Central DB so future Central queries find them instantly
+                    for (const p of tenantResults) {
+                      try {
+                        await pool.query(
+                          'INSERT INTO profiles (id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, is_suspended, is_approved, assigned_classes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE school_id=?, name=?, password=?, position=?, roles=?, signature_base_64=?, telegram_chat_id=?, is_suspended=?, is_approved=?, assigned_classes=?',
+                          [
+                            p.id, p.school_id, p.name, p.password, p.position, 
+                            typeof p.roles === 'object' ? JSON.stringify(p.roles) : p.roles, 
+                            p.signature_base_64, p.telegram_chat_id, 
+                            p.is_suspended ? 1 : 0, p.is_approved ? 1 : 0, 
+                            typeof p.assigned_classes === 'object' ? JSON.stringify(p.assigned_classes) : p.assigned_classes,
+                            p.school_id, p.name, p.password, p.position, 
+                            typeof p.roles === 'object' ? JSON.stringify(p.roles) : p.roles, 
+                            p.signature_base_64, p.telegram_chat_id, 
+                            p.is_suspended ? 1 : 0, p.is_approved ? 1 : 0, 
+                            typeof p.assigned_classes === 'object' ? JSON.stringify(p.assigned_classes) : p.assigned_classes
+                          ]
+                        );
+                      } catch (syncErr) {
+                        console.warn('[Profile Cross-Search Sync Error]', syncErr.message);
+                      }
+                    }
+                    break;
+                  }
+                } catch (tErr) {
+                  console.warn(`[Profile Cross-Search Tenant Error school ${cfg.school_id}]`, tErr.message);
+                }
+              }
+            }
+          } catch (searchErr) {
+            console.warn('[Profile Cross-Search Error]', searchErr.message);
+          }
         }
       }
 
