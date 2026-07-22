@@ -37,9 +37,12 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
         setError('');
         setIsAuthenticating(true);
 
+        const cleanUsername = (loginUsername || '').trim();
+        const cleanPassword = (loginPassword || '').trim();
+
         try {
             // Check for hardcoded fallback Super Admin first (so we don't block login if central database is down)
-            if (loginUsername === 'admin' && loginPassword === 'schoolos') {
+            if (cleanUsername === 'admin' && cleanPassword === 'schoolos') {
                  onSuperAdminLogin();
                  return;
             }
@@ -50,8 +53,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
                 const { data: superAdmin, error: superError } = await client
                     .from('super_admins')
                     .select('*')
-                    .eq('username', loginUsername)
-                    .eq('password', loginPassword)
+                    .eq('username', cleanUsername)
+                    .eq('password', cleanPassword)
                     .maybeSingle();
 
                 if (superAdmin && !superError) {
@@ -67,7 +70,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
                 const { data: dbUser, error: dbError } = await client
                     .from('profiles')
                     .select('*')
-                    .eq('id', loginUsername)
+                    .eq('id', cleanUsername)
                     .maybeSingle();
                 
                 if (dbUser && !dbError) {
@@ -89,7 +92,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
 
             // Fallback to local state if DB fetch failed or not configured
             if (!user) {
-                user = teachers.find(t => t.id === loginUsername) || null;
+                user = teachers.find(t => t.id === cleanUsername) || null;
             }
             
             if (!user) {
@@ -118,7 +121,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
                 return;
             }
 
-            if (user.password !== loginPassword) {
+            if ((user.password || '').trim() !== cleanPassword) {
                 setError('รหัสผ่านไม่ถูกต้อง');
                 setIsAuthenticating(false);
                 return;

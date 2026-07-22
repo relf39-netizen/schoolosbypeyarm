@@ -894,6 +894,31 @@ async function startServer() {
         }
       }
 
+      // Reverse sync: Ensure any profiles created directly in targetPool are copied back to Central pool
+      try {
+        const [targetProfiles] = await targetPool.query('SELECT * FROM profiles WHERE school_id = ?', [schoolId]);
+        if (targetProfiles && targetProfiles.length > 0) {
+          const [centralColsRes] = await pool.query('SHOW COLUMNS FROM profiles');
+          const centralCols = centralColsRes.map(c => c.Field);
+          for (const p of targetProfiles) {
+            const keys = Object.keys(p).filter(k => centralCols.includes(k) && p[k] !== undefined);
+            if (keys.length === 0) continue;
+            const values = keys.map(k => {
+              let val = p[k];
+              if (val instanceof Date) return val;
+              if (typeof val === 'object' && val !== null) return JSON.stringify(val);
+              return val;
+            });
+            const placeholders = keys.map(() => '?').join(', ');
+            const updates = keys.filter(k => k !== 'id').map(k => `\`${k}\` = VALUES(\`${k}\`)`).join(', ');
+            const revSql = `INSERT INTO profiles (${keys.map(k => `\`${k}\``).join(', ')}) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
+            await pool.query(revSql, values);
+          }
+        }
+      } catch (revSyncErr) {
+        console.warn('[Multi-DB Reverse Profile Sync Error]', revSyncErr.message);
+      }
+
       console.log(`[Multi-DB Sync] Synchronization complete. Synced ${totalSyncedRows} total rows across tables.`);
       res.json({
         success: true,
@@ -1570,7 +1595,53 @@ async function startServer() {
         params.push(parseInt(filters.limit));
       }
       
-      const results = await query(sql, params);
+      let results = await query(sql, params);
+
+      // If profiles query returned 0 results, search across all configured tenant databases
+      if (tableName === 'profiles' && (!results || results.length === 0)) {
+        try {
+          const [configs] = await pool.query('SELECT school_id FROM school_database_configs');
+          if (configs && configs.length > 0) {
+            for (const cfg of configs) {
+              try {
+                const tenantPool = await getPoolForSchool(cfg.school_id);
+                const [tenantResults] = await tenantPool.query(sql, params);
+                if (tenantResults && tenantResults.length > 0) {
+                  results = tenantResults;
+                  // Auto-sync found profile(s) to Central DB so future Central queries find them instantly
+                  for (const p of tenantResults) {
+                    try {
+                      await pool.query(
+                        'INSERT INTO profiles (id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, is_suspended, is_approved, assigned_classes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE school_id=?, name=?, password=?, position=?, roles=?, signature_base_64=?, telegram_chat_id=?, is_suspended=?, is_approved=?, assigned_classes=?',
+                        [
+                          p.id, p.school_id, p.name, p.password, p.position, 
+                          typeof p.roles === 'object' ? JSON.stringify(p.roles) : p.roles, 
+                          p.signature_base_64, p.telegram_chat_id, 
+                          p.is_suspended ? 1 : 0, p.is_approved ? 1 : 0, 
+                          typeof p.assigned_classes === 'object' ? JSON.stringify(p.assigned_classes) : p.assigned_classes,
+                          p.school_id, p.name, p.password, p.position, 
+                          typeof p.roles === 'object' ? JSON.stringify(p.roles) : p.roles, 
+                          p.signature_base_64, p.telegram_chat_id, 
+                          p.is_suspended ? 1 : 0, p.is_approved ? 1 : 0, 
+                          typeof p.assigned_classes === 'object' ? JSON.stringify(p.assigned_classes) : p.assigned_classes
+                        ]
+                      );
+                    } catch (syncErr) {
+                      console.warn('[Profile Cross-Search Sync Error]', syncErr.message);
+                    }
+                  }
+                  break;
+                }
+              } catch (tErr) {
+                console.warn(`[Profile Cross-Search Tenant Error school ${cfg.school_id}]`, tErr.message);
+              }
+            }
+          }
+        } catch (searchErr) {
+          console.warn('[Profile Cross-Search Error]', searchErr.message);
+        }
+      }
+
       // Auto-parse JSON columns if any
       const parsed = results.map((row) => {
         const newRow = { ...row };
@@ -1848,6 +1919,15 @@ async function startServer() {
 
         const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
         await query(sql, [tableName, keys, ...values]);
+
+        // If profiles was saved to a tenant database, mirror the save to Central DB pool as well
+        if (tableName === 'profiles') {
+          try {
+            await runGlobalQuery(sql, [tableName, keys, ...values], pool);
+          } catch (centralSyncErr) {
+            console.warn('[Central Profile Mirror Error on POST]', centralSyncErr.message);
+          }
+        }
       }
       
       console.log(`[${new Date().toISOString()}] Successfully saved to ${tableName}`);
@@ -1903,6 +1983,15 @@ async function startServer() {
       }
       
       const results = await query(sql, params);
+
+      // If profiles was updated in a tenant database, mirror the update to Central DB pool as well
+      if (tableName === 'profiles') {
+        try {
+          await runGlobalQuery(sql, params, pool);
+        } catch (centralSyncErr) {
+          console.warn('[Central Profile Mirror Error on PATCH]', centralSyncErr.message);
+        }
+      }
 
       if (results && results.affectedRows === 0) {
         return res.status(404).json({
