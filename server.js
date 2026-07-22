@@ -1568,10 +1568,25 @@ async function startServer() {
     const { tableName } = req.params;
     const filters = { ...req.query };
     try {
+      let validColumns = [];
+      try {
+        const descRes = await query(`DESCRIBE ??`, [tableName]);
+        const columnsInfo = Array.isArray(descRes) && Array.isArray(descRes[0]) ? descRes[0] : (Array.isArray(descRes) ? descRes : []);
+        validColumns = columnsInfo.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
+      } catch (e) {
+        console.warn(`[Describe Table Warning ${tableName}]`, e.message);
+      }
+
       let sql = `SELECT * FROM ??`;
       let params = [tableName];
       
-      const filterKeys = Object.keys(filters).filter(k => k !== 'order' && k !== 'limit' && k !== 'select' && k !== 'head');
+      const nonColumnParams = ['_t', '_', 'order', 'limit', 'select', 'head'];
+      const filterKeys = Object.keys(filters).filter(k => {
+        if (nonColumnParams.includes(k)) return false;
+        if (validColumns.length > 0 && !validColumns.includes(k)) return false;
+        return true;
+      });
+
       if (filterKeys.length > 0) {
         sql += ` WHERE ` + filterKeys.map(k => {
           const val = String(filters[k]);
@@ -2011,7 +2026,14 @@ async function startServer() {
     const data = req.body;
     const filters = { ...req.query };
     try {
-      const keys = Object.keys(data);
+      let validColumns = [];
+      try {
+        const descRes = await query(`DESCRIBE ??`, [tableName]);
+        const columnsInfo = Array.isArray(descRes) && Array.isArray(descRes[0]) ? descRes[0] : (Array.isArray(descRes) ? descRes : []);
+        validColumns = columnsInfo.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
+      } catch (e) {}
+
+      const keys = Object.keys(data).filter(k => validColumns.length === 0 || validColumns.includes(k));
       const values = keys.map(k => {
         if (Array.isArray(data[k]) || (typeof data[k] === 'object' && data[k] !== null)) {
           return JSON.stringify(data[k]);
@@ -2022,7 +2044,13 @@ async function startServer() {
       let sql = `UPDATE \`${tableName}\` SET ` + keys.map(k => `\`${k}\` = ?`).join(', ');
       let params = [...values];
 
-      const filterKeys = Object.keys(filters);
+      const nonColumnParams = ['_t', '_', 'order', 'limit', 'select', 'head'];
+      const filterKeys = Object.keys(filters).filter(k => {
+        if (nonColumnParams.includes(k)) return false;
+        if (validColumns.length > 0 && !validColumns.includes(k)) return false;
+        return true;
+      });
+
       if (filterKeys.length > 0) {
         sql += ` WHERE ` + filterKeys.map(k => {
           if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
@@ -2074,7 +2102,19 @@ async function startServer() {
     const { tableName } = req.params;
     const filters = { ...req.query };
     try {
-      const filterKeys = Object.keys(filters);
+      let validColumns = [];
+      try {
+        const descRes = await query(`DESCRIBE ??`, [tableName]);
+        const columnsInfo = Array.isArray(descRes) && Array.isArray(descRes[0]) ? descRes[0] : (Array.isArray(descRes) ? descRes : []);
+        validColumns = columnsInfo.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
+      } catch (e) {}
+
+      const nonColumnParams = ['_t', '_', 'order', 'limit', 'select', 'head'];
+      const filterKeys = Object.keys(filters).filter(k => {
+        if (nonColumnParams.includes(k)) return false;
+        if (validColumns.length > 0 && !validColumns.includes(k)) return false;
+        return true;
+      });
 
       // Cascade Delete for students
       if (tableName === 'students' && filterKeys.length > 0) {
