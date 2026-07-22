@@ -1291,6 +1291,9 @@ async function startServer() {
     }
   };
 
+  const processedTelegramUpdates = new Map();
+  const processedUserTelegramLinks = new Map();
+
   // Telegram Webhook Endpoint
   app.post('/api/telegram/webhook/:token', async (req, res) => {
     // Send HTTP 200 OK immediately so Telegram marks update_id as processed and does not retry
@@ -1302,6 +1305,22 @@ async function startServer() {
 
       if (!update || !update.message || !update.message.text) return;
 
+      // 1. Deduplicate by update_id
+      if (update.update_id) {
+        const lastTs = processedTelegramUpdates.get(update.update_id);
+        if (lastTs && Date.now() - lastTs < 300000) {
+          console.log(`[Telegram] Skipping duplicate update_id [${update.update_id}]`);
+          return;
+        }
+        processedTelegramUpdates.set(update.update_id, Date.now());
+        if (processedTelegramUpdates.size > 1000) {
+          const now = Date.now();
+          for (const [id, ts] of processedTelegramUpdates.entries()) {
+            if (now - ts > 300000) processedTelegramUpdates.delete(id);
+          }
+        }
+      }
+
       const { text, chat } = update.message;
       const chatId = chat.id.toString();
 
@@ -1310,23 +1329,65 @@ async function startServer() {
         const parts = text.split(' ');
         if (parts.length > 1) {
           const userId = parts[1].trim();
+          const userLinkKey = `${token}_${userId}_${chatId}`;
+
+          const lastLinkTs = processedUserTelegramLinks.get(userLinkKey);
+          if (lastLinkTs && Date.now() - lastLinkTs < 60000) {
+            console.log(`[Telegram] User link ${userLinkKey} processed within 60s. Skipping duplicate message.`);
+            return;
+          }
+
           console.log(`[Telegram] User ID [${userId}] linking with Chat ID [${chatId}]`);
 
-          // First check if user exists and check current telegram_chat_id
-          const [user] = await query('SELECT id, name, telegram_chat_id FROM profiles WHERE id = ?', [userId]);
-          
+          // Find school_id for this bot token
+          const [cfg] = await query('SELECT school_id FROM school_configs WHERE telegram_bot_token = ?', [token]);
+          const schoolId = cfg ? cfg.school_id : null;
+
+          let user = null;
+          let tenantPool = null;
+          if (schoolId) {
+            try {
+              tenantPool = await getPoolForSchool(schoolId);
+              const [tUser] = await new Promise((resolve, reject) => {
+                tenantPool.query('SELECT id, name, telegram_chat_id FROM profiles WHERE id = ?', [userId], (err, rows) => {
+                  if (err) reject(err); else resolve(rows);
+                });
+              });
+              if (tUser) user = tUser;
+            } catch (e) {
+              console.warn('[Telegram] Error querying tenant pool:', e.message);
+            }
+          }
+
+          if (!user) {
+            const [cUser] = await query('SELECT id, name, telegram_chat_id FROM profiles WHERE id = ?', [userId]);
+            if (cUser) user = cUser;
+          }
+
           if (user) {
-            // Check if user is already linked with this exact chatId to prevent duplicate messages
             if (user.telegram_chat_id === chatId) {
               console.log(`[Telegram] Chat ID ${chatId} already linked to user ${user.name} (${userId}). Skipping duplicate notification.`);
               return;
             }
 
-            // Update the profile with the chat ID
-            await query(
-              'UPDATE profiles SET telegram_chat_id = ? WHERE id = ?',
-              [chatId, userId]
-            );
+            processedUserTelegramLinks.set(userLinkKey, Date.now());
+
+            // Update profile in central DB
+            await query('UPDATE profiles SET telegram_chat_id = ? WHERE id = ?', [chatId, userId]);
+
+            // Update profile in tenant DB if exists
+            if (tenantPool) {
+              try {
+                await new Promise((resolve, reject) => {
+                  tenantPool.query('UPDATE profiles SET telegram_chat_id = ? WHERE id = ?', [chatId, userId], (err, res) => {
+                    if (err) reject(err); else resolve(res);
+                  });
+                });
+              } catch (e) {
+                console.warn('[Telegram] Error updating tenant profile:', e.message);
+              }
+            }
+
             console.log(`[Telegram] Successfully linked Chat ID ${chatId} to user ${user.name} (${userId})`);
             await sendTelegramMessage(token, chatId, `✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nบัญชีของท่าน (คุณ${user.name}) ได้รับการผูกกับระบบโรงเรียนเรียบร้อยแล้ว ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาผ่านช่องทางนี้ครับ`);
           } else {

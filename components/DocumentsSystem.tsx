@@ -270,7 +270,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
         if (!currentAckList.includes(currentUser.id)) {
             const newAck = [...currentAckList, currentUser.id];
             try {
-                const { error } = await client.from('documents').update({ acknowledged_by: newAck }).eq('id', docId);
+                const { error } = await client.from('documents').update({ acknowledged_by: newAck, school_id: currentUser.schoolId }).eq('id', docId).eq('school_id', currentUser.schoolId);
                 if (error) throw error;
                 
                 setDocs(prev => prev.map(d => d.id === docId ? { ...d, acknowledgedBy: newAck } : d));
@@ -313,13 +313,15 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
         const client = supabase;
         if (!isSupabaseConfigured || !client) return;
         try {
-            const { error } = await client.from('documents').delete().eq('id', docId);
+            setDocs(prev => prev.filter(d => d.id !== docId));
+            const { error } = await client.from('documents').delete().eq('id', docId).eq('school_id', currentUser.schoolId);
             if (error) throw error;
             alert("ลบหนังสือเรียบร้อยแล้ว");
             setViewMode('LIST');
             fetchDocs();
         } catch (e: any) {
             alert("ลบไม่สำเร็จ: " + e.message);
+            fetchDocs();
         }
     };
 
@@ -735,7 +737,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
             }
 
             const nowStr = formatDateTimeThai(new Date());
-            const updateData: any = { status: nextStatus };
+            const updateData: any = { status: nextStatus, school_id: currentUser.schoolId };
             if (signedUrl) updateData.signed_file_url = signedUrl;
             
             if (isActorVice) { 
@@ -754,7 +756,25 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                 }
             }
 
-            const { error } = await client.from('documents').update(updateData).eq('id', taskId);
+            // อัปเดต state ในหน้าเว็บทันที
+            setDocs(prev => prev.map(d => {
+                if (d.id === taskId) {
+                    return {
+                        ...d,
+                        status: nextStatus,
+                        directorCommand: isActorVice ? d.directorCommand : finalCommand,
+                        directorSignatureDate: isActorVice ? d.directorSignatureDate : nowStr,
+                        viceDirectorCommand: isActorVice ? finalCommand : d.viceDirectorCommand,
+                        viceDirectorSignatureDate: isActorVice ? nowStr : d.viceDirectorSignatureDate,
+                        assignedViceDirectorId: nextStatus === 'PendingViceDirector' ? viceId : undefined,
+                        targetTeachers: nextStatus === 'PendingViceDirector' ? d.targetTeachers : targetTeacherIds,
+                        signedFileUrl: signedUrl || d.signedFileUrl
+                    };
+                }
+                return d;
+            }));
+
+            const { error } = await client.from('documents').update(updateData).eq('id', taskId).eq('school_id', currentUser.schoolId);
             if (error) throw error;
 
             const notifyAtts = [...targetDoc.attachments];
@@ -786,13 +806,28 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
         const taskId = selectedDoc.id;
         const vice = allTeachers.find(t => t.id === assignedViceDirId);
         const finalCommand = command || `มอบ ${vice?.name} พิจารณาดำเนินการ`;
+        const nowStr = formatDateTimeThai(new Date());
+
+        // อัปเดต state ทันที
+        setDocs(prev => prev.map(d => d.id === taskId ? {
+            ...d,
+            status: 'PendingViceDirector',
+            assignedViceDirectorId: assignedViceDirId,
+            directorCommand: finalCommand,
+            directorSignatureDate: nowStr
+        } : d));
         
         setBackgroundTasks(prev => [...prev, { id: taskId, title: selectedDoc.title, status: 'processing', message: 'กำลังส่งต่อ...', notified: false }]);
         setViewMode('LIST');
 
         try {
-            const nowStr = formatDateTimeThai(new Date());
-            const { error } = await client.from('documents').update({ status: 'PendingViceDirector', assigned_vice_director_id: assignedViceDirId, director_command: finalCommand, director_signature_date: nowStr }).eq('id', taskId);
+            const { error } = await client.from('documents').update({ 
+                status: 'PendingViceDirector', 
+                assigned_vice_director_id: assignedViceDirId, 
+                director_command: finalCommand, 
+                director_signature_date: nowStr,
+                school_id: currentUser.schoolId 
+            }).eq('id', taskId).eq('school_id', currentUser.schoolId);
             if (error) throw error;
             
             if (vice && !(vice.roles || []).includes('DIRECTOR')) {
@@ -1376,6 +1411,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                         try {
                             if (isEditMode && newDoc.id) {
                                 const payload: any = { 
+                                    school_id: currentUser.schoolId,
                                     book_number: newDoc.bookNumber, 
                                     title: newDoc.title, 
                                     description: newDoc.description, 
@@ -1387,7 +1423,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                                     payload.target_teachers = selectedTeachers;
                                 }
 
-                                const { error } = await client.from('documents').update(payload).eq('id', newDoc.id);
+                                const { error } = await client.from('documents').update(payload).eq('id', newDoc.id).eq('school_id', currentUser.schoolId);
                                 if (error) throw error;
                                 alert("แก้ไขข้อมูลเรียบร้อยแล้ว");
                             } else {

@@ -179,7 +179,7 @@ class SupabaseQueryBuilder {
 
     if (!schoolId && !isSuperAdmin && !isSuperAdminMode) {
       try {
-        schoolId = localStorage.getItem('school_id') || '';
+        schoolId = (typeof window !== 'undefined' && (window as any).__CURRENT_USER_SCHOOL_ID__) || localStorage.getItem('school_id') || '';
       } catch (e) {}
     }
 

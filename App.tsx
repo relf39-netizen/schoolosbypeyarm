@@ -267,8 +267,16 @@ const App: React.FC = () => {
     }, [currentUser?.id]);
 
     // --- 3. ACTION HANDLERS ---
+    useEffect(() => {
+        if (currentUser?.schoolId) {
+            if (typeof window !== 'undefined') (window as any).__CURRENT_USER_SCHOOL_ID__ = currentUser.schoolId;
+            localStorage.setItem('school_id', currentUser.schoolId);
+        }
+    }, [currentUser?.schoolId]);
+
     const handleLogin = (user: Teacher) => {
         setCurrentUser(user);
+        if (typeof window !== 'undefined') (window as any).__CURRENT_USER_SCHOOL_ID__ = user.schoolId;
         localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id, isSuperAdmin: false }));
         localStorage.setItem('school_id', user.schoolId || '');
     };
