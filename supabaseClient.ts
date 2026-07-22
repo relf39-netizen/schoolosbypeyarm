@@ -129,11 +129,6 @@ class SupabaseQueryBuilder {
     if (this.orderCol) queryParams.append('order', `${this.orderCol}.${this.orderDir}`);
     if (this.limitCount) queryParams.append('limit', this.limitCount.toString());
 
-    // Prevent aggressive browser/webview HTTP response caching on mobile devices
-    if (this.method === 'GET') {
-      queryParams.append('_t', Date.now().toString());
-    }
-
     // Extract school ID for multi-database routing
     let schoolId = '';
     if (this.filters['school_id']) {
@@ -184,7 +179,7 @@ class SupabaseQueryBuilder {
 
     if (!schoolId && !isSuperAdmin && !isSuperAdminMode) {
       try {
-        schoolId = localStorage.getItem('school_id') || localStorage.getItem('user_school_id') || '';
+        schoolId = localStorage.getItem('school_id') || '';
       } catch (e) {}
     }
 
@@ -193,9 +188,7 @@ class SupabaseQueryBuilder {
         method: this.method,
         headers: { 
           'Content-Type': 'application/json',
-          'X-School-ID': schoolId,
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
+          'X-School-ID': schoolId
         },
       };
 

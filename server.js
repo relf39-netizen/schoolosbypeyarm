@@ -894,31 +894,6 @@ async function startServer() {
         }
       }
 
-      // Reverse sync: Ensure any profiles created directly in targetPool are copied back to Central pool
-      try {
-        const [targetProfiles] = await targetPool.query('SELECT * FROM profiles WHERE school_id = ?', [schoolId]);
-        if (targetProfiles && targetProfiles.length > 0) {
-          const [centralColsRes] = await pool.query('SHOW COLUMNS FROM profiles');
-          const centralCols = centralColsRes.map(c => c.Field);
-          for (const p of targetProfiles) {
-            const keys = Object.keys(p).filter(k => centralCols.includes(k) && p[k] !== undefined);
-            if (keys.length === 0) continue;
-            const values = keys.map(k => {
-              let val = p[k];
-              if (val instanceof Date) return val;
-              if (typeof val === 'object' && val !== null) return JSON.stringify(val);
-              return val;
-            });
-            const placeholders = keys.map(() => '?').join(', ');
-            const updates = keys.filter(k => k !== 'id').map(k => `\`${k}\` = VALUES(\`${k}\`)`).join(', ');
-            const revSql = `INSERT INTO profiles (${keys.map(k => `\`${k}\``).join(', ')}) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
-            await pool.query(revSql, values);
-          }
-        }
-      } catch (revSyncErr) {
-        console.warn('[Multi-DB Reverse Profile Sync Error]', revSyncErr.message);
-      }
-
       console.log(`[Multi-DB Sync] Synchronization complete. Synced ${totalSyncedRows} total rows across tables.`);
       res.json({
         success: true,
@@ -1259,40 +1234,18 @@ async function startServer() {
   app.get('/api/fix-my-login', async (req, res) => {
     try {
       const userId = '3300600837116';
-      const [schools] = await pool.query('SELECT id FROM schools LIMIT 1');
+      const [schools] = await query('SELECT id FROM schools LIMIT 1');
       let schoolId = '12345678';
       if (!schools || schools.length === 0) {
-        await pool.query('INSERT INTO schools (id, name) VALUES (?, ?)', [schoolId, 'โรงเรียนตัวอย่าง']);
+        await query('INSERT INTO schools (id, name) VALUES (?, ?)', [schoolId, 'โรงเรียนตัวอย่าง']);
       } else {
         schoolId = schools[0].id;
       }
 
-      // 1. Insert/Update into Central Database Pool
-      await pool.query(
+      await query(
         'INSERT INTO profiles (id, school_id, name, password, position, roles, is_approved) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE password=?, is_approved=1, roles=?',
         [userId, schoolId, 'ผู้ดูแลระบบ', '123456789', 'ผู้อำนวยการ', JSON.stringify(['SYSTEM_ADMIN', 'DIRECTOR']), 1, '123456789', JSON.stringify(['SYSTEM_ADMIN', 'DIRECTOR'])]
       );
-
-      // 2. Also propagate to all registered tenant pools if any exist
-      try {
-        const [configs] = await pool.query('SELECT school_id FROM school_database_configs');
-        if (configs && configs.length > 0) {
-          for (const cfg of configs) {
-            try {
-              const tenantPool = await getPoolForSchool(cfg.school_id);
-              await tenantPool.query(
-                'INSERT INTO profiles (id, school_id, name, password, position, roles, is_approved) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE password=?, is_approved=1, roles=?',
-                [userId, schoolId, 'ผู้ดูแลระบบ', '123456789', 'ผู้อำนวยการ', JSON.stringify(['SYSTEM_ADMIN', 'DIRECTOR']), 1, '123456789', JSON.stringify(['SYSTEM_ADMIN', 'DIRECTOR'])]
-              );
-            } catch (tErr) {
-              console.warn(`[Fix-My-Login Tenant Error school ${cfg.school_id}]`, tErr.message);
-            }
-          }
-        }
-      } catch (tSyncErr) {
-        console.warn('[Fix-My-Login Tenant Propagation Error]', tSyncErr.message);
-      }
-
       res.json({ success: true, message: 'กู้คืนบัญชี 3300600837116 เรียบร้อยแล้ว รหัสผ่านคือ 123456789' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -1564,75 +1517,14 @@ async function startServer() {
     }
   });
 
-  app.get('/api/fix-my-login', async (req, res) => {
-    try {
-      const directorProfile = {
-        id: '3300600837116',
-        school_id: 'school-001',
-        name: 'ผู้อำนวยการโรงเรียน (ผู้ดูแลระบบ)',
-        password: '0930935255',
-        position: 'ผู้อำนวยการ',
-        roles: JSON.stringify(['Director', 'Admin', 'Teacher']),
-        is_suspended: 0,
-        is_approved: 1
-      };
-
-      await runGlobalQuery(
-        'INSERT INTO profiles (id, school_id, name, password, position, roles, is_suspended, is_approved) VALUES (?, ?, ?, ?, ?, ?, 0, 1) ON DUPLICATE KEY UPDATE password=?, roles=?, is_suspended=0, is_approved=1',
-        [directorProfile.id, directorProfile.school_id, directorProfile.name, directorProfile.password, directorProfile.position, directorProfile.roles, directorProfile.password, directorProfile.roles],
-        pool
-      ).catch(() => {});
-
-      await runGlobalQuery(
-        'INSERT INTO super_admins (username, password) VALUES (?, ?) ON DUPLICATE KEY UPDATE password=?',
-        ['3300600837116', '0930935255', '0930935255'],
-        pool
-      ).catch(() => {});
-
-      const configs = await runGlobalQuery('SELECT school_id FROM school_database_configs', [], pool).catch(() => []);
-      if (Array.isArray(configs)) {
-        for (const cfg of configs) {
-          try {
-            const tenantPool = await getPoolForSchool(cfg.school_id);
-            await runGlobalQuery(
-              'INSERT INTO profiles (id, school_id, name, password, position, roles, is_suspended, is_approved) VALUES (?, ?, ?, ?, ?, ?, 0, 1) ON DUPLICATE KEY UPDATE password=?, roles=?, is_suspended=0, is_approved=1',
-              [directorProfile.id, cfg.school_id, directorProfile.name, directorProfile.password, directorProfile.position, directorProfile.roles, directorProfile.password, directorProfile.roles],
-              tenantPool
-            ).catch(() => {});
-          } catch (e) {}
-        }
-      }
-
-      res.json({ success: true, message: 'Auto-fixed login for 3300600837116' });
-    } catch (err) {
-      res.json({ success: false, error: err.message });
-    }
-  });
-
   app.get('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
     const filters = { ...req.query };
-    let results = [];
     try {
-      let validColumns = [];
-      try {
-        const descRes = await query(`DESCRIBE ??`, [tableName]);
-        const columnsInfo = Array.isArray(descRes) && Array.isArray(descRes[0]) ? descRes[0] : (Array.isArray(descRes) ? descRes : []);
-        validColumns = columnsInfo.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
-      } catch (e) {
-        console.warn(`[Describe Table Warning ${tableName}]`, e.message);
-      }
-
       let sql = `SELECT * FROM ??`;
       let params = [tableName];
       
-      const nonColumnParams = ['_t', '_', 'order', 'limit', 'select', 'head'];
-      const filterKeys = Object.keys(filters).filter(k => {
-        if (nonColumnParams.includes(k)) return false;
-        if (validColumns.length > 0 && !validColumns.includes(k)) return false;
-        return true;
-      });
-
+      const filterKeys = Object.keys(filters).filter(k => k !== 'order' && k !== 'limit' && k !== 'select' && k !== 'head');
       if (filterKeys.length > 0) {
         sql += ` WHERE ` + filterKeys.map(k => {
           const val = String(filters[k]);
@@ -1678,80 +1570,7 @@ async function startServer() {
         params.push(parseInt(filters.limit));
       }
       
-      try {
-        results = await query(sql, params);
-      } catch (qErr) {
-        console.warn(`[Table Query Warning ${tableName}]`, qErr.message);
-        results = [];
-      }
-
-      // If profiles query returned 0 results, search across Central DB and all tenant databases
-      if (tableName === 'profiles' && (!results || !Array.isArray(results) || results.length === 0)) {
-        // 1. Try Central pool first if request was routed to a tenant pool
-        try {
-          const centralResults = await runGlobalQuery(sql, params, pool);
-          if (Array.isArray(centralResults) && centralResults.length > 0) {
-            results = centralResults;
-          }
-        } catch (cErr) {
-          console.warn('[Profile Cross-Search Central Error]', cErr.message);
-        }
-
-        // 2. If Central pool also yielded 0 results, search all configured tenant pools
-        if (!results || !Array.isArray(results) || results.length === 0) {
-          try {
-            const configs = await runGlobalQuery('SELECT school_id FROM school_database_configs', [], pool).catch(() => []);
-            if (Array.isArray(configs) && configs.length > 0) {
-              for (const cfg of configs) {
-                try {
-                  const tenantPool = await getPoolForSchool(cfg.school_id);
-                  const tenantResults = await runGlobalQuery(sql, params, tenantPool);
-                  if (Array.isArray(tenantResults) && tenantResults.length > 0) {
-                    results = tenantResults;
-                    break;
-                  }
-                } catch (tErr) {}
-              }
-            }
-          } catch (searchErr) {}
-        }
-
-        // 3. Auto-fallback for director/admin user 3300600837116 if still not found
-        const targetId = filters.id || filters.username;
-        if ((!results || !Array.isArray(results) || results.length === 0) && (targetId === '3300600837116' || targetId === 'eq.3300600837116')) {
-          const directorProfile = {
-            id: '3300600837116',
-            school_id: 'school-001',
-            name: 'ผู้อำนวยการโรงเรียน (ผู้ดูแลระบบ)',
-            password: '0930935255',
-            position: 'ผู้อำนวยการ',
-            roles: ['Director', 'Admin', 'Teacher'],
-            signature_base_64: null,
-            telegram_chat_id: null,
-            is_suspended: 0,
-            is_approved: 1,
-            assigned_classes: []
-          };
-          results = [directorProfile];
-          runGlobalQuery(
-            'INSERT INTO profiles (id, school_id, name, password, position, roles, is_suspended, is_approved) VALUES (?, ?, ?, ?, ?, ?, 0, 1) ON DUPLICATE KEY UPDATE password=?, roles=?, is_suspended=0, is_approved=1',
-            [directorProfile.id, directorProfile.school_id, directorProfile.name, directorProfile.password, directorProfile.position, JSON.stringify(directorProfile.roles), directorProfile.password, JSON.stringify(directorProfile.roles)],
-            pool
-          ).catch(() => {});
-        }
-      }
-
-      // Auto-fallback for super_admins query for 3300600837116
-      if (tableName === 'super_admins' && (!results || !Array.isArray(results) || results.length === 0)) {
-        if (filters.username === '3300600837116') {
-          results = [{ username: '3300600837116', password: filters.password || '0930935255' }];
-        }
-      }
-
-      if (!Array.isArray(results)) {
-        results = [];
-      }
-
+      const results = await query(sql, params);
       // Auto-parse JSON columns if any
       const parsed = results.map((row) => {
         const newRow = { ...row };
@@ -1764,8 +1583,7 @@ async function startServer() {
       });
       res.json(parsed);
     } catch (err) {
-      console.error(`[Table Route Error ${tableName}]`, err);
-      res.json([]);
+      res.status(500).json({ error: `Failed to fetch from ${tableName}: ${err.message || String(err)}` });
     }
   });
 
@@ -2030,15 +1848,6 @@ async function startServer() {
 
         const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
         await query(sql, [tableName, keys, ...values]);
-
-        // If profiles was saved to a tenant database, mirror the save to Central DB pool as well
-        if (tableName === 'profiles') {
-          try {
-            await runGlobalQuery(sql, [tableName, keys, ...values], pool);
-          } catch (centralSyncErr) {
-            console.warn('[Central Profile Mirror Error on POST]', centralSyncErr.message);
-          }
-        }
       }
       
       console.log(`[${new Date().toISOString()}] Successfully saved to ${tableName}`);
@@ -2063,14 +1872,7 @@ async function startServer() {
     const data = req.body;
     const filters = { ...req.query };
     try {
-      let validColumns = [];
-      try {
-        const descRes = await query(`DESCRIBE ??`, [tableName]);
-        const columnsInfo = Array.isArray(descRes) && Array.isArray(descRes[0]) ? descRes[0] : (Array.isArray(descRes) ? descRes : []);
-        validColumns = columnsInfo.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
-      } catch (e) {}
-
-      const keys = Object.keys(data).filter(k => validColumns.length === 0 || validColumns.includes(k));
+      const keys = Object.keys(data);
       const values = keys.map(k => {
         if (Array.isArray(data[k]) || (typeof data[k] === 'object' && data[k] !== null)) {
           return JSON.stringify(data[k]);
@@ -2081,13 +1883,7 @@ async function startServer() {
       let sql = `UPDATE \`${tableName}\` SET ` + keys.map(k => `\`${k}\` = ?`).join(', ');
       let params = [...values];
 
-      const nonColumnParams = ['_t', '_', 'order', 'limit', 'select', 'head'];
-      const filterKeys = Object.keys(filters).filter(k => {
-        if (nonColumnParams.includes(k)) return false;
-        if (validColumns.length > 0 && !validColumns.includes(k)) return false;
-        return true;
-      });
-
+      const filterKeys = Object.keys(filters);
       if (filterKeys.length > 0) {
         sql += ` WHERE ` + filterKeys.map(k => {
           if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
@@ -2107,15 +1903,6 @@ async function startServer() {
       }
       
       const results = await query(sql, params);
-
-      // If profiles was updated in a tenant database, mirror the update to Central DB pool as well
-      if (tableName === 'profiles') {
-        try {
-          await runGlobalQuery(sql, params, pool);
-        } catch (centralSyncErr) {
-          console.warn('[Central Profile Mirror Error on PATCH]', centralSyncErr.message);
-        }
-      }
 
       if (results && results.affectedRows === 0) {
         return res.status(404).json({
@@ -2139,19 +1926,7 @@ async function startServer() {
     const { tableName } = req.params;
     const filters = { ...req.query };
     try {
-      let validColumns = [];
-      try {
-        const descRes = await query(`DESCRIBE ??`, [tableName]);
-        const columnsInfo = Array.isArray(descRes) && Array.isArray(descRes[0]) ? descRes[0] : (Array.isArray(descRes) ? descRes : []);
-        validColumns = columnsInfo.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
-      } catch (e) {}
-
-      const nonColumnParams = ['_t', '_', 'order', 'limit', 'select', 'head'];
-      const filterKeys = Object.keys(filters).filter(k => {
-        if (nonColumnParams.includes(k)) return false;
-        if (validColumns.length > 0 && !validColumns.includes(k)) return false;
-        return true;
-      });
+      const filterKeys = Object.keys(filters);
 
       // Cascade Delete for students
       if (tableName === 'students' && filterKeys.length > 0) {

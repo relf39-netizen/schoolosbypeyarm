@@ -256,11 +256,10 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
         setIsProcessingApproval(true);
         const now = getTodayDateStr();
         const { error } = await client.from('leave_requests').update({ 
-            school_id: currentUser.schoolId,
             status: isApproved ? 'Approved' : 'Rejected', 
             director_signature: currentUser.name,
             approved_date: now
-        }).eq('id', selectedRequest.id).eq('school_id', currentUser.schoolId);
+        }).eq('id', parseInt(selectedRequest.id));
 
         if (!error) {
             const teacher = allTeachers.find(t => t.id === selectedRequest.teacherId);
@@ -273,9 +272,7 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
                 const message = `${icon} <b>แจ้งผลการพิจารณาใบลา</b>\nรายการ: ${getLeaveTypeName(selectedRequest.type)}\nวันที่: ${getThaiDate(selectedRequest.startDate)}\nผลการพิจารณา: <b>${statusText}</b>\nโดย: ${directorPosition}`;
                 sendTelegramMessage(sysConfig.telegramBotToken, teacher.telegramChatId, message);
             }
-            alert("บันทึกการพิจารณาเรียบร้อยแล้ว"); 
-            setViewMode('LIST'); 
-            await fetchRequests();
+            alert("บันทึกการพิจารณาเรียบร้อยแล้ว"); setViewMode('LIST'); fetchRequests();
         } else { alert("ผิดพลาด: " + error.message); }
         setIsProcessingApproval(false);
     };
@@ -283,10 +280,10 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
     const handleDelete = async (docId: string) => {
         const client = supabase;
         if (!confirm("ยืนยันการลบข้อมูลใบลาชิ้นนี้?") || !client) return;
-        const { error } = await client.from('leave_requests').delete().eq('id', docId).eq('school_id', currentUser.schoolId);
+        const { error } = await client.from('leave_requests').delete().eq('id', parseInt(docId));
         if (!error) {
             alert("ลบข้อมูลสำเร็จ");
-            await fetchRequests();
+            fetchRequests();
             setViewMode('LIST');
         } else {
             alert("ลบไม่สำเร็จ: " + error.message);

