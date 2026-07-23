@@ -32,6 +32,42 @@ const countWeekdays = (start: string, end: string) => {
     return count;
 };
 
+const getPageChunks = <T,>(items: T[], firstPageMax = 18, normalPageMax = 20, lastPageMaxWithSignatures = 14): T[][] => {
+    if (items.length === 0) return [[]];
+    if (items.length <= lastPageMaxWithSignatures) return [items];
+
+    const pages: T[][] = [];
+    let currentIdx = 0;
+
+    while (currentIdx < items.length) {
+        const remaining = items.length - currentIdx;
+        const isFirstPage = pages.length === 0;
+        const pageCap = isFirstPage ? firstPageMax : normalPageMax;
+
+        if (remaining <= lastPageMaxWithSignatures) {
+            pages.push(items.slice(currentIdx));
+            break;
+        }
+
+        if (remaining <= pageCap) {
+            const takeNow = Math.max(1, Math.floor(remaining / 2));
+            pages.push(items.slice(currentIdx, currentIdx + takeNow));
+            currentIdx += takeNow;
+            continue;
+        }
+
+        let take = pageCap;
+        if (remaining - pageCap > 0 && remaining - pageCap < 4) {
+            take = Math.max(1, pageCap - 3);
+        }
+
+        pages.push(items.slice(currentIdx, currentIdx + take));
+        currentIdx += take;
+    }
+
+    return pages;
+};
+
 // Refactor: Move Modals/Overlays outside to prevent focus loss during typing
 const TeacherDetailsModal: React.FC<{ details: any, onClose: () => void }> = ({ details, onClose }) => {
     if (!details) return null;
@@ -801,6 +837,8 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
 
     if (viewMode === 'SUMMARY_REPORT') {
         const totalWorkDays = countWeekdays(startDate, endDate);
+        const summaryPageChunks = getPageChunks(sortedSummaryData, 18, 20, 14);
+        const summaryTotalPages = summaryPageChunks.length;
 
         return (
             <div className="absolute inset-0 z-50 bg-[#f8fafc] min-h-screen font-sarabun text-slate-900 print:bg-white overflow-y-auto">
@@ -839,103 +877,134 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                     </div>
                 </div>
 
-                {/* Report Content */}
-                <div className="max-w-[210mm] mx-auto bg-white my-8 p-[2cm] shadow-2xl print:shadow-none print:my-0 print:p-0">
-                    <div className="text-center mb-8">
-                        {currentSchool.logoBase64 && <img src={currentSchool.logoBase64} className="h-20 mx-auto mb-4 object-contain"/>}
-                        <h1 className="text-2xl font-black text-slate-900">สรุปรายงานการมาปฏิบัติราชการ</h1>
-                        <h2 className="text-lg font-bold text-slate-700">{currentSchool.name}</h2>
-                        <p className="text-sm font-bold text-blue-600 mt-2">
-                            ช่วงวันที่ {getThaiDate(startDate)} ถึง {getThaiDate(endDate)}
-                        </p>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
-                            จำนวนวันทำการทั้งหมด: {totalWorkDays} วัน
-                        </p>
-                    </div>
+                {/* Report Content Container */}
+                <div className="py-8 print:py-0 space-y-8 print:space-y-0">
+                    {summaryPageChunks.map((chunk, pageIndex) => {
+                        const isLastPage = pageIndex === summaryTotalPages - 1;
+                        const startIndex = summaryPageChunks.slice(0, pageIndex).reduce((acc, c) => acc + c.length, 0);
 
-                    <table className="w-full border-collapse border border-slate-900 text-sm">
-                        <thead>
-                            <tr className="bg-slate-50 font-black text-center">
-                                <th className="border border-slate-900 p-3 w-10">ที่</th>
-                                <th className="border border-slate-900 p-3 text-left">ชื่อ-นามสกุล</th>
-                                <th className="border border-slate-900 p-3 w-14">มา</th>
-                                <th className="border border-slate-900 p-3 w-14">ไปราชการ</th>
-                                <th className="border border-slate-900 p-3 w-14">สาย</th>
-                                <th className="border border-slate-900 p-3 w-14">ลา</th>
-                                <th className="border border-slate-900 p-3 w-14">ขาด</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sortedSummaryData.map((item, idx) => {
-                                return (
-                                    <tr 
-                                        key={item.id} 
-                                        className="hover:bg-blue-50 transition-colors cursor-pointer group"
-                                        onClick={() => handleTeacherClick({ id: item.id, name: item.name, position: item.position } as Teacher, item)}
-                                    >
-                                        <td className="border border-slate-900 p-3 text-center font-mono">{idx + 1}</td>
-                                        <td className="border border-slate-900 p-3">
-                                            <div className="font-bold text-slate-800 group-hover:text-blue-600 transition-colors flex items-center gap-2">
-                                                {item.name}
-                                                <Search size={14} className="opacity-0 group-hover:opacity-100 text-blue-400"/>
+                        return (
+                            <div 
+                                key={pageIndex}
+                                className="max-w-[210mm] mx-auto bg-white p-[1.5cm_1cm] print:p-0 shadow-2xl print:shadow-none print:my-0 page-break-after-always"
+                                style={{ breakAfter: 'page', pageBreakAfter: 'always' }}
+                            >
+                                <div className="flex flex-col min-h-full bg-white">
+                                    {/* Header Section */}
+                                    <div className="text-center mb-6">
+                                        {currentSchool.logoBase64 && <img src={currentSchool.logoBase64} className="h-16 mx-auto mb-3 object-contain"/>}
+                                        <h1 className="text-2xl font-black text-slate-900">สรุปรายงานการมาปฏิบัติราชการ</h1>
+                                        <h2 className="text-lg font-bold text-slate-700">{currentSchool.name}</h2>
+                                        <p className="text-sm font-bold text-blue-600 mt-1">
+                                            ช่วงวันที่ {getThaiDate(startDate)} ถึง {getThaiDate(endDate)}
+                                        </p>
+                                        <div className="flex justify-between items-center mt-2 text-xs font-bold text-slate-500 px-2">
+                                            <span>จำนวนวันทำการทั้งหมด: {totalWorkDays} วัน</span>
+                                            <span>{summaryTotalPages > 1 ? `หน้าที่ ${pageIndex + 1} จาก ${summaryTotalPages} หน้า` : `หน้าที่ 1`}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Table */}
+                                    <table className="w-full border-collapse border border-slate-900 text-sm mb-6">
+                                        <thead>
+                                            <tr className="bg-slate-50 font-black text-center">
+                                                <th className="border border-slate-900 p-2.5 w-10">ที่</th>
+                                                <th className="border border-slate-900 p-2.5 text-left">ชื่อ-นามสกุล</th>
+                                                <th className="border border-slate-900 p-2.5 w-14">มา</th>
+                                                <th className="border border-slate-900 p-2.5 w-14">ไปราชการ</th>
+                                                <th className="border border-slate-900 p-2.5 w-14">สาย</th>
+                                                <th className="border border-slate-900 p-2.5 w-14">ลา</th>
+                                                <th className="border border-slate-900 p-2.5 w-14">ขาด</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {chunk.map((item, idx) => {
+                                                const globalIndex = startIndex + idx + 1;
+                                                return (
+                                                    <tr 
+                                                        key={item.id} 
+                                                        className="hover:bg-blue-50 transition-colors cursor-pointer group break-inside-avoid"
+                                                        onClick={() => handleTeacherClick({ id: item.id, name: item.name, position: item.position } as Teacher, item)}
+                                                    >
+                                                        <td className="border border-slate-900 p-2.5 text-center font-mono">{globalIndex}</td>
+                                                        <td className="border border-slate-900 p-2.5">
+                                                            <div className="font-bold text-slate-800 group-hover:text-blue-600 transition-colors flex items-center gap-2">
+                                                                {item.name}
+                                                                <Search size={14} className="opacity-0 group-hover:opacity-100 text-blue-400"/>
+                                                            </div>
+                                                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{item.position}</div>
+                                                        </td>
+                                                        <td className="border border-slate-900 p-2.5 text-center font-black text-green-700">{item.presentDays - item.officialBusinessDays}</td>
+                                                        <td className="border border-slate-900 p-2.5 text-center font-black text-blue-800">{item.officialBusinessDays}</td>
+                                                        <td className="border border-slate-900 p-2.5 text-center font-black text-orange-600">{item.lateDays}</td>
+                                                        <td className="border border-slate-900 p-2.5 text-center font-black text-blue-600">{item.leaveDays}</td>
+                                                        <td className="border border-slate-900 p-2.5 text-center font-black text-red-600">{item.absentDays}</td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+
+                                    {/* Footer / Signatures on Last Page */}
+                                    {isLastPage && (
+                                        <div className="mt-auto pt-4">
+                                            <div className="mt-8 grid grid-cols-2 gap-10 print:break-inside-avoid">
+                                                <div className="text-center space-y-12">
+                                                    <div className="space-y-2">
+                                                        <p className="text-sm">ลงชื่อ..........................................................ผู้จัดทำรายงาน</p>
+                                                        <p className="font-bold text-sm">({currentUser.name})</p>
+                                                        <p className="text-xs text-slate-500">ตำแหน่ง {currentUser.position}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-center space-y-12">
+                                                    <div className="space-y-2">
+                                                        {(() => {
+                                                            const director = allTeachers.find(t => (t.roles || []).includes('DIRECTOR')) || 
+                                                                             allTeachers.find(t => t.isActingDirector) ||
+                                                                             allTeachers.sort((a,b) => (a.roles.includes('VICE_DIRECTOR') ? 1 : -1)).find(t => t.position === 'ผู้อำนวยการโรงเรียน');
+                                                            
+                                                            const directorName = director?.name || '......................................................';
+                                                            const directorPosition = director?.isActingDirector ? 'รักษาการในตำแหน่งผู้อำนวยการโรงเรียน' : 'ผู้อำนวยการโรงเรียน';
+
+                                                            return (
+                                                                <>
+                                                                    <p className="text-sm">ลงชื่อ..........................................................ผู้อนุมัติ</p>
+                                                                    <p className="font-bold text-sm">( {directorName} )</p>
+                                                                    <p className="text-xs text-slate-500">{directorPosition}</p>
+                                                                </>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{item.position}</div>
-                                        </td>
-                                        <td className="border border-slate-900 p-3 text-center font-black text-green-700">{item.presentDays - item.officialBusinessDays}</td>
-                                        <td className="border border-slate-900 p-3 text-center font-black text-blue-800">{item.officialBusinessDays}</td>
-                                        <td className="border border-slate-900 p-3 text-center font-black text-orange-600">{item.lateDays}</td>
-                                        <td className="border border-slate-900 p-3 text-center font-black text-blue-600">{item.leaveDays}</td>
-                                        <td className="border border-slate-900 p-3 text-center font-black text-red-600">{item.absentDays}</td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
 
-                    {/* Footer / Signatures */}
-                    <div className="mt-16 grid grid-cols-2 gap-10">
-                        <div className="text-center space-y-16">
-                            <div className="space-y-2">
-                                <p className="text-sm">ลงชื่อ..........................................................ผู้จัดทำรายงาน</p>
-                                <p className="font-bold text-sm">({currentUser.name})</p>
-                                <p className="text-xs text-slate-500">ตำแหน่ง {currentUser.position}</p>
+                                            <div className="mt-12 text-[10px] text-slate-400 text-center italic border-t border-slate-100 pt-4">
+                                                รายงานนี้สร้างขึ้นโดยระบบอัตโนมัติ เมื่อวันที่ {getThaiDate(getTodayDateStr())} เวลา {new Date().toLocaleTimeString('th-TH')} น.
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                        <div className="text-center space-y-16">
-                            <div className="space-y-2">
-                                {(() => {
-                                    // Fix: More robust identification of Director for approval signature
-                                    const director = allTeachers.find(t => (t.roles || []).includes('DIRECTOR')) || 
-                                                     allTeachers.find(t => t.isActingDirector) ||
-                                                     allTeachers.sort((a,b) => (a.roles.includes('VICE_DIRECTOR') ? 1 : -1)).find(t => t.position === 'ผู้อำนวยการโรงเรียน');
-                                    
-                                    const directorName = director?.name || '......................................................';
-                                    const directorPosition = director?.isActingDirector ? 'รักษาการในตำแหน่งผู้อำนวยการโรงเรียน' : 'ผู้อำนวยการโรงเรียน';
-
-                                    return (
-                                        <>
-                                            <p className="text-sm">ลงชื่อ..........................................................ผู้อนุมัติ</p>
-                                            <p className="font-bold text-sm">( {directorName} )</p>
-                                            <p className="text-xs text-slate-500">{directorPosition}</p>
-                                        </>
-                                    );
-                                })()}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="mt-20 text-[10px] text-slate-400 text-center italic border-t border-slate-100 pt-4">
-                        รายงานนี้สร้างขึ้นโดยระบบอัตโนมัติ เมื่อวันที่ {getThaiDate(getTodayDateStr())} เวลา {new Date().toLocaleTimeString('th-TH')} น.
-                    </div>
+                        );
+                    })}
                 </div>
 
                 <style>{`
                     @media print {
-                        @page { size: A4 portrait; margin: 1.5cm; }
+                        @page { size: A4 portrait; margin: 1.5cm 1cm 1.5cm 1.5cm; }
                         body { background: white !important; -webkit-print-color-adjust: exact; }
                         .print-hidden { display: none !important; }
-                        div.absolute { position: static !important; background: white !important; }
-                        div.max-w-\\[210mm\\] { width: 100% !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
+                        .page-break-after-always {
+                            page-break-after: always !important;
+                            break-after: page !important;
+                            page-break-inside: avoid !important;
+                            break-inside: avoid !important;
+                            margin: 0 !important;
+                            padding: 0 !important;
+                            box-shadow: none !important;
+                            border: none !important;
+                            width: 100% !important;
+                        }
                     }
                 `}</style>
             </div>
@@ -952,6 +1021,9 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                           history.filter(h => teachersToDisplay.some(t => t.id === h.teacherId) && h.status === 'Leave').length;
         const absentCount = Math.max(0, teachersToDisplay.length - (presentCount + officialBusinessCount + leaveCount));
 
+        const dailyPageChunks = getPageChunks(teachersToDisplay, 18, 20, 14);
+        const dailyTotalPages = dailyPageChunks.length;
+
         return (
             <div className="absolute inset-0 z-50 bg-[#f1f5f9] min-h-screen font-sarabun text-slate-900 print:bg-white overflow-y-auto no-scrollbar-container">
                 {/* Control Header (Floating on top, hidden during print) */}
@@ -960,120 +1032,149 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                         <ArrowLeft size={20}/> ย้อนกลับ
                     </button>
                     <div className="flex items-center gap-4">
-                        <span className="text-white font-bold text-sm hidden md:block">รายงานประจำวันที่: {getThaiDate(selectedDate)}</span>
+                        <span className="text-white font-bold text-sm hidden md:block">
+                            รายงานประจำวันที่: {getThaiDate(selectedDate)} ({teachersToDisplay.length} รายชื่อ - {dailyTotalPages} หน้า)
+                        </span>
                         <button onClick={() => window.print()} className="bg-blue-600 text-white px-8 py-3 rounded-xl font-black shadow-lg hover:bg-blue-700 transition-all flex items-center gap-2 active:scale-95">
                             <Printer size={20}/> พิมพ์สรุปผล (A4)
                         </button>
                     </div>
                 </div>
 
-                {/* A4 Sheet Container: Absolutely NO shadows or borders on web preview as requested */}
-                <div className="mx-auto bg-white my-0 print:my-0 min-h-[297mm] w-[210mm] print:w-full box-border p-[1cm_0.75cm] print:p-0 no-scrollbar overflow-visible print:overflow-visible">
-                    <div className="flex flex-col h-full bg-white print:p-0 border-none outline-none">
-                        {/* Header Section */}
-                        <div className="text-center mb-8 border-b-2 border-slate-900 pb-4">
-                            {currentSchool.logoBase64 && <img src={currentSchool.logoBase64} className="h-16 mx-auto mb-3 object-contain"/>}
-                            <h2 className="text-xl font-black uppercase tracking-tight">สรุปการลงเวลาปฏิบัติราชการรายวัน</h2>
-                            <h3 className="text-md font-bold">{currentSchool.name}</h3>
-                            <p className="text-sm font-bold text-blue-800 underline underline-offset-4">ประจำวันที่ {getThaiDate(selectedDate)}</p>
-                        </div>
+                {/* Pages Container */}
+                <div className="py-8 print:py-0 space-y-8 print:space-y-0">
+                    {dailyPageChunks.map((chunk, pageIndex) => {
+                        const isLastPage = pageIndex === dailyTotalPages - 1;
+                        const startIndex = dailyPageChunks.slice(0, pageIndex).reduce((acc, c) => acc + c.length, 0);
 
-                        {/* Attendance Table */}
-                        <table className="w-full border-collapse border border-black mb-8 text-[11px]">
-                            <thead className="bg-slate-50/50">
-                                <tr className="font-bold text-center">
-                                    <th className="border border-black p-2 w-8">ที่</th>
-                                    <th className="border border-black p-2 text-center min-w-[240px]">ชื่อ-นามสกุล</th>
-                                    <th className="border border-black p-2 text-center w-40">ตำแหน่ง</th>
-                                    <th className="border border-black p-2 text-center w-[80px]">เวลามา</th>
-                                    <th className="border border-black p-2 text-center w-[80px]">เวลากลับ</th>
-                                    <th className="border border-black p-2 text-center w-24">สถานะ</th>
-                                    <th className="border border-black p-2 text-center w-[100px]">หมายเหตุ</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {teachersToDisplay.map((t, i) => {
-                                    const record = history.find(h => h.teacherId === t.id);
-                                    const leave = approvedLeaves.find(l => l.teacherId === t.id);
-                                    let statusText = 'ขาด / ยังไม่ลงชื่อ';
-                                    let statusClass = 'text-red-600 font-bold';
-                                    if (record) {
-                                        if (record.status === 'OfficialBusiness') {
-                                            statusText = 'ไปราชการ';
-                                            statusClass = 'text-blue-800 font-black italic';
-                                        } else {
-                                            statusText = record.status === 'OnTime' ? 'มาปกติ' : 'มาสาย';
-                                            statusClass = record.status === 'OnTime' ? 'text-green-700' : 'text-orange-600';
-                                        }
-                                    } else if (leave) {
-                                        statusText = `ลา (${getLeaveTypeName(leave.type)})`;
-                                        statusClass = 'text-blue-700';
-                                    }
+                        return (
+                            <div 
+                                key={pageIndex}
+                                className="mx-auto bg-white min-h-[297mm] w-[210mm] print:w-full box-border p-[1.5cm_1cm] print:p-0 shadow-xl print:shadow-none print:my-0 page-break-after-always"
+                                style={{ breakAfter: 'page', pageBreakAfter: 'always' }}
+                            >
+                                <div className="flex flex-col min-h-full bg-white">
+                                    {/* Header Section */}
+                                    <div className="text-center mb-6 border-b-2 border-slate-900 pb-3">
+                                        {currentSchool.logoBase64 && <img src={currentSchool.logoBase64} className="h-16 mx-auto mb-2 object-contain"/>}
+                                        <h2 className="text-xl font-black uppercase tracking-tight">สรุปการลงเวลาปฏิบัติราชการรายวัน</h2>
+                                        <h3 className="text-md font-bold">{currentSchool.name}</h3>
+                                        <div className="flex justify-between items-center mt-2 px-2">
+                                            <p className="text-xs font-bold text-slate-500">
+                                                {dailyTotalPages > 1 ? `หน้าที่ ${pageIndex + 1}` : 'หน้าที่ 1'}
+                                            </p>
+                                            <p className="text-sm font-bold text-blue-800 underline underline-offset-4">
+                                                ประจำวันที่ {getThaiDate(selectedDate)}
+                                            </p>
+                                            <p className="text-xs font-bold text-slate-500">
+                                                {dailyTotalPages > 1 ? `(หน้าที่ ${pageIndex + 1} จาก ${dailyTotalPages} หน้า)` : ''}
+                                            </p>
+                                        </div>
+                                    </div>
 
-                                    return (
-                                        <tr key={t.id} className="break-inside-avoid">
-                                            <td className="border border-black p-2 text-center font-mono">{i + 1}</td>
-                                            <td className="border border-black p-2 font-bold">{t.name}</td>
-                                            <td className="border border-black p-2 text-slate-600">{t.position}</td>
-                                            <td className="border border-black p-2 text-center font-bold">{record?.checkInTime || '-'}</td>
-                                            <td className="border border-black p-2 text-center font-bold">{record?.checkOutTime || '-'}</td>
-                                            <td className={`border border-black p-2 text-center ${statusClass}`}>{statusText}</td>
-                                            <td className="border border-black p-2 text-slate-500 italic text-[10px]">{record?.remark || '-'}</td>
-                                        </tr>
-                                    )
-                                })}
-                            </tbody>
-                        </table>
+                                    {/* Attendance Table */}
+                                    <table className="w-full border-collapse border border-black mb-6 text-[11px]">
+                                        <thead className="bg-slate-50/50">
+                                            <tr className="font-bold text-center">
+                                                <th className="border border-black p-2 w-8">ที่</th>
+                                                <th className="border border-black p-2 text-center min-w-[220px]">ชื่อ-นามสกุล</th>
+                                                <th className="border border-black p-2 text-center w-36">ตำแหน่ง</th>
+                                                <th className="border border-black p-2 text-center w-[75px]">เวลามา</th>
+                                                <th className="border border-black p-2 text-center w-[75px]">เวลากลับ</th>
+                                                <th className="border border-black p-2 text-center w-24">สถานะ</th>
+                                                <th className="border border-black p-2 text-center w-[90px]">หมายเหตุ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {chunk.map((t, i) => {
+                                                const globalIndex = startIndex + i + 1;
+                                                const record = history.find(h => h.teacherId === t.id);
+                                                const leave = approvedLeaves.find(l => l.teacherId === t.id);
+                                                let statusText = 'ขาด / ยังไม่ลงชื่อ';
+                                                let statusClass = 'text-red-600 font-bold';
+                                                if (record) {
+                                                    if (record.status === 'OfficialBusiness') {
+                                                        statusText = 'ไปราชการ';
+                                                        statusClass = 'text-blue-800 font-black italic';
+                                                    } else {
+                                                        statusText = record.status === 'OnTime' ? 'มาปกติ' : 'มาสาย';
+                                                        statusClass = record.status === 'OnTime' ? 'text-green-700' : 'text-orange-600';
+                                                    }
+                                                } else if (leave) {
+                                                    statusText = `ลา (${getLeaveTypeName(leave.type)})`;
+                                                    statusClass = 'text-blue-700';
+                                                }
 
-                        {/* Signature Grid */}
-                        <div className="grid grid-cols-2 gap-4 mt-4 print:break-inside-avoid">
-                            {/* Left Side Summary */}
-                            <div className="border border-slate-300 bg-slate-50/20 p-4 rounded-xl">
-                                <h4 className="font-black text-slate-800 mb-2 border-b border-slate-300 pb-1 flex items-center gap-2 text-[10px] uppercase tracking-wider">
-                                    <Users size={14}/> สรุปยอด (ไม่รวม ผอ.)
-                                </h4>
-                                <div className="space-y-1 text-xs font-bold">
-                                    <div className="flex justify-between"><span>มาปฏิบัติราชการ:</span><span className="text-green-700">{presentCount} ท่าน</span></div>
-                                    <div className="flex justify-between text-blue-800"><span>ไปราชการ:</span><span>{officialBusinessCount} ท่าน</span></div>
-                                    <div className="flex justify-between"><span>ลาป่วย / กิจ / อื่นๆ:</span><span className="text-blue-600">{leaveCount} ท่าน</span></div>
-                                    <div className="flex justify-between text-red-600"><span>ขาด / ยังไม่ลงเวลา:</span><span>{absentCount} ท่าน</span></div>
-                                    <div className="flex justify-between border-t border-slate-300 pt-1 font-black text-sm"><span>รวมบุคลากร:</span><span>{teachersToDisplay.length} ท่าน</span></div>
+                                                return (
+                                                    <tr key={t.id} className="break-inside-avoid">
+                                                        <td className="border border-black p-2 text-center font-mono">{globalIndex}</td>
+                                                        <td className="border border-black p-2 font-bold">{t.name}</td>
+                                                        <td className="border border-black p-2 text-slate-600">{t.position}</td>
+                                                        <td className="border border-black p-2 text-center font-bold">{record?.checkInTime || '-'}</td>
+                                                        <td className="border border-black p-2 text-center font-bold">{record?.checkOutTime || '-'}</td>
+                                                        <td className={`border border-black p-2 text-center ${statusClass}`}>{statusText}</td>
+                                                        <td className="border border-black p-2 text-slate-500 italic text-[10px]">{record?.remark || '-'}</td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+
+                                    {/* Footer / Signatures on Last Page */}
+                                    {isLastPage && (
+                                        <div className="mt-auto pt-4">
+                                            <div className="grid grid-cols-2 gap-4 mt-2 print:break-inside-avoid">
+                                                {/* Left Side Summary */}
+                                                <div className="border border-slate-300 bg-slate-50/20 p-4 rounded-xl">
+                                                    <h4 className="font-black text-slate-800 mb-2 border-b border-slate-300 pb-1 flex items-center gap-2 text-[10px] uppercase tracking-wider">
+                                                        <Users size={14}/> สรุปยอด (ไม่รวม ผอ.)
+                                                    </h4>
+                                                    <div className="space-y-1 text-xs font-bold">
+                                                        <div className="flex justify-between"><span>มาปฏิบัติราชการ:</span><span className="text-green-700">{presentCount} ท่าน</span></div>
+                                                        <div className="flex justify-between text-blue-800"><span>ไปราชการ:</span><span>{officialBusinessCount} ท่าน</span></div>
+                                                        <div className="flex justify-between"><span>ลาป่วย / กิจ / อื่นๆ:</span><span className="text-blue-600">{leaveCount} ท่าน</span></div>
+                                                        <div className="flex justify-between text-red-600"><span>ขาด / ยังไม่ลงเวลา:</span><span>{absentCount} ท่าน</span></div>
+                                                        <div className="flex justify-between border-t border-slate-300 pt-1 font-black text-sm"><span>รวมบุคลากร:</span><span>{teachersToDisplay.length} ท่าน</span></div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Right Side Signature */}
+                                                <div className="flex flex-col justify-end items-center text-center space-y-4">
+                                                    <div className="w-full">
+                                                        <p className="mb-2 text-xs">ลงชื่อ..........................................................ผู้ตรวจสอบ</p>
+                                                        <p className="font-black text-sm">({currentUser.name})</p>
+                                                        <p className="text-[10px] text-slate-500 font-bold">ตำแหน่ง {currentUser.position}</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Director Signature */}
+                                            <div className="text-center mt-8 pb-4 print:break-inside-avoid">
+                                                {(() => {
+                                                    const director = allTeachers.find(t => (t.roles || []).includes('DIRECTOR')) || 
+                                                                     allTeachers.find(t => t.isActingDirector) ||
+                                                                     allTeachers.sort((a,b) => (a.roles.includes('VICE_DIRECTOR') ? 1 : -1)).find(t => t.position === 'ผู้อำนวยการโรงเรียน');
+                                                    
+                                                    const directorName = director?.name || '......................................................';
+                                                    const directorPosition = director?.isActingDirector ? 'รักษาการในตำแหน่งผู้อำนวยการโรงเรียน' : 'ผู้อำนวยการโรงเรียน';
+
+                                                    return (
+                                                        <>
+                                                            <p className="mb-3 text-xs">ลงชื่อ......................................................{directorPosition}</p>
+                                                            <p className="font-black text-md">
+                                                                ( {directorName} )
+                                                            </p>
+                                                        </>
+                                                    );
+                                                })()}
+                                                <p className="text-[9px] mt-1 text-slate-400 font-black uppercase tracking-widest italic">ผู้อนุมัติและรับรองเวลาปฏิบัติราชการ</p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-
-                            {/* Right Side Signature */}
-                            <div className="flex flex-col justify-end items-center text-center space-y-4">
-                                <div className="w-full">
-                                    <p className="mb-2 text-xs">ลงชื่อ..........................................................ผู้ตรวจสอบ</p>
-                                    <p className="font-black text-sm">({currentUser.name})</p>
-                                    <p className="text-[10px] text-slate-500 font-bold">ตำแหน่ง {currentUser.position}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Director Signature */}
-                        <div className="text-center mt-12 pb-10 print:break-inside-avoid">
-                            {(() => {
-                                // Fix: More robust identification of Director
-                                const director = allTeachers.find(t => (t.roles || []).includes('DIRECTOR')) || 
-                                                 allTeachers.find(t => t.isActingDirector) ||
-                                                 allTeachers.sort((a,b) => (a.roles.includes('VICE_DIRECTOR') ? 1 : -1)).find(t => t.position === 'ผู้อำนวยการโรงเรียน');
-                                
-                                const directorName = director?.name || '......................................................';
-                                const directorPosition = director?.isActingDirector ? 'รักษาการในตำแหน่งผู้อำนวยการโรงเรียน' : 'ผู้อำนวยการโรงเรียน';
-
-                                return (
-                                    <>
-                                        <p className="mb-4 text-xs">ลงชื่อ......................................................{directorPosition}</p>
-                                        <p className="font-black text-md">
-                                            ( {directorName} )
-                                        </p>
-                                    </>
-                                );
-                            })()}
-                            <p className="text-[9px] mt-2 text-slate-400 font-black uppercase tracking-widest italic">ผู้อนุมัติและรับรองเวลาปฏิบัติราชการ</p>
-                        </div>
-                    </div>
+                        );
+                    })}
                 </div>
 
                 <style>{`
@@ -1088,7 +1189,7 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                     @media print {
                         @page { 
                             size: A4 portrait; 
-                            margin: 0; 
+                            margin: 1cm; 
                         }
                         body { 
                             background: white !important; 
@@ -1097,22 +1198,19 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
                             padding: 0 !important;
                             overflow: visible !important;
                         }
-                        /* บังคับระยะขอบกระดาษจริงและลบทุกอย่างที่เป็น UI */
-                        div.mx-auto { 
-                            width: 100% !important; 
-                            height: 100% !important;
-                            margin: 0 !important; 
-                            padding: 2.5cm 2cm 2cm 2.5cm !important; /* บน ซ้าย ล่าง ขวา */
+                        .print-hidden { display: none !important; }
+                        .page-break-after-always {
+                            page-break-after: always !important;
+                            break-after: page !important;
+                            page-break-inside: avoid !important;
+                            break-inside: avoid !important;
+                            margin: 0 !important;
+                            padding: 0 !important;
                             box-shadow: none !important;
                             border: none !important;
-                            outline: none !important;
-                            page-break-after: always;
-                            overflow: visible !important;
+                            width: 100% !important;
+                            min-height: auto !important;
                         }
-                        div.no-scrollbar-container { overflow: visible !important; }
-                        thead { display: table-header-group !important; }
-                        tr { page-break-inside: avoid !important; }
-                        .no-print { display: none !important; }
                     }
                 `}</style>
             </div>
