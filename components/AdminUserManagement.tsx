@@ -1330,7 +1330,7 @@ function setTelegramWebhook() {
         }, (err) => { 
             alert("ไม่สามารถดึง GPS ได้: " + err.message); 
             setIsGettingLocation(false); 
-        });
+        }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
     };
 
     const handleMigrateData = async () => {

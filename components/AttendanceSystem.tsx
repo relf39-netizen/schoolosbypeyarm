@@ -6,7 +6,8 @@ import {
     MapPin, Navigation, CheckCircle, LogOut, History, Loader, 
     RefreshCw, AlertTriangle, Clock, Calendar, ShieldCheck, 
     MapPinned, Printer, ArrowLeft, ChevronLeft, ChevronRight, 
-    FileText, UserCheck, Users, FileSpreadsheet, CalendarDays, Search
+    FileText, UserCheck, Users, FileSpreadsheet, CalendarDays, Search,
+    Crosshair
 } from 'lucide-react';
 import { supabase, isConfigured } from '../supabaseClient';
 
@@ -18,6 +19,53 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
     const Δλ = (lon2 - lon1) * Math.PI / 180;
     const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const getHighAccuracyLocation = (): Promise<GeolocationPosition> => {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            reject(new Error("อุปกรณ์หรือเบราว์เซอร์ของท่านไม่รองรับการระบุตำแหน่ง (Geolocation)"));
+            return;
+        }
+
+        let bestPos: GeolocationPosition | null = null;
+        let watchId: number | null = null;
+
+        const cleanup = () => {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+        };
+
+        const timer = setTimeout(() => {
+            cleanup();
+            if (bestPos) {
+                resolve(bestPos);
+            } else {
+                navigator.geolocation.getCurrentPosition(
+                    (p) => resolve(p),
+                    (err) => reject(new Error(`ไม่สามารถระบุพิกัด GPS ได้ (${err.message}) กรุณาเปิดบริการตำแหน่งที่ตั้ง (Location Services) แล้วลองอีกครั้ง`)),
+                    { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
+                );
+            }
+        }, 7000);
+
+        watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) {
+                    bestPos = pos;
+                }
+                if (pos.coords.accuracy <= 25) {
+                    clearTimeout(timer);
+                    cleanup();
+                    resolve(pos);
+                }
+            },
+            () => {},
+            { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
+        );
+    });
 };
 
 const countWeekdays = (start: string, end: string) => {
@@ -199,8 +247,27 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
     const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
     const [isLoadingData, setIsLoadingData] = useState(true);
     const [isProcessing, setIsProcessing] = useState(false);
-    const [gpsStatus, setGpsStatus] = useState<{ lat: number, lng: number, dist: number } | null>(null);
+    const [gpsStatus, setGpsStatus] = useState<{ lat: number, lng: number, dist: number, accuracy?: number } | null>(null);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    const handleTestLocation = async () => {
+        setIsProcessing(true);
+        setErrorMsg(null);
+        try {
+            const pos = await getHighAccuracyLocation();
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            const accuracy = pos.coords.accuracy || 30;
+            const schoolLat = currentSchool.lat || 13.7563;
+            const schoolLng = currentSchool.lng || 100.5018;
+            const dist = calculateDistance(lat, lng, schoolLat, schoolLng);
+            setGpsStatus({ lat, lng, dist, accuracy });
+        } catch (err: any) {
+            setErrorMsg("ไม่สามารถเช็คตำแหน่งได้: " + err.message);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
     
     const [viewMode, setViewMode] = useState<'MAIN' | 'PRINT_DAILY' | 'SUMMARY_REPORT'>('MAIN');
     const [selectedDate, setSelectedDate] = useState(getTodayDateStr());
@@ -643,26 +710,35 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
         setIsProcessing(true);
         setErrorMsg(null);
         try {
-            const pos: any = await new Promise((res, rej) => {
-                navigator.geolocation.getCurrentPosition(res, rej, { 
-                    enableHighAccuracy: true,
-                    timeout: 10000 
-                });
-            });
+            const pos = await getHighAccuracyLocation();
             const lat = pos.coords.latitude;
             const lng = pos.coords.longitude;
+            const accuracy = pos.coords.accuracy || 30; // GPS Uncertainty in meters
+
             const schoolLat = currentSchool.lat || 13.7563;
             const schoolLng = currentSchool.lng || 100.5018;
             const radius = currentSchool.radius || 500;
-            const buffer = 25; // เพิ่มระยะเผื่อ 25 เมตรสำหรับความคลาดเคลื่อนของ GPS
+            
+            // เพิ่มระยะเผื่อพื้นฐานเป็น 50 เมตรสำหรับอาคาร/พื้นที่โรงเรียน
+            // ชดเชยระยะตามค่าความคลาดเคลื่อนจริงของอุปกรณ์ (Device GPS Accuracy) สูงสุด 150 เมตร
+            const baseBuffer = 50; 
+            const deviceAccuracyBuffer = Math.min(Math.max(accuracy - 10, 0), 150);
+            const totalAllowedRadius = radius + baseBuffer + deviceAccuracyBuffer;
+
             const dist = calculateDistance(lat, lng, schoolLat, schoolLng);
-            setGpsStatus({ lat, lng, dist });
+            setGpsStatus({ lat, lng, dist, accuracy });
             
             // Check if WFH mode is enabled. If so, bypass location check.
             const isWfh = currentSchool.wfhModeEnabled === true;
             
-            if (!isWfh && dist > (radius + buffer)) {
-                throw new Error(`ไม่อนุญาตให้ลงเวลา: ท่านอยู่นอกพื้นที่โรงเรียน (${Math.round(dist)} ม.)\nพิกัดโรงเรียน: ${schoolLat.toFixed(6)}, ${schoolLng.toFixed(6)}\nพิกัดของท่าน: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+            if (!isWfh && dist > totalAllowedRadius) {
+                const excessDistance = Math.round(dist - totalAllowedRadius);
+                throw new Error(
+                    `ไม่อนุญาตให้ลงเวลา: ท่านอยู่นอกพื้นที่โรงเรียนประมาณ ${Math.round(dist)} เมตร (เกินขอบเขตที่อนุญาต ${excessDistance} ม.)\n` +
+                    `📍 พิกัดโรงเรียน: ${schoolLat.toFixed(6)}, ${schoolLng.toFixed(6)} (รัศมีกำหนด ${radius} ม.)\n` +
+                    `📱 พิกัดของท่าน: ${lat.toFixed(6)}, ${lng.toFixed(6)} (ความแม่นยำ GPS ±${Math.round(accuracy)} ม.)\n` +
+                    `💡 คำแนะนำ: หากท่านอยู่ในพื้นที่โรงเรียนแล้ว ลองเปิดแอป Google Maps หรือเปิด Wi-Fi ของโทรศัพท์มือถือ เพื่อช่วยเพิ่มความแม่นยำของระบบระบุตำแหน่ง แล้วกดลองอีกครั้ง`
+                );
             }
             const now = new Date();
             const dateStr = getTodayDateStr();
@@ -1332,11 +1408,70 @@ const AttendanceSystem: React.FC<AttendanceSystemProps> = ({ currentUser, allTea
             </div>
 
             {errorMsg && (
-                <div className="bg-red-50 border-2 border-red-100 p-5 rounded-3xl flex items-start gap-4 animate-shake">
-                    <div className="p-2 bg-red-600 text-white rounded-xl"><AlertTriangle size={20}/></div>
-                    <div><h4 className="font-black text-red-600 uppercase text-xs tracking-widest mb-1">การลงเวลาผิดพลาด</h4><p className="text-red-700 font-bold text-sm leading-relaxed">{errorMsg}</p></div>
+                <div className="bg-red-50 border-2 border-red-200 p-5 rounded-3xl flex items-start gap-4 animate-shake shadow-sm">
+                    <div className="p-2.5 bg-red-600 text-white rounded-2xl shrink-0"><AlertTriangle size={22}/></div>
+                    <div className="flex-1">
+                        <h4 className="font-black text-red-600 uppercase text-xs tracking-widest mb-1">การลงเวลาผิดพลาด / อยู่นอกพื้นที่</h4>
+                        <p className="text-red-800 font-bold text-sm leading-relaxed whitespace-pre-line">{errorMsg}</p>
+                    </div>
                 </div>
             )}
+
+            {/* GPS Status & Calibration Box */}
+            <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                    <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl shrink-0">
+                        <Navigation size={22}/>
+                    </div>
+                    <div>
+                        <h4 className="font-black text-slate-800 text-sm flex items-center gap-2">
+                            สถานะพิกัด GPS ของท่าน
+                            {gpsStatus && (
+                                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-black ${
+                                    gpsStatus.dist <= ((currentSchool.radius || 500) + 50 + Math.min(Math.max((gpsStatus.accuracy || 30) - 10, 0), 150))
+                                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                        : 'bg-amber-100 text-amber-700 border border-amber-200'
+                                }`}>
+                                    {gpsStatus.dist <= ((currentSchool.radius || 500) + 50 + Math.min(Math.max((gpsStatus.accuracy || 30) - 10, 0), 150))
+                                        ? '✓ อยู่ในขอบเขต'
+                                        : '⚠️ อยู่นอกขอบเขต'}
+                                </span>
+                            )}
+                        </h4>
+                        <p className="text-xs text-slate-500 font-bold mt-0.5">
+                            {gpsStatus ? (
+                                <>
+                                    ระยะจากโรงเรียน <span className="text-blue-600 font-black">{Math.round(gpsStatus.dist)}</span> เมตร 
+                                    (ความแม่นยำ GPS อุปกรณ์: ±{Math.round(gpsStatus.accuracy || 0)} ม.)
+                                </>
+                            ) : (
+                                `กดปุ่ม 'ตรวจสอบพิกัด GPS' เพื่อทดสอบสัญญาณความแม่นยำก่อนลงเวลา`
+                            )}
+                        </p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2 w-full md:w-auto">
+                    {gpsStatus && (
+                        <a 
+                            href={`https://www.google.com/maps?q=${gpsStatus.lat},${gpsStatus.lng}`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="p-2.5 px-4 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-bold text-xs flex items-center gap-1.5 transition-all"
+                        >
+                            <MapPin size={14}/> ดูพิกัดบน Google Maps
+                        </a>
+                    )}
+                    <button
+                        type="button"
+                        onClick={handleTestLocation}
+                        disabled={isProcessing}
+                        className="flex-1 md:flex-none p-2.5 px-4 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl hover:bg-blue-100 font-black text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                    >
+                        {isProcessing ? <RefreshCw className="animate-spin" size={14}/> : <Crosshair size={14}/>}
+                        {gpsStatus ? 'อัปเดตพิกัด GPS' : 'ตรวจสอบพิกัด GPS'}
+                    </button>
+                </div>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className={`relative overflow-hidden p-8 rounded-[2.5rem] border-2 transition-all group ${todayRecord || isTodayOnLeave ? 'bg-slate-50 border-slate-200 opacity-80' : 'bg-gradient-to-br from-emerald-50 to-green-100 border-green-200 hover:shadow-2xl hover:shadow-green-200/50 hover:-translate-y-1'}`}>
