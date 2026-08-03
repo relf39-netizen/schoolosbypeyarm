@@ -1687,50 +1687,100 @@ async function startServer() {
 
   app.patch('/api/table/:tableName', async (req, res) => {
     const { tableName } = req.params;
-    const data = req.body;
+    const data = req.body || {};
     const filters = { ...req.query };
     try {
-      const keys = Object.keys(data);
-      const values = keys.map(k => {
+      let validColumns = [];
+      try {
+        const columnsInfo = await query(`DESCRIBE \`${tableName}\``);
+        const rows = Array.isArray(columnsInfo) && Array.isArray(columnsInfo[0]) ? columnsInfo[0] : (Array.isArray(columnsInfo) ? columnsInfo : []);
+        validColumns = rows.map(c => c.Field || c.column_name || c.COLUMN_NAME).filter(Boolean);
+      } catch (colErr) {
+        console.warn(`[PATCH /api/table/${tableName}] Could not fetch DESCRIBE columns:`, colErr.message);
+      }
+
+      let dataKeys = Object.keys(data);
+      if (validColumns.length > 0) {
+        dataKeys = dataKeys.filter(k => validColumns.includes(k));
+      }
+
+      if (dataKeys.length === 0) {
+        return res.json(Array.isArray(data) ? data : [data]);
+      }
+
+      const values = dataKeys.map(k => {
         if (Array.isArray(data[k]) || (typeof data[k] === 'object' && data[k] !== null)) {
           return JSON.stringify(data[k]);
         }
         return data[k];
       });
-      
-      let sql = `UPDATE ?? SET ` + keys.map(k => `?? = ?`).join(', ');
-      let params = [tableName];
-      keys.forEach((k, i) => {
-        params.push(k, values[i]);
+
+      let sql = `UPDATE \`${tableName}\` SET ` + dataKeys.map(k => `\`${k}\` = ?`).join(', ');
+      let params = [...values];
+
+      const nonQueryKeys = ['order', 'limit', 'select', 'head'];
+      const filterKeys = Object.keys(filters).filter(k => {
+        if (nonQueryKeys.includes(k)) return false;
+        if (validColumns.length > 0) {
+          return validColumns.includes(k);
+        }
+        return true;
       });
 
-      const filterKeys = Object.keys(filters);
       if (filterKeys.length === 0) {
-        return res.status(400).json({ error: `Update without filters is not allowed for safety.` });
+        return res.status(400).json({ error: `Update without valid filters is not allowed for safety.` });
       }
-      
+
       sql += ` WHERE ` + filterKeys.map(k => {
-        if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
-          return `?? IN (?)`;
-        }
-        return `?? = ?`;
+        const val = String(filters[k]);
+        if (val.startsWith('in.(')) return `\`${k}\` IN (?)`;
+        if (val.startsWith('neq.')) return `\`${k}\` != ?`;
+        if (val.startsWith('gte.')) return `\`${k}\` >= ?`;
+        if (val.startsWith('lte.')) return `\`${k}\` <= ?`;
+        if (val.startsWith('gt.')) return `\`${k}\` > ?`;
+        if (val.startsWith('lt.')) return `\`${k}\` < ?`;
+        if (val.startsWith('eq.')) return `\`${k}\` = ?`;
+        return `\`${k}\` = ?`;
       }).join(' AND ');
-      
+
       filterKeys.forEach(k => {
-        params.push(k);
-        if (typeof filters[k] === 'string' && filters[k].startsWith('in.(')) {
-          const values = filters[k].substring(4, filters[k].length - 1).split(',');
-          params.push(values);
+        const val = String(filters[k]);
+        if (val.startsWith('in.(')) {
+          const valuesList = val.substring(4, val.length - 1).split(',');
+          params.push(valuesList);
+        } else if (val.startsWith('eq.')) {
+          params.push(val.substring(3));
+        } else if (val.startsWith('neq.')) {
+          params.push(val.substring(4));
+        } else if (val.startsWith('gte.')) {
+          params.push(val.substring(4));
+        } else if (val.startsWith('lte.')) {
+          params.push(val.substring(4));
+        } else if (val.startsWith('gt.')) {
+          params.push(val.substring(3));
+        } else if (val.startsWith('lt.')) {
+          params.push(val.substring(3));
         } else {
           params.push(filters[k]);
         }
       });
-      
-      await query(sql, params);
+
+      const results = await query(sql, params);
+
+      if (results && results.affectedRows === 0) {
+        return res.status(404).json({
+          error: `ไม่พบข้อมูลที่ระบุในตาราง ${tableName} ของโรงเรียนนี้`
+        });
+      }
+
+      if (tableName === 'school_configs' && data.telegram_bot_token && data.app_base_url) {
+        setTelegramWebhook(data.telegram_bot_token, data.app_base_url);
+      }
+
       res.json(Array.isArray(data) ? data : [data]);
     } catch (err) {
       console.error(err);
-      res.status(500).json({ error: `Failed to update ${tableName}` });
+      res.status(500).json({ error: `Failed to update ${tableName}: ${err.message || String(err)}` });
     }
   });
 
