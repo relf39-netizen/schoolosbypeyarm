@@ -671,8 +671,8 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             });
 
             const previousBalance = Math.max(0, previousDeposits - previousWithdrawals);
-            const monthSavings = depositsInMonth - withdrawalInMonth;
-            const totalBalance = Math.max(0, previousBalance + monthSavings);
+            const monthSavings = Math.max(0, depositsInMonth - withdrawalInMonth);
+            const totalBalance = Math.max(0, previousBalance + (depositsInMonth - withdrawalInMonth));
 
             return {
                 ...student,
@@ -1092,8 +1092,8 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             });
 
             const previousBalance = Math.max(0, previousDeposits - previousWithdrawals);
-            const monthSavings = depositsInMonth - withdrawalInMonth;
-            const totalBalance = Math.max(0, previousBalance + monthSavings);
+            const monthSavings = Math.max(0, depositsInMonth - withdrawalInMonth);
+            const totalBalance = Math.max(0, previousBalance + (depositsInMonth - withdrawalInMonth));
 
             return {
                 id: student.id,
