@@ -244,7 +244,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                     currentClass: s.current_class,
                     academicYear: s.academic_year,
                     isActive: s.is_active === true || s.is_active === 1,
-                    totalSavings: total
+                    totalSavings: Math.max(0, total)
                 };
             });
 
@@ -436,13 +436,13 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 ...student,
                 deposits,
                 withdrawals,
-                balance: deposits - withdrawals
+                balance: Math.max(0, deposits - withdrawals)
             };
         });
 
         const totalDeposits = reportData.reduce((sum, s) => sum + s.deposits, 0);
         const totalWithdrawals = reportData.reduce((sum, s) => sum + s.withdrawals, 0);
-        const totalBalance = reportData.reduce((sum, s) => sum + s.balance, 0);
+        const totalBalance = reportData.reduce((sum, s) => sum + Math.max(0, s.balance), 0);
 
         const printWindow = window.open('', '_blank');
         if (!printWindow) return;
@@ -531,13 +531,13 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
             gradeGroups[grade].studentCount += 1;
             gradeGroups[grade].deposits += deposits;
             gradeGroups[grade].withdrawals += withdrawals;
-            gradeGroups[grade].balance += (deposits - withdrawals);
+            gradeGroups[grade].balance += Math.max(0, deposits - withdrawals);
         });
 
         const sortedGrades = sortThaiClasses(Object.values(gradeGroups));
         const totalDeposits = sortedGrades.reduce((sum, g) => sum + g.deposits, 0);
         const totalWithdrawals = sortedGrades.reduce((sum, g) => sum + g.withdrawals, 0);
-        const totalBalance = sortedGrades.reduce((sum, g) => sum + g.balance, 0);
+        const totalBalance = sortedGrades.reduce((sum, g) => sum + Math.max(0, g.balance), 0);
 
         const printWindow = window.open('', '_blank');
         if (!printWindow) return;
@@ -670,9 +670,9 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 }
             });
 
+            const previousBalance = Math.max(0, previousDeposits - previousWithdrawals);
             const monthSavings = depositsInMonth - withdrawalInMonth;
-            const previousBalance = previousDeposits - previousWithdrawals;
-            const totalBalance = previousBalance + monthSavings;
+            const totalBalance = Math.max(0, previousBalance + monthSavings);
 
             return {
                 ...student,
@@ -683,8 +683,8 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
         });
 
         const totalMonthSavings = reportData.reduce((sum, s) => sum + s.monthSavings, 0);
-        const totalPreviousBalance = reportData.reduce((sum, s) => sum + s.previousBalance, 0);
-        const totalBalanceAll = reportData.reduce((sum, s) => sum + s.totalBalance, 0);
+        const totalPreviousBalance = reportData.reduce((sum, s) => sum + Math.max(0, s.previousBalance), 0);
+        const totalBalanceAll = reportData.reduce((sum, s) => sum + Math.max(0, s.totalBalance), 0);
 
         const printWindow = window.open('', '_blank');
         if (!printWindow) return;
@@ -762,7 +762,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
 
     const printClassReport = () => {
         const classStudents = students.filter(s => s.currentClass === selectedClass || selectedClass === 'All');
-        const classTotal = classStudents.reduce((acc, curr) => acc + (curr.totalSavings || 0), 0);
+        const classTotal = classStudents.reduce((acc, curr) => acc + Math.max(0, curr.totalSavings || 0), 0);
         const printWindow = window.open('', '_blank');
         if (!printWindow) return;
 
@@ -879,7 +879,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 setStudents(prev => prev.map(s => {
                     if (s.id === selectedStudent.id) {
                         const change = transactionType === 'DEPOSIT' ? parseFloat(amount) : -parseFloat(amount);
-                        return { ...s, totalSavings: (s.totalSavings || 0) + change };
+                        return { ...s, totalSavings: Math.max(0, (s.totalSavings || 0) + change) };
                     }
                     return s;
                 }));
@@ -958,7 +958,7 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
     };
 
     const totalSchoolSavings = useMemo(() => {
-        return students.reduce((acc, curr) => acc + (curr.totalSavings || 0), 0);
+        return students.reduce((acc, curr) => acc + Math.max(0, curr.totalSavings || 0), 0);
     }, [students]);
 
     const classes = useMemo(() => {
@@ -1034,10 +1034,10 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
         if (isDirector) {
             // Director sees total for school or selected class
             if (selectedClass === 'All') return totalSchoolSavings;
-            return filteredStudents.reduce((acc, curr) => acc + (curr.totalSavings || 0), 0);
+            return filteredStudents.reduce((acc, curr) => acc + Math.max(0, curr.totalSavings || 0), 0);
         } else {
             // Teacher sees total for their assigned classes
-            return filteredStudents.reduce((acc, curr) => acc + (curr.totalSavings || 0), 0);
+            return filteredStudents.reduce((acc, curr) => acc + Math.max(0, curr.totalSavings || 0), 0);
         }
     }, [isDirector, selectedClass, totalSchoolSavings, filteredStudents]);
 
@@ -1091,9 +1091,9 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
                 }
             });
 
+            const previousBalance = Math.max(0, previousDeposits - previousWithdrawals);
             const monthSavings = depositsInMonth - withdrawalInMonth;
-            const previousBalance = previousDeposits - previousWithdrawals;
-            const totalBalance = previousBalance + monthSavings;
+            const totalBalance = Math.max(0, previousBalance + monthSavings);
 
             return {
                 id: student.id,
@@ -1106,8 +1106,8 @@ const StudentSavingsSystem: React.FC<StudentSavingsSystemProps> = ({ currentUser
         });
 
         const totalMonthSavings = reportData.reduce((sum, s) => sum + s.monthSavings, 0);
-        const totalPreviousBalance = reportData.reduce((sum, s) => sum + s.previousBalance, 0);
-        const totalBalanceAll = reportData.reduce((sum, s) => sum + s.totalBalance, 0);
+        const totalPreviousBalance = reportData.reduce((sum, s) => sum + Math.max(0, s.previousBalance), 0);
+        const totalBalanceAll = reportData.reduce((sum, s) => sum + Math.max(0, s.totalBalance), 0);
 
         return {
             reportData,
