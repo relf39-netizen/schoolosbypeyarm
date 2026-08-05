@@ -562,7 +562,7 @@ const App: React.FC = () => {
                 <div className="max-w-7xl mx-auto">
                     {currentView === SystemView.DASHBOARD ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-8 animate-fade-in">
-                            {/* Dashboard Cards with original intense gradients */}
+                            {/* Dashboard Cards reordered: 1. งานสารบรรณ 2. ลงเวลาทำงาน 3. ระบบการลา */}
                             <DashboardCard 
                                 view={SystemView.DOCUMENTS} 
                                 title="งานสารบรรณ" 
@@ -571,6 +571,21 @@ const App: React.FC = () => {
                                 gradient="from-cyan-400 to-blue-600" 
                                 notification={getDocBadge()} 
                                 hasBorder={true}
+                            />
+                            <DashboardCard 
+                                view={SystemView.ATTENDANCE} 
+                                title="ลงเวลาทำงาน" 
+                                slogan="เช็คเวลาแม่นยำ ด้วย GPS" 
+                                icon={Clock} 
+                                gradient="from-rose-400 to-red-600"
+                            />
+                            <DashboardCard 
+                                view={SystemView.LEAVE} 
+                                title="ระบบการลา" 
+                                slogan="โปร่งใส ตรวจสอบง่าย" 
+                                icon={UserCheck} 
+                                gradient="from-emerald-400 to-teal-600" 
+                                notification={pendingLeaveCount > 0 ? `รออนุมัติ ${pendingLeaveCount}` : null}
                             />
                             {(isDirector || isDocOfficer || isSystemAdmin || (currentUser?.roles || []).includes('TEACHER')) && (
                                 <DashboardCard 
@@ -582,19 +597,10 @@ const App: React.FC = () => {
                                     gradient="from-blue-500 to-indigo-700"
                                 />
                             )}
-                            <DashboardCard view={SystemView.ACADEMIC} title="งานวิชาการ" slogan="สถิตินักเรียน / ผลสอบ O-NET" icon={GraduationCap} gradient="from-indigo-500 to-purple-700"/>
                             <DashboardCard view={SystemView.STUDENT_ATTENDANCE} title="ระบบดูแลช่วยเหลือนักเรียน" slogan="เช็คชื่อ / ข้อมูลพื้นฐานนักเรียน" icon={UserCheck} gradient="from-emerald-500 to-teal-600"/>
+                            <DashboardCard view={SystemView.ACADEMIC} title="งานวิชาการ" slogan="สถิตินักเรียน / ผลสอบ O-NET" icon={GraduationCap} gradient="from-indigo-500 to-purple-700"/>
                             <DashboardCard view={SystemView.SAVINGS} title="ออมทรัพย์นักเรียน" slogan="บันทึกเงินออมนักเรียน" icon={PiggyBank} gradient="from-pink-500 to-rose-600"/>
                             <DashboardCard view={SystemView.PLAN} title="แผนปฏิบัติการ" slogan="วางแผนแม่นยำ สู่ความสำเร็จ" icon={CalendarRange} gradient="from-fuchsia-500 to-purple-700"/>
-                            <DashboardCard 
-                                view={SystemView.LEAVE} 
-                                title="ระบบการลา" 
-                                slogan="โปร่งใส ตรวจสอบง่าย" 
-                                icon={UserCheck} 
-                                gradient="from-emerald-400 to-teal-600" 
-                                notification={pendingLeaveCount > 0 ? `รออนุมัติ ${pendingLeaveCount}` : null}
-                            />
-                            <DashboardCard view={SystemView.ATTENDANCE} title="ลงเวลาทำงาน" slogan="เช็คเวลาแม่นยำ ด้วย GPS" icon={Clock} gradient="from-rose-400 to-red-600"/>
                             <DashboardCard view={SystemView.FINANCE} title="ระบบการเงิน" slogan="งบประมาณ และรายรับ-จ่าย" icon={Activity} gradient="from-amber-400 to-orange-600"/>
                             {(isSuperAdmin || (currentUser?.roles && (currentUser.roles || []).includes('SYSTEM_ADMIN'))) && (
                                 <DashboardCard 

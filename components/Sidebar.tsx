@@ -23,12 +23,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isMobileOp
     const menuItems = [
         { id: SystemView.DASHBOARD, label: 'ภาพรวม', icon: Home, visible: true },
         { id: SystemView.DOCUMENTS, label: 'งานสารบรรณ', icon: FileText, visible: true },
+        { id: SystemView.ATTENDANCE, label: 'ลงเวลาทำงาน', icon: MapPin, visible: true },
         { id: SystemView.LEAVE, label: 'ระบบการลา', icon: UserMinus, visible: true },
         { id: SystemView.DIRECTOR_CALENDAR, label: 'ปฏิทินปฏิบัติงาน ผอ.', icon: Calendar, visible: (currentUser.roles || []).includes('SYSTEM_ADMIN') || (currentUser.roles || []).includes('DIRECTOR') || (currentUser.roles || []).includes('DOCUMENT_OFFICER') || currentUser.isActingDirector || (currentUser.roles || []).includes('TEACHER') },
         { id: SystemView.ACADEMIC, label: 'งานวิชาการ', icon: GraduationCap, visible: true }, 
         { id: SystemView.FINANCE, label: 'ระบบการเงิน', icon: DollarSign, visible: true },
         { id: SystemView.PLAN, label: 'แผนปฏิบัติการ', icon: CalendarRange, visible: true },
-        { id: SystemView.ATTENDANCE, label: 'ลงเวลาทำงาน', icon: MapPin, visible: true },
         { id: SystemView.ADMIN_USERS, label: 'ผู้ดูแลระบบ', icon: Settings, visible: (currentUser.roles || []).includes('SYSTEM_ADMIN') || (currentUser.roles || []).includes('DIRECTOR') },
     ];
 
