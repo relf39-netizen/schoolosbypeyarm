@@ -325,16 +325,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ schools, teachers, onLogin, o
                 </div>
             </div>
             
-            {/* Footer */}
-            <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-2 max-w-lg w-full px-4 text-center sm:text-left">
-                <div className="flex items-center gap-2">
-                    <img src={appLogoUrl || "/logo-192.jpg"} className="w-6 h-6 object-contain drop-shadow-sm" alt="Logo" />
-                    <span className="font-black text-slate-900 text-xs">ระบบจัดการโรงเรียน</span>
-                </div>
-                <div className="text-xs font-black text-slate-900">
-                    ลิขสิทธิ์โดย สยาม เชียงเครือ
-                </div>
-            </div>
+
 
             <style>{`.animate-shake { animation: shake 0.3s ease-in-out; } @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }`}</style>
         </div>
