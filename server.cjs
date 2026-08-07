@@ -441,13 +441,17 @@ async function startServer() {
       )`,
       `CREATE TABLE IF NOT EXISTS system_settings (
         setting_key VARCHAR(255) PRIMARY KEY,
-        setting_value TEXT
+        setting_value LONGTEXT
       )`
     ];
 
     for (const sql of schema) {
       await query(sql);
     }
+
+    try {
+      await query("ALTER TABLE system_settings MODIFY COLUMN setting_value LONGTEXT");
+    } catch (e) {}
 
     // Seed default system settings
     await query("INSERT IGNORE INTO system_settings (setting_key, setting_value) VALUES (?, ?)", ['app_name', 'SchoolOS']);
@@ -1438,6 +1442,27 @@ async function startServer() {
     }
   });
 
+  // Serve static logo files dynamically from DB if customized
+  app.get(['/logo-192.jpg', '/logo-512.jpg', '/logo-192.png', '/logo-512.png'], async (req, res, next) => {
+    try {
+      const logoRows = await query("SELECT setting_value FROM system_settings WHERE setting_key = 'app_logo_url'");
+      if (logoRows && logoRows.length > 0 && logoRows[0].setting_value && logoRows[0].setting_value.startsWith('data:image')) {
+        const dataUrl = logoRows[0].setting_value;
+        const matches = dataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+        if (matches) {
+          const contentType = matches[1];
+          const buffer = Buffer.from(matches[2], 'base64');
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          return res.send(buffer);
+        }
+      }
+    } catch (e) {
+      // Pass to static file handler if DB query fails
+    }
+    next();
+  });
+
   // System Settings GET and POST endpoints
   app.get('/api/system-settings', async (req, res) => {
     try {
@@ -1445,12 +1470,12 @@ async function startServer() {
       let appLogoUrl = '/logo-192.jpg';
 
       const nameRows = await query("SELECT setting_value FROM system_settings WHERE setting_key = 'app_name'");
-      if (nameRows && nameRows.length > 0) {
+      if (nameRows && nameRows.length > 0 && nameRows[0].setting_value) {
         appName = nameRows[0].setting_value;
       }
 
       const logoRows = await query("SELECT setting_value FROM system_settings WHERE setting_key = 'app_logo_url'");
-      if (logoRows && logoRows.length > 0) {
+      if (logoRows && logoRows.length > 0 && logoRows[0].setting_value) {
         appLogoUrl = logoRows[0].setting_value;
       }
 
@@ -1468,29 +1493,32 @@ async function startServer() {
       }
 
       if (appIcon) {
-        // appIcon is a base64 string, potentially prefixed with data:image/...;base64,
-        let cleanBase64 = appIcon;
-        if (appIcon.includes(',')) {
-          cleanBase64 = appIcon.split(',')[1];
+        // Save the actual Data URL (base64) directly into MySQL system_settings table so it is permanently preserved across code updates and rebuilds
+        await query("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)", ['app_logo_url', appIcon]);
+
+        // Also write to ephemeral disk as fallback
+        try {
+          let cleanBase64 = appIcon;
+          if (appIcon.includes(',')) {
+            cleanBase64 = appIcon.split(',')[1];
+          }
+          const buffer = Buffer.from(cleanBase64, 'base64');
+
+          fs.writeFileSync(path.join(process.cwd(), 'logo-192.jpg'), buffer);
+          fs.writeFileSync(path.join(process.cwd(), 'logo-512.jpg'), buffer);
+          fs.writeFileSync(path.join(process.cwd(), 'logo-192.png'), buffer);
+          fs.writeFileSync(path.join(process.cwd(), 'logo-512.png'), buffer);
+
+          const distPath = path.join(process.cwd(), 'dist');
+          if (fs.existsSync(distPath)) {
+            fs.writeFileSync(path.join(distPath, 'logo-192.jpg'), buffer);
+            fs.writeFileSync(path.join(distPath, 'logo-512.jpg'), buffer);
+            fs.writeFileSync(path.join(distPath, 'logo-192.png'), buffer);
+            fs.writeFileSync(path.join(distPath, 'logo-512.png'), buffer);
+          }
+        } catch (fileErr) {
+          console.warn("Could not write logo files to disk:", fileErr);
         }
-        const buffer = Buffer.from(cleanBase64, 'base64');
-
-        // Write to root
-        fs.writeFileSync(path.join(process.cwd(), 'logo-192.jpg'), buffer);
-        fs.writeFileSync(path.join(process.cwd(), 'logo-512.jpg'), buffer);
-        fs.writeFileSync(path.join(process.cwd(), 'logo-192.png'), buffer);
-        fs.writeFileSync(path.join(process.cwd(), 'logo-512.png'), buffer);
-
-        // Also write to dist/ if it exists
-        const distPath = path.join(process.cwd(), 'dist');
-        if (fs.existsSync(distPath)) {
-          fs.writeFileSync(path.join(distPath, 'logo-192.jpg'), buffer);
-          fs.writeFileSync(path.join(distPath, 'logo-512.jpg'), buffer);
-          fs.writeFileSync(path.join(distPath, 'logo-192.png'), buffer);
-          fs.writeFileSync(path.join(distPath, 'logo-512.png'), buffer);
-        }
-
-        await query("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)", ['app_logo_url', '/logo-192.jpg']);
       }
 
       res.json({ success: true, message: 'บันทึกการตั้งค่าระบบเรียบร้อยแล้ว' });
