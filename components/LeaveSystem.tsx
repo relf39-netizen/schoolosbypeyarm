@@ -97,7 +97,7 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
 
     const getThaiDate = (dateStr: string) => dateStr ? new Date(dateStr).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'Asia/Bangkok' }) : '';
     const getLeaveTypeName = (type: string) => { 
-        const map: any = { 'Sick': 'ลาป่วย', 'Personal': 'ลากิจส่วนตัว', 'OffCampus': 'ขอออกนอกบริเวณ', 'Late': 'เข้าสาย', 'Maternity': 'ลาคลอดบุตร' }; 
+        const map: any = { 'Sick': 'ลาป่วย', 'Personal': 'ลากิจส่วนตัว', 'OffCampus': 'ขอออกนอกบริเวณ', 'Late': 'เข้าสาย', 'Maternity': 'ลาคลอดบุตร', 'OfficialBusiness': 'ไปราชการ' }; 
         return map[type] || type; 
     };
     const calculateDays = (s: string, e: string) => (s && e) ? Math.ceil(Math.abs(new Date(e).getTime() - new Date(s).getTime()) / 86400000) + 1 : 0;
@@ -867,6 +867,7 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
                 const sickDays = approvedReqs.filter(r => r.type === 'Sick').reduce((acc, r) => acc + calculateDays(r.startDate, r.endDate), 0);
                 const personalDays = approvedReqs.filter(r => r.type === 'Personal').reduce((acc, r) => acc + calculateDays(r.startDate, r.endDate), 0);
                 const maternityDays = approvedReqs.filter(r => r.type === 'Maternity').reduce((acc, r) => acc + calculateDays(r.startDate, r.endDate), 0);
+                const officialBusinessDays = approvedReqs.filter(r => r.type === 'OfficialBusiness').reduce((acc, r) => acc + calculateDays(r.startDate, r.endDate), 0);
                 const lateCount = approvedReqs.filter(r => r.type === 'Late').length;
                 const offCampusCount = approvedReqs.filter(r => r.type === 'OffCampus').length;
                 const pendingCount = teacherReqs.filter(r => r.status === 'Pending').length;
@@ -901,7 +902,7 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
                                     <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
                                         <BarChart size={14} className="text-emerald-600" /> สรุปสถิติการลาทั้งหมด ({teacherReqs.length} คำขอ)
                                     </h4>
-                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                                    <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
                                         <div className="bg-rose-50 border border-rose-100 p-3 rounded-2xl text-center">
                                             <div className="text-[10px] font-black text-rose-500 uppercase">ลาป่วย</div>
                                             <div className="text-xl font-black text-rose-700 mt-1">{sickDays} <span className="text-xs font-bold">วัน</span></div>
@@ -913,6 +914,10 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
                                         <div className="bg-purple-50 border border-purple-100 p-3 rounded-2xl text-center">
                                             <div className="text-[10px] font-black text-purple-500 uppercase">ลาคลอด</div>
                                             <div className="text-xl font-black text-purple-700 mt-1">{maternityDays} <span className="text-xs font-bold">วัน</span></div>
+                                        </div>
+                                        <div className="bg-teal-50 border border-teal-100 p-3 rounded-2xl text-center">
+                                            <div className="text-[10px] font-black text-teal-600 uppercase">ไปราชการ</div>
+                                            <div className="text-xl font-black text-teal-700 mt-1">{officialBusinessDays} <span className="text-xs font-bold">วัน</span></div>
                                         </div>
                                         <div className="bg-blue-50 border border-blue-100 p-3 rounded-2xl text-center">
                                             <div className="text-[10px] font-black text-blue-500 uppercase">เข้าสาย</div>

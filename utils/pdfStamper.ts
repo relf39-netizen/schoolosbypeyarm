@@ -627,7 +627,7 @@ export const generateOfficialLeavePdf = async (options: LeavePdfOptions): Promis
     curY -= 40;
 
     const getLeaveTypeName = (type: string) => {
-        const map: any = { 'Sick': 'ป่วย', 'Personal': 'กิจส่วนตัว', 'OffCampus': 'ออกนอกบริเวณ', 'Late': 'เข้าสาย', 'Maternity': 'คลอดบุตร' };
+        const map: any = { 'Sick': 'ป่วย', 'Personal': 'กิจส่วนตัว', 'OffCampus': 'ออกนอกบริเวณ', 'Late': 'เข้าสาย', 'Maternity': 'คลอดบุตร', 'OfficialBusiness': 'ไปราชการ' };
         return map[type] || type;
     };
     
