@@ -702,17 +702,21 @@ const App: React.FC = () => {
                     )}
                 </div>
             </main>
-            <footer className="h-16 bg-white border-t border-slate-100 flex items-center print:hidden mt-auto">
-                <div className="max-w-7xl mx-auto w-full px-8 flex justify-between items-center opacity-60">
+            <footer className="py-4 bg-white border-t-2 border-slate-200 shadow-inner flex items-center print:hidden mt-auto z-10">
+                <div className="max-w-7xl mx-auto w-full px-6 md:px-8 flex flex-col sm:flex-row justify-between items-center gap-2">
                     <div className="flex items-center gap-3">
                         {currentSchool?.logoBase64 ? (
-                            <img src={currentSchool.logoBase64} className="w-6 h-6 object-contain" alt="School Logo" />
+                            <img src={currentSchool.logoBase64} className="w-8 h-8 object-contain drop-shadow-sm" alt="School Logo" />
                         ) : (
-                            <img src={APP_LOGO_URL} className="w-6 h-6 object-contain grayscale" alt="OS Logo"/>
+                            <img src={APP_LOGO_URL} className="w-8 h-8 object-contain drop-shadow-sm" alt="OS Logo"/>
                         )}
-                        <span className="font-black text-slate-600 text-xs md:text-sm uppercase tracking-tight">{currentSchool?.name ? `ระบบจัดการโรงเรียน ${currentSchool.name}` : 'ระบบบริหารโรงเรียน SchoolOS'}</span>
+                        <span className="font-black text-slate-900 text-xs sm:text-sm tracking-tight">
+                            {currentSchool?.name ? `ระบบจัดการโรงเรียน ${currentSchool.name}` : 'ระบบจัดการโรงเรียน โรงเรียนบ้านโคกหลวงพ่อฯ'}
+                        </span>
                     </div>
-                    <div className="hidden md:block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">ลิขสิทธิ์โดย สยาม  เชียงเครือ</div>
+                    <div className="text-xs font-black text-slate-900 tracking-wider">
+                        ลิขสิทธิ์โดย สยาม เชียงเครือ
+                    </div>
                 </div>
             </footer>
             <PWAInstallPrompt />

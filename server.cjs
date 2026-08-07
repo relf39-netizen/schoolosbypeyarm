@@ -1276,7 +1276,7 @@ async function startServer() {
   });
 
   app.post('/api/migrate', async (req, res) => {
-    const { supabaseUrl, supabaseKey, tables } = req.body;
+    const { supabaseUrl, supabaseKey, tables, strategy = 'skip_existing' } = req.body;
     if (!supabaseUrl || !supabaseKey || !tables || !Array.isArray(tables)) {
       return res.status(400).json({ error: 'Missing required migration parameters' });
     }
@@ -1388,8 +1388,14 @@ async function startServer() {
                 return [k, Array.isArray(val) || (typeof val === 'object' && val !== null) ? JSON.stringify(val) : val];
               });
 
-              const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
-              await query(sql, [table, keys, ...values, ...updateParams]);
+              if (strategy === 'overwrite') {
+                const sql = `INSERT INTO ?? (??) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`;
+                await query(sql, [table, keys, ...values, ...updateParams]);
+              } else {
+                // Safe mode (skip_existing): Uses INSERT IGNORE so existing records in MySQL are untouched!
+                const sql = `INSERT IGNORE INTO ?? (??) VALUES (${placeholders})`;
+                await query(sql, [table, keys, ...values]);
+              }
               successCount++;
             } catch (rowErr) {
               failCount++;

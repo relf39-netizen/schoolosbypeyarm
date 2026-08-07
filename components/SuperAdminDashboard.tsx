@@ -1125,6 +1125,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
 const MigrationTool: React.FC = () => {
     const [url, setUrl] = useState('');
     const [key, setKey] = useState('');
+    const [strategy, setStrategy] = useState<'skip_existing' | 'overwrite'>('skip_existing');
     const [isMigrating, setIsMigrating] = useState(false);
     const [results, setResults] = useState<any[] | null>(null);
 
@@ -1139,7 +1140,12 @@ const MigrationTool: React.FC = () => {
 
     const handleMigrate = async () => {
         if (!url || !key) return alert("กรุณากรอก Supabase URL และ Key");
-        if (!confirm("ยืนยันการย้ายข้อมูล? ข้อมูลที่มีอยู่เดิมใน MySQL อาจถูกเขียนทับหากมี ID ซ้ำกัน")) return;
+        
+        const confirmMsg = strategy === 'skip_existing'
+            ? "ยืนยันการนำเข้าข้อมูล? ระบบจะข้ามรายการที่มีอยู่แล้ว และจะไม่ส่งผลกระทบหรือเขียนทับข้อมูลเดิมใน MySQL"
+            : "ยืนยันการย้ายข้อมูล? รายการที่มี ID ซ้ำกันจะถูกเขียนทับด้วยข้อมูลจาก Supabase";
+
+        if (!confirm(confirmMsg)) return;
 
         setIsMigrating(true);
         setResults(null);
@@ -1148,7 +1154,7 @@ const MigrationTool: React.FC = () => {
             const res = await fetch('/api/migrate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ supabaseUrl: url, supabaseKey: key, tables })
+                body: JSON.stringify({ supabaseUrl: url, supabaseKey: key, tables, strategy })
             });
             const data = await res.json();
             if (data.success) {
@@ -1236,9 +1242,30 @@ const MigrationTool: React.FC = () => {
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Supabase Service Role Key (Secret)</label>
                     <input type="password" value={key} onChange={e => setKey(e.target.value)} placeholder="eyJhbG..." className="w-full px-4 py-2.5 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-sm"/>
                 </div>
+
+                <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">กลยุทธ์การนำเข้าข้อมูล (Import Strategy)</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3 ${strategy === 'skip_existing' ? 'border-emerald-500 bg-emerald-50/50 text-emerald-900 shadow-sm' : 'border-slate-100 hover:border-slate-200'}`}>
+                            <input type="radio" name="migration_strategy" value="skip_existing" checked={strategy === 'skip_existing'} onChange={() => setStrategy('skip_existing')} className="mt-1 text-emerald-600 focus:ring-emerald-500" />
+                            <div>
+                                <div className="font-black text-xs flex items-center gap-1.5"><ShieldCheck size={14} className="text-emerald-600"/> ข้ามรายการที่มีอยู่แล้ว (Safe Mode)</div>
+                                <div className="text-[10px] text-slate-500 font-bold mt-1 leading-relaxed">นำเข้าเฉพาะข้อมูลใหม่ที่ไม่เคยมีมาก่อน ข้อมูลเดิมใน MySQL จะ<b>ไม่ถูกแตะต้องหรือเขียนทับ</b> 100%</div>
+                            </div>
+                        </label>
+                        <label className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3 ${strategy === 'overwrite' ? 'border-amber-500 bg-amber-50/50 text-amber-900 shadow-sm' : 'border-slate-100 hover:border-slate-200'}`}>
+                            <input type="radio" name="migration_strategy" value="overwrite" checked={strategy === 'overwrite'} onChange={() => setStrategy('overwrite')} className="mt-1 text-amber-600 focus:ring-amber-500" />
+                            <div>
+                                <div className="font-black text-xs flex items-center gap-1.5"><RefreshCw size={14} className="text-amber-600"/> เขียนทับรายการที่มีอยู่ (Overwrite)</div>
+                                <div className="text-[10px] text-slate-500 font-bold mt-1 leading-relaxed">หากพบ ID หรือ Key ซ้ำกัน ข้อมูลเดิมใน MySQL จะถูกอัปเดตด้วยข้อมูลจาก Supabase</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
                 <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
                     <p className="text-[10px] text-blue-700 font-bold leading-relaxed">
-                        * ระบบจะดึงข้อมูลจากตารางทั้งหมด ({tables.length} ตาราง) และนำมาใส่ใน MySQL โดยใช้คำสั่ง ON DUPLICATE KEY UPDATE เพื่อป้องกันข้อมูลซ้ำ
+                        * ระบบจะดึงข้อมูลจากตารางทั้งหมด ({tables.length} ตาราง) และนำเข้าสู่ MySQL ตามกลยุทธ์ที่เลือก ({strategy === 'skip_existing' ? 'ใช้คำสั่ง INSERT IGNORE เพื่อความปลอดภัย ไม่กระทบข้อมูลเดิม' : 'ใช้คำสั่ง ON DUPLICATE KEY UPDATE'})
                     </p>
                 </div>
                 <button 
