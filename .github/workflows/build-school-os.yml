@@ -1,0 +1,48 @@
+name: Build School OS
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build production release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install all dependencies
+        run: npm ci
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Create release archive
+        run: |
+          tar \
+            --exclude=".git" \
+            --exclude=".github" \
+            --exclude=".env" \
+            --exclude="node_modules" \
+            -czf "${RUNNER_TEMP}/school-os-release.tar.gz" .
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: school-os-release
+          path: ${{ runner.temp }}/school-os-release.tar.gz
+          if-no-files-found: error
+          retention-days: 7
