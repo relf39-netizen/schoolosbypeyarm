@@ -11,6 +11,7 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
 } from 'recharts';
 import { sendTelegramMessage } from '../utils/telegram';
+import { sendLineMessage } from '../utils/line';
 
 interface DirectorCalendarProps {
     currentUser: Teacher;
@@ -445,9 +446,6 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
     };
 
     const notifyDirector = async (event: any, type: 'NEW' | 'TOMORROW' | 'TODAY') => {
-        if (!sysConfig?.telegramBotToken) return;
-        const directors = allTeachers.filter(t => ((t.roles || []).includes('DIRECTOR') || t.isActingDirector) && t.schoolId === currentUser.schoolId);
-        if (directors.length === 0) return;
         let title = ""; let icon = "";
         switch (type) { 
             case 'NEW': title = "เพิ่มนัดหมายใหม่"; icon = "🆕"; break; 
@@ -456,13 +454,29 @@ const DirectorCalendar: React.FC<DirectorCalendarProps> = ({ currentUser, allTea
         }
         const message = `<b>${title}</b>\n--------------------------\n<b>เรื่อง:</b> ${event.title}\n<b>วันที่:</b> ${getThaiFullDate(event.date)}\n<b>เวลา:</b> ${event.startTime} น.\n<b>สถานที่:</b> ${event.location || '-'}\n--------------------------\n${type === 'TODAY' ? '💡 อย่าลืมเตรียมความพร้อมสำหรับการปฏิบัติหน้าที่ในวันนี้นะครับ' : '(บันทึกข้อมูลโดย: ' + currentUser.name + ')'}`;
         
-        const deepLink = `${sysConfig.appBaseUrl || window.location.origin}?view=DIRECTOR_CALENDAR`;
+        const deepLink = `${sysConfig?.appBaseUrl || window.location.origin}?view=DIRECTOR_CALENDAR`;
         
-        directors.forEach(d => {
-            if (d.telegramChatId) {
-                sendTelegramMessage(sysConfig.telegramBotToken!, d.telegramChatId, message, deepLink);
-            }
-        });
+        // 1. ส่งแจ้งเตือนผ่าน LINE Official Account (LINE Business)
+        if (sysConfig?.notifyLineDirectorCalendar !== false && sysConfig?.lineChannelAccessToken && sysConfig?.lineTargetId) {
+            sendLineMessage({
+                channelAccessToken: sysConfig.lineChannelAccessToken,
+                targetId: sysConfig.lineTargetId,
+                message,
+                title: `${icon} ปฏิทินปฏิบัติงาน ผอ.: ${title}`,
+                deepLinkUrl: deepLink,
+                type: 'calendar'
+            });
+        }
+
+        // 2. ส่งแจ้งเตือนผ่าน Telegram
+        if (sysConfig?.notifyTelegramDirectorCalendar !== false && sysConfig?.telegramBotToken) {
+            const directors = allTeachers.filter(t => ((t.roles || []).includes('DIRECTOR') || t.isActingDirector) && t.schoolId === currentUser.schoolId);
+            directors.forEach(d => {
+                if (d.telegramChatId) {
+                    sendTelegramMessage(sysConfig.telegramBotToken!, d.telegramChatId, message, deepLink);
+                }
+            });
+        }
     };
 
     return (

@@ -278,7 +278,13 @@ CREATE TABLE IF NOT EXISTS school_configs (
   external_agencies JSON,
   director_signature_base_64 LONGTEXT,
   director_signature_scale FLOAT DEFAULT 1.0,
-  director_signature_y_offset FLOAT DEFAULT 0
+  director_signature_y_offset FLOAT DEFAULT 0,
+  line_channel_access_token VARCHAR(500),
+  line_target_id VARCHAR(255),
+  notify_line_leave BOOLEAN DEFAULT TRUE,
+  notify_line_director_calendar BOOLEAN DEFAULT TRUE,
+  notify_telegram_leave BOOLEAN DEFAULT TRUE,
+  notify_telegram_director_calendar BOOLEAN DEFAULT TRUE
 );
 
 -- 3.1 ตารางห้องเรียน

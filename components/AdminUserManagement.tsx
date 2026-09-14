@@ -9,13 +9,14 @@ import {
     FileCheck, BookOpen, Fingerprint, Key, Activity, BarChart3,
     Lock, Mail, Bell, ZapOff, ChevronDown, Image, GraduationCap,
     Calendar, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight,
-    Filter, Edit2, Download, Database
+    Filter, Edit2, Download, Database, MessageSquare
 } from 'lucide-react';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase, isConfigured as isSupabaseConfigured } from '../supabaseClient';
 import { db as firebaseDb, isConfigured as isFirebaseConfigured, collection as firebaseCollection, getDocs as firebaseGetDocs } from '../firebaseConfig';
 import { Teacher, TeacherRole, SystemConfig, School, Student, ClassRoom, AcademicYear } from '../types';
 import { getDirectDriveUrl } from '../utils/drive';
+import { testLineConnection } from '../utils/line';
 import { ACADEMIC_POSITIONS } from '../constants';
 import * as XLSX from 'xlsx';
 
@@ -244,6 +245,7 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const [migrationStats, setMigrationStats] = useState<{ total: number, success: number, error: number } | null>(null);
     const [isGettingLocation, setIsGettingLocation] = useState(false);
     const [availableClasses, setAvailableClasses] = useState<string[]>([]);
+    const [isTestingLine, setIsTestingLine] = useState(false);
 
     const [config, setConfig] = useState<SystemConfig>({ 
         driveFolderId: '', 
@@ -254,7 +256,16 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
         directorSignatureScale: 1, 
         directorSignatureYOffset: 0, 
         schoolLogoBase64: '', 
-        officialGarudaBase64: '', 
+        officialGarudaBase64: '',
+        telegramBotToken: '',
+        telegramBotUsername: '',
+        appBaseUrl: '',
+        lineChannelAccessToken: '',
+        lineTargetId: '',
+        notifyLineLeave: true,
+        notifyLineDirectorCalendar: true,
+        notifyTelegramLeave: true,
+        notifyTelegramDirectorCalendar: true
     });
 
     const gasCode = `/**
@@ -485,7 +496,13 @@ function setTelegramWebhook() {
                              directorSignatureBase64: data.director_signature_base_64 || '',
                              directorSignatureScale: data.director_signature_scale || 1.0,
                              directorSignatureYOffset: data.director_signature_y_offset || 0,
-                             schoolName: currentSchool.name
+                             schoolName: currentSchool.name,
+                             lineChannelAccessToken: data.line_channel_access_token || '',
+                             lineTargetId: data.line_target_id || '',
+                             notifyLineLeave: data.notify_line_leave !== undefined && data.notify_line_leave !== null ? Boolean(data.notify_line_leave) : true,
+                             notifyLineDirectorCalendar: data.notify_line_director_calendar !== undefined && data.notify_line_director_calendar !== null ? Boolean(data.notify_line_director_calendar) : true,
+                             notifyTelegramLeave: data.notify_telegram_leave !== undefined && data.notify_telegram_leave !== null ? Boolean(data.notify_telegram_leave) : true,
+                             notifyTelegramDirectorCalendar: data.notify_telegram_director_calendar !== undefined && data.notify_telegram_director_calendar !== null ? Boolean(data.notify_telegram_director_calendar) : true
                          });
                      } else {
                          // Reset config if no data found for this specific school
@@ -501,7 +518,13 @@ function setTelegramWebhook() {
                             officialGarudaBase64: '', 
                             telegramBotToken: '', 
                             telegramBotUsername: '', 
-                            appBaseUrl: '' 
+                            appBaseUrl: '',
+                            lineChannelAccessToken: '',
+                            lineTargetId: '',
+                            notifyLineLeave: true,
+                            notifyLineDirectorCalendar: true,
+                            notifyTelegramLeave: true,
+                            notifyTelegramDirectorCalendar: true
                          });
                      }
                  } catch (err) {
@@ -1234,7 +1257,13 @@ function setTelegramWebhook() {
                 school_logo_base_64: config.schoolLogoBase64 || '',
                 director_signature_base_64: config.directorSignatureBase64,
                 director_signature_scale: config.directorSignatureScale,
-                director_signature_y_offset: config.directorSignatureYOffset
+                director_signature_y_offset: config.directorSignatureYOffset,
+                line_channel_access_token: config.lineChannelAccessToken || '',
+                line_target_id: config.lineTargetId || '',
+                notify_line_leave: config.notifyLineLeave !== false,
+                notify_line_director_calendar: config.notifyLineDirectorCalendar !== false,
+                notify_telegram_leave: config.notifyTelegramLeave !== false,
+                notify_telegram_director_calendar: config.notifyTelegramDirectorCalendar !== false
             });
             if (!error) alert("บันทึกการตั้งค่าสำเร็จ");
             else throw error;
@@ -1242,6 +1271,26 @@ function setTelegramWebhook() {
             alert("บันทึกล้มเหลว: " + err.message + "\n(กรุณาตรวจสอบว่าท่านได้รันคำสั่ง SQL เพิ่มคอลัมน์แล้วหรือยัง)");
         } finally {
             setIsSavingConfig(false);
+        }
+    };
+
+    const handleTestLineNotification = async () => {
+        if (!config.lineChannelAccessToken || !config.lineTargetId) {
+            alert("กรุณาระบุ LINE Channel Access Token และ Target ID ก่อนกดทดสอบ");
+            return;
+        }
+        setIsTestingLine(true);
+        try {
+            const res = await testLineConnection(config.lineChannelAccessToken, config.lineTargetId);
+            if (res.success) {
+                alert("✅ " + res.message);
+            } else {
+                alert("❌ " + res.message);
+            }
+        } catch (e: any) {
+            alert("❌ ขัดข้อง: " + e.message);
+        } finally {
+            setIsTestingLine(false);
         }
     };
 
@@ -1937,6 +1986,135 @@ function setTelegramWebhook() {
                                             >
                                                 <RefreshCw size={14}/> เชื่อมต่อ Webhook (Set Webhook)
                                             </button>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-6">
+                                        <h5 className="font-black text-slate-800 flex items-center gap-3 uppercase text-[10px] tracking-widest ml-4">
+                                            <MessageSquare className="text-emerald-500" size={20}/> LINE Business (Messaging API)
+                                        </h5>
+                                        <div className="bg-white p-6 rounded-2xl border border-slate-100 space-y-6 shadow-sm">
+                                            <div className="space-y-1">
+                                                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                                                    Channel Access Token (Long-lived)
+                                                </label>
+                                                <input 
+                                                    type="password" 
+                                                    value={config.lineChannelAccessToken || ''} 
+                                                    onChange={e => setConfig({...config, lineChannelAccessToken: e.target.value})} 
+                                                    className="w-full px-4 py-2 border border-slate-100 focus:border-emerald-500 rounded-lg font-mono text-xs bg-slate-50 outline-none shadow-inner" 
+                                                    placeholder="eyJh..."
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                                                    Target ID (User ID: U... หรือ Group ID: C...)
+                                                </label>
+                                                <input 
+                                                    type="text" 
+                                                    value={config.lineTargetId || ''} 
+                                                    onChange={e => setConfig({...config, lineTargetId: e.target.value})} 
+                                                    className="w-full px-4 py-2 border border-slate-100 focus:border-emerald-500 rounded-lg font-mono text-xs bg-slate-50 outline-none shadow-inner" 
+                                                    placeholder="U12345678... หรือ C12345678..."
+                                                />
+                                            </div>
+                                            <button 
+                                                type="button"
+                                                onClick={handleTestLineNotification}
+                                                disabled={isTestingLine}
+                                                className="w-full py-2 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase hover:bg-emerald-100 transition-all flex items-center justify-center gap-2 border border-emerald-100 active:scale-95"
+                                            >
+                                                {isTestingLine ? <Loader className="animate-spin" size={14}/> : <Send size={14}/>} ทดสอบส่งข้อความ LINE (Push Test)
+                                            </button>
+                                            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-[10px] text-slate-500 space-y-1">
+                                                <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                                                    <Info size={13} className="text-emerald-600 shrink-0"/> วิธีขอ Token &amp; Target ID:
+                                                </div>
+                                                <p className="leading-relaxed">
+                                                    1. ล็อกอินที่ <b>LINE Developers Console</b> แล้วสร้าง Provider &amp; Messaging API Channel<br/>
+                                                    2. คัดลอก <b>Channel access token (long-lived)</b> ในแท็บ Messaging API<br/>
+                                                    3. นำ <b>Your user ID</b> (เช่น U...) หรือ <b>Group ID</b> ที่เชิญบอทเข้ากลุ่ม มาใส่ในช่อง Target ID
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Hybrid Notification Routing Matrix */}
+                                    <div className="lg:col-span-2">
+                                        <div className="bg-white p-6 rounded-2xl border border-slate-100 space-y-6 shadow-sm">
+                                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-100 pb-4">
+                                                <h5 className="font-black text-slate-800 flex items-center gap-3 uppercase text-xs tracking-wider">
+                                                    <Bell size={18} className="text-indigo-600"/> การจัดสรรช่องทางแจ้งเตือน (Notification Routing)
+                                                </h5>
+                                                <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-3 py-1 rounded-full border border-emerald-100">
+                                                    LINE ฟรี 500 ข้อความ/เดือน + Telegram ไม่จำกัด
+                                                </span>
+                                            </div>
+
+                                            <p className="text-xs text-slate-500 leading-relaxed">
+                                                กำหนดช่องทางส่งการแจ้งเตือนของแต่ละระบบ เพื่อประหยัดโควตาแพ็กเกจฟรีของ LINE Official Account โดยเลือกแจ้งเตือนเฉพาะรายการสำคัญผ่าน LINE (เช่น การลา และปฏิทิน ผอ.) และเปิด Telegram ควบคู่กันได้
+                                            </p>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                                                {/* 1. Leave System */}
+                                                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+                                                    <div className="flex items-center gap-2 font-bold text-slate-800 text-sm">
+                                                        <span className="text-base">📂</span> ระบบการลา (Leave Requests)
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-500">
+                                                        แจ้งเตือนเมื่อครูส่งใบลาใหม่ และแจ้งผลการอนุมัติ/ไม่อนุมัติจากผู้บริหาร
+                                                    </p>
+                                                    <div className="space-y-2 pt-1">
+                                                        <label className="flex items-center gap-2.5 text-xs text-slate-700 cursor-pointer">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={config.notifyLineLeave !== false} 
+                                                                onChange={e => setConfig({...config, notifyLineLeave: e.target.checked})}
+                                                                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300"
+                                                            />
+                                                            <span className="font-medium">แจ้งเตือนผ่าน LINE Official Account</span>
+                                                        </label>
+                                                        <label className="flex items-center gap-2.5 text-xs text-slate-700 cursor-pointer">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={config.notifyTelegramLeave !== false} 
+                                                                onChange={e => setConfig({...config, notifyTelegramLeave: e.target.checked})}
+                                                                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                                                            />
+                                                            <span className="font-medium">แจ้งเตือนผ่าน Telegram</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+
+                                                {/* 2. Director Calendar */}
+                                                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+                                                    <div className="flex items-center gap-2 font-bold text-slate-800 text-sm">
+                                                        <span className="text-base">📅</span> ปฏิทินปฏิบัติงาน ผอ. (Director Calendar)
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-500">
+                                                        แจ้งเตือนเมื่อเพิ่มนัดหมายใหม่ และการเตือนล่วงหน้า 1 วัน / เตือนในวันปฏิบัติงาน
+                                                    </p>
+                                                    <div className="space-y-2 pt-1">
+                                                        <label className="flex items-center gap-2.5 text-xs text-slate-700 cursor-pointer">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={config.notifyLineDirectorCalendar !== false} 
+                                                                onChange={e => setConfig({...config, notifyLineDirectorCalendar: e.target.checked})}
+                                                                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300"
+                                                            />
+                                                            <span className="font-medium">แจ้งเตือนผ่าน LINE Official Account</span>
+                                                        </label>
+                                                        <label className="flex items-center gap-2.5 text-xs text-slate-700 cursor-pointer">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={config.notifyTelegramDirectorCalendar !== false} 
+                                                                onChange={e => setConfig({...config, notifyTelegramDirectorCalendar: e.target.checked})}
+                                                                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                                                            />
+                                                            <span className="font-medium">แจ้งเตือนผ่าน Telegram</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="lg:col-span-2">

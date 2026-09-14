@@ -206,7 +206,13 @@ async function startServer() {
           external_agencies JSON,
           director_signature_base_64 LONGTEXT,
           director_signature_scale FLOAT DEFAULT 1.0,
-          director_signature_y_offset FLOAT DEFAULT 0
+          director_signature_y_offset FLOAT DEFAULT 0,
+          line_channel_access_token VARCHAR(500),
+          line_target_id VARCHAR(255),
+          notify_line_leave BOOLEAN DEFAULT TRUE,
+          notify_line_director_calendar BOOLEAN DEFAULT TRUE,
+          notify_telegram_leave BOOLEAN DEFAULT TRUE,
+          notify_telegram_director_calendar BOOLEAN DEFAULT TRUE
         )`,
         `CREATE TABLE IF NOT EXISTS class_rooms (
           id VARCHAR(36) PRIMARY KEY,
@@ -519,7 +525,13 @@ async function startServer() {
             { name: 'external_agencies', type: 'JSON' },
             { name: 'director_signature_base_64', type: 'LONGTEXT' },
             { name: 'director_signature_scale', type: 'FLOAT DEFAULT 1.0' },
-            { name: 'director_signature_y_offset', type: 'FLOAT DEFAULT 0' }
+            { name: 'director_signature_y_offset', type: 'FLOAT DEFAULT 0' },
+            { name: 'line_channel_access_token', type: 'VARCHAR(500)' },
+            { name: 'line_target_id', type: 'VARCHAR(255)' },
+            { name: 'notify_line_leave', type: 'BOOLEAN DEFAULT TRUE' },
+            { name: 'notify_line_director_calendar', type: 'BOOLEAN DEFAULT TRUE' },
+            { name: 'notify_telegram_leave', type: 'BOOLEAN DEFAULT TRUE' },
+            { name: 'notify_telegram_director_calendar', type: 'BOOLEAN DEFAULT TRUE' }
           ]
         },
         {
@@ -1423,6 +1435,168 @@ async function startServer() {
       res.json({ success: true, results });
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- LINE Official Account / Business Messaging API Logic ---
+  app.post('/api/line/send-message', async (req, res) => {
+    try {
+      const { channelAccessToken, targetId, message, title, deepLinkUrl, type } = req.body;
+      if (!channelAccessToken || !targetId || !message) {
+        return res.status(400).json({ success: false, message: 'ข้อมูลไม่ครบถ้วน (ต้องการ channelAccessToken, targetId, message)' });
+      }
+
+      // Strip HTML tags for altText/text fallback
+      const cleanText = message.replace(/<[^>]*>/g, '').trim();
+      const headerTitle = title || (type === 'leave' ? '📂 แจ้งเตือนการลา' : type === 'calendar' ? '📅 ปฏิทินปฏิบัติงาน ผอ.' : '🔔 แจ้งเตือนระบบโรงเรียน');
+
+      // Construct LINE Flex Message for modern presentation
+      const flexContainer = {
+        type: "bubble",
+        size: "mega",
+        header: {
+          type: "box",
+          layout: "vertical",
+          backgroundColor: type === 'leave' ? "#4338CA" : type === 'calendar' ? "#7C3AED" : "#059669",
+          paddingAll: "15px",
+          contents: [
+            {
+              type: "text",
+              text: headerTitle,
+              weight: "bold",
+              color: "#FFFFFF",
+              size: "md"
+            }
+          ]
+        },
+        body: {
+          type: "box",
+          layout: "vertical",
+          paddingAll: "16px",
+          spacing: "md",
+          contents: [
+            {
+              type: "text",
+              text: cleanText,
+              wrap: true,
+              size: "sm",
+              color: "#334155"
+            }
+          ]
+        }
+      };
+
+      if (deepLinkUrl) {
+        flexContainer.footer = {
+          type: "box",
+          layout: "vertical",
+          paddingAll: "12px",
+          contents: [
+            {
+              type: "button",
+              style: "primary",
+              color: type === 'leave' ? "#4338CA" : type === 'calendar' ? "#7C3AED" : "#059669",
+              height: "sm",
+              action: {
+                type: "uri",
+                label: "เปิดดูในระบบ",
+                uri: deepLinkUrl
+              }
+            }
+          ]
+        };
+      }
+
+      const linePayload = {
+        to: targetId,
+        messages: [
+          {
+            type: "flex",
+            altText: `${headerTitle}: ${cleanText.slice(0, 60)}...`,
+            contents: flexContainer
+          }
+        ]
+      };
+
+      const lineRes = await fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${channelAccessToken}`
+        },
+        body: JSON.stringify(linePayload)
+      });
+
+      if (!lineRes.ok) {
+        const errorData = await lineRes.json().catch(() => ({}));
+        console.warn('[LINE Push Error]', errorData, 'Falling back to plain text message...');
+        
+        // Fallback to text message
+        const fallbackRes = await fetch('https://api.line.me/v2/bot/message/push', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${channelAccessToken}`
+          },
+          body: JSON.stringify({
+            to: targetId,
+            messages: [
+              {
+                type: 'text',
+                text: `${headerTitle}\n\n${cleanText}${deepLinkUrl ? `\n\n🔗 ลิงก์: ${deepLinkUrl}` : ''}`
+              }
+            ]
+          })
+        });
+
+        if (!fallbackRes.ok) {
+          const fallbackErr = await fallbackRes.json().catch(() => ({}));
+          return res.status(fallbackRes.status).json({ success: false, message: fallbackErr.message || 'ส่งข้อความ LINE ไม่สำเร็จ' });
+        }
+      }
+
+      return res.json({ success: true, message: 'ส่งข้อความ LINE สำเร็จ' });
+    } catch (err) {
+      console.error('[LINE Error]', err);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/line/test', async (req, res) => {
+    try {
+      const { channelAccessToken, targetId } = req.body;
+      if (!channelAccessToken || !targetId) {
+        return res.status(400).json({ success: false, message: 'กรุณาระบุ Channel Access Token และ Target ID' });
+      }
+
+      const testPayload = {
+        to: targetId,
+        messages: [
+          {
+            type: 'text',
+            text: '🟢 ทดสอบการเชื่อมต่อระบบโรงเรียน (SchoolOS)\n\nการเชื่อมต่อระหว่างระบบกับ LINE Official Account สำเร็จเรียบร้อยแล้ว! บัญชีนี้พร้อมรับการแจ้งเตือนจากระบบครับ'
+          }
+        ]
+      };
+
+      const lineRes = await fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${channelAccessToken}`
+        },
+        body: JSON.stringify(testPayload)
+      });
+
+      if (!lineRes.ok) {
+        const errData = await lineRes.json().catch(() => ({}));
+        console.error('[LINE Test Error]', errData);
+        return res.status(lineRes.status).json({ success: false, message: errData.message || 'LINE API ตอบกลับด้วยข้อผิดพลาด ตรวจสอบ Token หรือ Target ID' });
+      }
+
+      return res.json({ success: true, message: 'ส่งข้อความทดสอบสำเร็จ' });
+    } catch (err) {
+      return res.status(500).json({ success: false, message: err.message });
     }
   });
 

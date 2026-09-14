@@ -431,6 +431,14 @@ export interface SystemConfig {
   telegramBotUsername?: string; // Username of the bot (e.g. SchoolOS_Bot)
   appBaseUrl?: string; // The deployed URL of this app (e.g., https://myschool.vercel.app)
 
+  // LINE Official Account / Business Messaging API
+  lineChannelAccessToken?: string; // LINE Channel Access Token
+  lineTargetId?: string; // Target Group ID (C...) or User ID (U...)
+  notifyLineLeave?: boolean; // แจ้งเตือนการลาผ่าน LINE Business
+  notifyLineDirectorCalendar?: boolean; // แจ้งเตือนปฏิทินปฏิบัติงาน ผอ. ผ่าน LINE Business
+  notifyTelegramLeave?: boolean; // แจ้งเตือนการลาผ่าน Telegram
+  notifyTelegramDirectorCalendar?: boolean; // แจ้งเตือนปฏิทินปฏิบัติงาน ผอ. ผ่าน Telegram
+
   // Outgoing Document Prefix
   outgoingBookPrefix?: string; // e.g. "ศธ ๐๔๐๘๔.๒๐๖"
 }

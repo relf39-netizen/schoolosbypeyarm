@@ -12,6 +12,7 @@ import {
 import { supabase, isConfigured as isSupabaseConfigured } from '../supabaseClient';
 import { generateOfficialLeavePdf, generateLeaveSummaryPdf, toThaiDigits } from '../utils/pdfStamper';
 import { sendTelegramMessage } from '../utils/telegram';
+import { sendLineMessage } from '../utils/line';
 import { ACADEMIC_POSITIONS } from '../constants';
 
 interface LeaveSystemProps {
@@ -265,16 +266,35 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
 
         if (!error && data) {
             const newReqId = data[0].id;
-            if (sysConfig?.telegramBotToken) {
-                const directors = allTeachers.filter(t => t.schoolId === currentUser.schoolId && ((t.roles || []).includes('DIRECTOR') || t.isActingDirector));
-                let message = leaveType === 'OffCampus' 
-                    ? `🏃‍♂️ <b>แจ้งเตือน: ขออนุญาตออกนอกบริเวณ</b>\nจาก: <b>${currentUser.name}</b>\nวันที่: <b>${getThaiDate(payload.start_date)}</b>\nเวลา: <b>${startTime} - ${endTime} น.</b>\nครูสอนแทน: ${substituteName || '-'}\nเหตุผล: ${reason}`
-                    : `📂 <b>แจ้งเตือน: มีใบเสนอลาใหม่</b>\nจาก: <b>${currentUser.name}</b>\nประเภท: ${getLeaveTypeName(leaveType)}\nเหตุผล: ${reason}\nช่วงวันที่: ${getThaiDate(payload.start_date)} - ${getThaiDate(payload.end_date)}`;
-                
-                const link = `${sysConfig.appBaseUrl || window.location.origin}?view=LEAVE&id=${newReqId}`;
-                directors.forEach(dir => { if (dir.telegramChatId) sendTelegramMessage(sysConfig.telegramBotToken!, dir.telegramChatId, message, link); });
+            const messageTitle = leaveType === 'OffCampus' ? '🏃‍♂️ แจ้งเตือน: ขออนุญาตออกนอกบริเวณ' : '📂 แจ้งเตือน: มีใบเสนอลาใหม่';
+            const messageBody = leaveType === 'OffCampus' 
+                ? `🏃‍♂️ <b>แจ้งเตือน: ขออนุญาตออกนอกบริเวณ</b>\nจาก: <b>${currentUser.name}</b>\nวันที่: <b>${getThaiDate(payload.start_date)}</b>\nเวลา: <b>${startTime} - ${endTime} น.</b>\nครูสอนแทน: ${substituteName || '-'}\nเหตุผล: ${reason}`
+                : `📂 <b>แจ้งเตือน: มีใบเสนอลาใหม่</b>\nจาก: <b>${currentUser.name}</b>\nประเภท: ${getLeaveTypeName(leaveType)}\nเหตุผล: ${reason}\nช่วงวันที่: ${getThaiDate(payload.start_date)} - ${getThaiDate(payload.end_date)}`;
+            const link = `${sysConfig?.appBaseUrl || window.location.origin}?view=LEAVE&id=${newReqId}`;
+
+            // 1. ส่งการแจ้งเตือนทาง LINE Official Account (LINE Business)
+            if (sysConfig?.notifyLineLeave !== false && sysConfig?.lineChannelAccessToken && sysConfig?.lineTargetId) {
+                sendLineMessage({
+                    channelAccessToken: sysConfig.lineChannelAccessToken,
+                    targetId: sysConfig.lineTargetId,
+                    message: messageBody,
+                    title: messageTitle,
+                    deepLinkUrl: link,
+                    type: 'leave'
+                });
             }
-            alert("ส่งใบลาเรียบร้อยแล้ว ระบบได้แจ้งเตือนผู้อำนวยการทาง Telegram แล้ว"); 
+
+            // 2. ส่งการแจ้งเตือนทาง Telegram
+            if (sysConfig?.notifyTelegramLeave !== false && sysConfig?.telegramBotToken) {
+                const directors = allTeachers.filter(t => t.schoolId === currentUser.schoolId && ((t.roles || []).includes('DIRECTOR') || t.isActingDirector));
+                directors.forEach(dir => { 
+                    if (dir.telegramChatId) {
+                        sendTelegramMessage(sysConfig.telegramBotToken!, dir.telegramChatId, messageBody, link); 
+                    }
+                });
+            }
+
+            alert("ส่งใบลาเรียบร้อยแล้ว ระบบได้ส่งการแจ้งเตือนให้ผู้บริหารทราบแล้ว"); 
             setViewMode('LIST'); fetchRequests();
         } else { alert("บันทึกล้มเหลว: " + error?.message); }
         setIsSubmitting(false);
@@ -292,16 +312,31 @@ const LeaveSystem: React.FC<LeaveSystemProps> = ({ currentUser, allTeachers, cur
         }).eq('id', parseInt(selectedRequest.id));
 
         if (!error) {
+            const icon = isApproved ? '✅' : '❌';
+            const statusText = isApproved ? 'อนุมัติ / อนุญาต' : 'ไม่อนุมัติ';
+            const directorPosition = currentUser.isActingDirector 
+                ? 'รักษาการในตำแหน่งผู้อำนวยการโรงเรียน' 
+                : 'ผู้อำนวยการโรงเรียน';
+            const message = `${icon} <b>แจ้งผลการพิจารณาใบลา</b>\nเจ้าของใบลา: <b>${selectedRequest.teacherName}</b>\nรายการ: ${getLeaveTypeName(selectedRequest.type)}\nวันที่: ${getThaiDate(selectedRequest.startDate)}\nผลการพิจารณา: <b>${statusText}</b>\nโดย: ${directorPosition}`;
+
+            // 1. แจ้งเตือนเข้ากลุ่มหรือช่องทาง LINE Business
+            if (sysConfig?.notifyLineLeave !== false && sysConfig?.lineChannelAccessToken && sysConfig?.lineTargetId) {
+                sendLineMessage({
+                    channelAccessToken: sysConfig.lineChannelAccessToken,
+                    targetId: sysConfig.lineTargetId,
+                    message,
+                    title: '📋 แจ้งผลการพิจารณาใบลา',
+                    deepLinkUrl: `${sysConfig?.appBaseUrl || window.location.origin}?view=LEAVE`,
+                    type: 'leave'
+                });
+            }
+
+            // 2. แจ้งเตือนครูผู้ลาผ่าน Telegram ส่วนตัว
             const teacher = allTeachers.find(t => t.id === selectedRequest.teacherId);
-            if (teacher?.telegramChatId && sysConfig?.telegramBotToken) {
-                const icon = isApproved ? '✅' : '❌';
-                const statusText = isApproved ? 'อนุมัติ / อนุญาต' : 'ไม่อนุมัติ';
-                const directorPosition = currentUser.isActingDirector 
-                    ? 'รักษาการในตำแหน่งผู้อำนวยการโรงเรียน' 
-                    : 'ผู้อำนวยการโรงเรียน';
-                const message = `${icon} <b>แจ้งผลการพิจารณาใบลา</b>\nรายการ: ${getLeaveTypeName(selectedRequest.type)}\nวันที่: ${getThaiDate(selectedRequest.startDate)}\nผลการพิจารณา: <b>${statusText}</b>\nโดย: ${directorPosition}`;
+            if (sysConfig?.notifyTelegramLeave !== false && teacher?.telegramChatId && sysConfig?.telegramBotToken) {
                 sendTelegramMessage(sysConfig.telegramBotToken, teacher.telegramChatId, message);
             }
+
             alert("บันทึกการพิจารณาเรียบร้อยแล้ว"); setViewMode('LIST'); fetchRequests();
         } else { alert("ผิดพลาด: " + error.message); }
         setIsProcessingApproval(false);
