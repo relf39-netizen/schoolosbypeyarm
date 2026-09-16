@@ -1,7 +1,8 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-// บังคับให้ esbuild และ Go runtime ใช้ single thread เพื่อเลี่ยงขีดจำกัด nproc บน cPanel
+// บังคับให้ Node.js, Vite, React และ esbuild รันในโหมด Production 100%
+process.env.NODE_ENV = 'production';
 process.env.GOMAXPROCS = '1';
 process.env.ESBUILD_WORKER_THREADS = '0';
 
@@ -15,34 +16,41 @@ async function runBuild() {
   
   try {
     await build({
-      // ปิดการโหลดไฟล์ config อัตโนมัติเพื่อเลี่ยงปัญหา Directory Traversal
+      mode: 'production',
       configFile: false,
       root: __dirname,
       base: './',
-      plugins: [react()],
+      plugins: [
+        react({
+          jsxRuntime: 'automatic'
+        })
+      ],
       define: {
         'process.env.NODE_ENV': JSON.stringify('production'),
+      },
+      esbuild: {
+        jsx: 'automatic',
+        jsxDev: false, // ห้ามใช้ jsxDEV เด็ดขาด เพื่อป้องกัน error r.jsxDEV is not a function ใน production
+        drop: ['debugger'],
       },
       build: {
         outDir: 'dist',
         emptyOutDir: true,
-        chunkSizeWarningLimit: 1000, // ขยายขีดจำกัดคำเตือนเป็น 1000kB
+        chunkSizeWarningLimit: 1500,
         commonjsOptions: {
           transformMixedEsModules: true
         },
         rollupOptions: {
           input: path.resolve(__dirname, 'index.html'),
           output: {
-            // แยก Library หลักๆ ออกเป็นไฟล์ต่างหากเพื่อลดขนาดไฟล์ index และลบคำเตือน
             manualChunks: {
-              'vendor-react': ['react', 'react-dom'],
+              'vendor-react': ['react', 'react-dom', 'react/jsx-runtime'],
               'vendor-ui': ['lucide-react', 'framer-motion'],
               'vendor-utils': ['xlsx', 'pdf-lib']
             }
           }
         }
       },
-      // บังคับให้ esbuild ทำงานเฉพาะในโฟลเดอร์นี้
       optimizeDeps: {
         esbuildOptions: {
           absWorkingDir: __dirname

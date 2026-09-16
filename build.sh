@@ -5,7 +5,8 @@ pkill -f "esbuild" 2>/dev/null
 pkill -f "vite" 2>/dev/null
 sleep 1
 
-echo "🚀 กำลังเริ่ม Build ระบบ SchoolOS (Single-Thread Mode)..."
+echo "🚀 กำลังเริ่ม Build ระบบ SchoolOS (Production Mode)..."
+export NODE_ENV=production
 export GOMAXPROCS=1
 export ESBUILD_WORKER_THREADS=0
 export NODE_OPTIONS="--max-old-space-size=1024"
