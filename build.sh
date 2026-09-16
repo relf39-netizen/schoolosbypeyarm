@@ -15,7 +15,9 @@ node build-app.js
 
 if [ $? -eq 0 ]; then
   echo "✅ Build สำเร็จเรียบร้อยแล้ว!"
-  echo "👉 อย่าลืมกดปุ่ม Restart ในหน้า Setup Node.js App บน cPanel ครับ"
+  # สั่ง Restart cPanel Node.js App อัตโนมัติผ่าน Passenger restart.txt
+  mkdir -p tmp && touch tmp/restart.txt
+  echo "🔄 ทำการ Restart Node.js App เรียบร้อยแล้ว (ผ่าน tmp/restart.txt)!"
 else
   echo "❌ หากยังติด thread limit กรุณาใช้ไฟล์ dist ที่ Build จาก GitHub ได้ทันทีโดยไม่ต้องรัน Build บนเซิร์ฟเวอร์ครับ"
 fi
