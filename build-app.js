@@ -1,7 +1,12 @@
-import { build } from 'vite'
-import react from '@vitejs/plugin-react'
 import path from 'path'
 import { fileURLToPath } from 'url'
+
+// บังคับให้ esbuild และ Go runtime ใช้ single thread เพื่อเลี่ยงขีดจำกัด nproc บน cPanel
+process.env.GOMAXPROCS = '1';
+process.env.ESBUILD_WORKER_THREADS = '0';
+
+import { build } from 'vite'
+import react from '@vitejs/plugin-react'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
