@@ -188,6 +188,7 @@ async function startServer() {
         roles JSON,
         signature_base_64 LONGTEXT,
         telegram_chat_id VARCHAR(255),
+        line_user_id VARCHAR(255),
         is_suspended BOOLEAN DEFAULT FALSE,
         is_approved BOOLEAN DEFAULT FALSE,
         assigned_classes JSON
@@ -664,6 +665,7 @@ async function startServer() {
       const neededConfigCols = [
         { name: 'line_channel_access_token', type: 'VARCHAR(500)' },
         { name: 'line_target_id', type: 'VARCHAR(255)' },
+        { name: 'line_bot_basic_id', type: 'VARCHAR(255)' },
         { name: 'notify_line_leave', type: 'BOOLEAN DEFAULT TRUE' },
         { name: 'notify_line_director_calendar', type: 'BOOLEAN DEFAULT TRUE' },
         { name: 'notify_telegram_leave', type: 'BOOLEAN DEFAULT TRUE' },
@@ -677,6 +679,18 @@ async function startServer() {
       }
     } catch (cfgErr) {
       console.error('[Migration Error] school_configs column migration failed:', cfgErr.message);
+    }
+
+    // Migration for profiles
+    try {
+      const profCols = await query("SHOW COLUMNS FROM profiles");
+      const profColNames = profCols.map(c => c.Field || c.column_name);
+      if (!profColNames.includes('line_user_id')) {
+        console.log('[Migration] Adding line_user_id to profiles...');
+        await query("ALTER TABLE profiles ADD COLUMN line_user_id VARCHAR(255)");
+      }
+    } catch (pErr) {
+      console.error('[Migration Error] profiles line_user_id migration failed:', pErr.message);
     }
 
     // Add default Super Admin
@@ -1215,13 +1229,13 @@ async function startServer() {
   });
 
   app.post('/api/profiles', async (req, res) => {
-    const { id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, is_suspended, is_approved, assigned_classes } = req.body;
+    const { id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, line_user_id, is_suspended, is_approved, assigned_classes } = req.body;
     try {
       await query(
-        'INSERT INTO profiles (id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, is_suspended, is_approved, assigned_classes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE school_id=?, name=?, password=?, position=?, roles=?, signature_base_64=?, telegram_chat_id=?, is_suspended=?, is_approved=?, assigned_classes=?',
+        'INSERT INTO profiles (id, school_id, name, password, position, roles, signature_base_64, telegram_chat_id, line_user_id, is_suspended, is_approved, assigned_classes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE school_id=?, name=?, password=?, position=?, roles=?, signature_base_64=?, telegram_chat_id=?, line_user_id=?, is_suspended=?, is_approved=?, assigned_classes=?',
         [
-          id, school_id, name, password, position, JSON.stringify(roles || []), signature_base_64, telegram_chat_id, is_suspended ? 1 : 0, is_approved ? 1 : 0, JSON.stringify(assigned_classes || []),
-          school_id, name, password, position, JSON.stringify(roles || []), signature_base_64, telegram_chat_id, is_suspended ? 1 : 0, is_approved ? 1 : 0, JSON.stringify(assigned_classes || [])
+          id, school_id, name, password, position, JSON.stringify(roles || []), signature_base_64, telegram_chat_id, line_user_id, is_suspended ? 1 : 0, is_approved ? 1 : 0, JSON.stringify(assigned_classes || []),
+          school_id, name, password, position, JSON.stringify(roles || []), signature_base_64, telegram_chat_id, line_user_id, is_suspended ? 1 : 0, is_approved ? 1 : 0, JSON.stringify(assigned_classes || [])
         ]
       );
       res.json({ success: true });
@@ -1677,6 +1691,141 @@ async function startServer() {
     } catch (err) {
       console.error('[LINE Error]', err);
       return res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // --- LINE Webhook & 1-Click Auto Link Handler ---
+  app.post('/api/line/webhook', async (req, res) => {
+    // Return HTTP 200 immediately to acknowledge LINE platform
+    res.status(200).send('OK');
+
+    try {
+      const events = req.body?.events || [];
+      if (!Array.isArray(events) || events.length === 0) return;
+
+      for (const event of events) {
+        const lineUserId = event?.source?.userId;
+        const replyToken = event?.replyToken;
+
+        // Fetch school configs to find Channel Access Token
+        let schoolToken = null;
+        try {
+          const [cfg] = await query('SELECT line_channel_access_token FROM school_configs WHERE line_channel_access_token IS NOT NULL AND line_channel_access_token != "" LIMIT 1');
+          if (cfg && cfg.line_channel_access_token) {
+            schoolToken = cfg.line_channel_access_token;
+          }
+        } catch (e) {
+          console.warn('[LINE Webhook] Failed to fetch channel access token:', e.message);
+        }
+
+        // Helper function to send reply message back to user
+        const replyMessage = async (textMessage) => {
+          if (!replyToken || !schoolToken) return;
+          try {
+            await fetch('https://api.line.me/v2/bot/message/reply', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${schoolToken}`
+              },
+              body: JSON.stringify({
+                replyToken,
+                messages: [{ type: 'text', text: textMessage }]
+              })
+            });
+          } catch (replyErr) {
+            console.error('[LINE Webhook Reply Error]', replyErr);
+          }
+        };
+
+        // Handle text messages (e.g. #ผูกLINE 3300600837116 or ผูกLINE:3300600837116 or 13-digit ID)
+        if (event.type === 'message' && event.message?.type === 'text') {
+          const rawText = (event.message.text || '').trim();
+          console.log(`[LINE Webhook] Received message from ${lineUserId}: "${rawText}"`);
+
+          const match = rawText.match(/(?:#ผูกLINE|ผูกLINE|LINK|CONNECT)[:\s]*([0-9]{13})/i) || rawText.match(/^([0-9]{13})$/);
+
+          if (match && match[1]) {
+            const citizenId = match[1].trim();
+            console.log(`[LINE Webhook] Linking citizenId [${citizenId}] with LINE User ID [${lineUserId}]`);
+
+            let teacher = null;
+            const [cUser] = await query('SELECT id, school_id, name FROM profiles WHERE id = ?', [citizenId]);
+            if (cUser) teacher = cUser;
+
+            if (teacher) {
+              await query('UPDATE profiles SET line_user_id = ? WHERE id = ?', [lineUserId, citizenId]);
+
+              if (teacher.school_id) {
+                try {
+                  const tenantPool = await getPoolForSchool(teacher.school_id);
+                  if (tenantPool) {
+                    await new Promise((resolve, reject) => {
+                      tenantPool.query('UPDATE profiles SET line_user_id = ? WHERE id = ?', [lineUserId, citizenId], (err, r) => {
+                        if (err) reject(err); else resolve(r);
+                      });
+                    });
+                  }
+                } catch (tErr) {
+                  console.warn('[LINE Webhook] Update tenant profile warning:', tErr.message);
+                }
+              }
+
+              console.log(`[LINE Webhook] Successfully linked LINE ID ${lineUserId} to ${teacher.name} (${citizenId})`);
+              await replyMessage(`✅ เชื่อมต่อสำเร็จ!\n\nยินดีต้อนรับ คุณ${teacher.name}\nระบบได้ผูกบัญชี LINE กับระบบ School-OS ของโรงเรียนเรียบร้อยแล้ว\n\nนับจากนี้ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาส่วนบุคคลผ่านช่องทางนี้โดยอัตโนมัติครับ 🟢`);
+            } else {
+              await replyMessage(`❌ ไม่พบข้อมูลผู้ใช้งาน\n\nไม่พบเลขประจำตัวประชาชน "${citizenId}" ในฐานข้อมูลของระบบ\nกรุณาตรวจสอบเลขประจำตัวประชาชนของท่าน หรือเข้าสู่ระบบ School-OS เพื่อตรวจสอบครับ`);
+            }
+          } else if (rawText.toLowerCase() === 'id' || rawText === 'รหัส' || rawText.toLowerCase() === 'userid') {
+            await replyMessage(`🆔 LINE User ID ของคุณคือ:\n${lineUserId}\n\n(ท่านสามารถนำรหัสนี้ไปใส่ในหน้าข้อมูลส่วนตัว หรือพิมพ์: #ผูกLINE ตามด้วยเลขบัตรประชาชน 13 หลัก เพื่อผูกอัตโนมัติได้เลยครับ)`);
+          } else {
+            await replyMessage(`👋 สวัสดีครับ ยินดีต้อนรับสู่ระบบแจ้งเตือนโรงเรียน (School-OS)\n\nหากต้องการเชื่อมต่อเพื่อรับการแจ้งเตือนส่วนบุคคล กรุณาพิมพ์:\n#ผูกLINE [เลขบัตรประชาชน 13 หลัก]\n\nเช่น:\n#ผูกLINE 3300600837116\n\nหรือกดปุ่มเชื่อมต่อจากเมนู "ข้อมูลของฉัน" ในระบบได้ทันทีครับ`);
+          }
+        }
+        
+        if (event.type === 'follow') {
+          console.log(`[LINE Webhook] User followed bot: ${lineUserId}`);
+          await replyMessage(`👋 ยินดีต้อนรับสู่ LINE Official Account ของโรงเรียนครับ!\n\nหากท่านเป็นครูหรือบุคลากร สามารถผูกบัญชีเพื่อรับแจ้งเตือนได้ง่ายๆ เพียงพิมพ์:\n#ผูกLINE [เลขบัตรประชาชน 13 หลัก]\n\nเช่น:\n#ผูกLINE 3300600837116\n\nเพื่อเชื่อมต่อระบบแจ้งเตือนอัตโนมัติครับ`);
+        }
+      }
+    } catch (err) {
+      console.error('[LINE Webhook Exception]', err);
+    }
+  });
+
+  // Direct 1-Click Link API from Web
+  app.post('/api/line/link-user', async (req, res) => {
+    try {
+      const { citizenId, lineUserId } = req.body;
+      if (!citizenId || !lineUserId) {
+        return res.status(400).json({ success: false, message: 'Citizen ID and LINE User ID required' });
+      }
+
+      const [cUser] = await query('SELECT id, school_id, name FROM profiles WHERE id = ?', [citizenId]);
+      if (!cUser) {
+        return res.status(404).json({ success: false, message: 'ไม่พบข้อมูลผู้ใช้งานนี้ในระบบ' });
+      }
+
+      await query('UPDATE profiles SET line_user_id = ? WHERE id = ?', [lineUserId.trim(), citizenId]);
+
+      if (cUser.school_id) {
+        try {
+          const tenantPool = await getPoolForSchool(cUser.school_id);
+          if (tenantPool) {
+            await new Promise((resolve, reject) => {
+              tenantPool.query('UPDATE profiles SET line_user_id = ? WHERE id = ?', [lineUserId.trim(), citizenId], (err, r) => {
+                if (err) reject(err); else resolve(r);
+              });
+            });
+          }
+        } catch (e) {
+          console.warn('[LINE Direct Link] Tenant update warning:', e.message);
+        }
+      }
+
+      res.json({ success: true, message: `ผูกบัญชี LINE กับคุณ ${cUser.name} เรียบร้อยแล้ว` });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 

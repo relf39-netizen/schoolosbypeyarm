@@ -203,6 +203,7 @@ export interface Teacher {
   isFirstLogin?: boolean; // True = ต้องเปลี่ยนรหัสผ่าน
   signatureBase64?: string; // User's signature for forms
   telegramChatId?: string; // Telegram Chat ID for notifications
+  lineUserId?: string; // LINE User ID for personal notifications (U...)
   // Fix: Added isSuspended to support account suspension logic
   isSuspended?: boolean;
   isApproved?: boolean;   // สถานะการอนุมัติเข้าใช้งาน
@@ -434,6 +435,7 @@ export interface SystemConfig {
   // LINE Official Account / Business Messaging API
   lineChannelAccessToken?: string; // LINE Channel Access Token
   lineTargetId?: string; // Target Group ID (C...) or User ID (U...)
+  lineBotBasicId?: string; // LINE OA Basic ID (e.g. @942tswpl) or Add Friend link
   notifyLineLeave?: boolean; // แจ้งเตือนการลาผ่าน LINE Business
   notifyLineDirectorCalendar?: boolean; // แจ้งเตือนปฏิทินปฏิบัติงาน ผอ. ผ่าน LINE Business
   notifyTelegramLeave?: boolean; // แจ้งเตือนการลาผ่าน Telegram

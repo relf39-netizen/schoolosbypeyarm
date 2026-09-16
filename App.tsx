@@ -108,7 +108,7 @@ const App: React.FC = () => {
                 const mappedTeachers: Teacher[] = profilesData.map((p: any) => ({
                     id: p.id, schoolId: p.school_id, name: p.name, password: p.password,
                     position: p.position, roles: (p.roles as TeacherRole[]) || [], 
-                    signatureBase64: p.signature_base_64, telegramChatId: p.telegram_chat_id,
+                    signatureBase64: p.signature_base_64, telegramChatId: p.telegram_chat_id, lineUserId: p.line_user_id,
                     isSuspended: !!p.is_suspended, 
                     isApproved: p.is_approved !== false && p.is_approved !== 0,
                     isActingDirector: ((p.roles as string[]) || [])?.includes('ACTING_DIRECTOR') || false,
@@ -154,7 +154,7 @@ const App: React.FC = () => {
                         const updatedList: Teacher[] = data.map((p: any) => ({
                             id: p.id, schoolId: p.school_id, name: p.name, password: p.password,
                             position: p.position, roles: (p.roles as TeacherRole[]) || [], 
-                            signatureBase64: p.signature_base_64, telegramChatId: p.telegram_chat_id,
+                            signatureBase64: p.signature_base_64, telegramChatId: p.telegram_chat_id, lineUserId: p.line_user_id,
                             isSuspended: p.is_suspended, isApproved: p.is_approved !== false,
                             isActingDirector: ((p.roles as string[]) || [])?.includes('ACTING_DIRECTOR') || false,
                             assignedClasses: Array.isArray(p.assigned_classes) ? p.assigned_classes : []
@@ -332,6 +332,7 @@ const App: React.FC = () => {
             roles: finalRoles,
             password: t.password, 
             telegram_chat_id: t.telegramChatId,
+            line_user_id: t.lineUserId,
             is_suspended: t.isSuspended || false, 
             is_approved: t.isApproved !== false,
             signature_base_64: t.signatureBase64,
@@ -652,6 +653,7 @@ const App: React.FC = () => {
                                                 roles: finalRoles,
                                                 signature_base_64: t.signatureBase64,
                                                 telegram_chat_id: t.telegramChatId,
+                                                line_user_id: t.lineUserId,
                                                 is_suspended: t.isSuspended || false,
                                                 is_approved: t.isApproved !== false,
                                                 assigned_classes: Array.isArray(t.assignedClasses) ? t.assignedClasses : []

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Teacher, SystemConfig } from '../types';
 import { ACADEMIC_POSITIONS } from '../constants';
-import { User, Lock, Save, UploadCloud, FileSignature, Briefcase, Eye, EyeOff, Loader, MessageCircle, Smartphone, CheckCircle, Zap, AlertCircle, Info } from 'lucide-react';
+import { User, Lock, Save, UploadCloud, FileSignature, Briefcase, Eye, EyeOff, Loader, MessageCircle, Smartphone, CheckCircle, Zap, AlertCircle, Info, Copy, MessageSquare } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
 interface UserProfileProps {
@@ -15,14 +15,19 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         position: currentUser.position,
         password: currentUser.password || '',
         id: currentUser.id,
-        telegramChatId: currentUser.telegramChatId || ''
+        telegramChatId: currentUser.telegramChatId || '',
+        lineUserId: currentUser.lineUserId || ''
     });
     const [signaturePreview, setSignaturePreview] = useState<string>(currentUser.signatureBase64 || '');
     const [showPassword, setShowPassword] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [botUsername, setBotUsername] = useState<string>('');
+    const [lineBotId, setLineBotId] = useState<string>('');
     const [isLoadingConfig, setIsLoadingConfig] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isRefreshingLine, setIsRefreshingLine] = useState(false);
+    const [isCopiedLine, setIsCopiedLine] = useState(false);
+    const [showManualLineInput, setShowManualLineInput] = useState(false);
 
     // Sync formData when currentUser prop changes (e.g. from realtime update)
     useEffect(() => {
@@ -30,32 +35,43 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
             ...prev,
             name: currentUser.name,
             position: currentUser.position,
-            telegramChatId: currentUser.telegramChatId || ''
+            telegramChatId: currentUser.telegramChatId || '',
+            lineUserId: currentUser.lineUserId || ''
         }));
         if (currentUser.signatureBase64) {
             setSignaturePreview(currentUser.signatureBase64);
         }
     }, [currentUser]);
 
-    // Interval check for Telegram link (since Realtime is mocked)
+    // Interval check for Telegram and LINE link
     useEffect(() => {
         let interval: any;
-        if (!currentUser.telegramChatId && botUsername) {
-            // Check status every 5 seconds if not linked
+        if ((!currentUser.telegramChatId && botUsername) || (!currentUser.lineUserId && lineBotId)) {
             interval = setInterval(async () => {
                 if (supabase) {
-                    const { data } = await supabase.from('profiles').select('telegram_chat_id').eq('id', currentUser.id).maybeSingle();
-                    if (data && data.telegram_chat_id) {
-                        onUpdateUser({ ...currentUser, telegramChatId: data.telegram_chat_id });
-                        clearInterval(interval);
+                    const { data } = await supabase.from('profiles').select('telegram_chat_id, line_user_id').eq('id', currentUser.id).maybeSingle();
+                    if (data) {
+                        let shouldUpdate = false;
+                        const updated = { ...currentUser };
+                        if (data.telegram_chat_id && data.telegram_chat_id !== currentUser.telegramChatId) {
+                            updated.telegramChatId = data.telegram_chat_id;
+                            shouldUpdate = true;
+                        }
+                        if (data.line_user_id && data.line_user_id !== currentUser.lineUserId) {
+                            updated.lineUserId = data.line_user_id;
+                            shouldUpdate = true;
+                        }
+                        if (shouldUpdate) {
+                            onUpdateUser(updated);
+                        }
                     }
                 }
-            }, 5000);
+            }, 4000);
         }
         return () => {
             if (interval) clearInterval(interval);
         };
-    }, [currentUser.telegramChatId, botUsername, currentUser.id]);
+    }, [currentUser.telegramChatId, currentUser.lineUserId, botUsername, lineBotId, currentUser.id]);
 
     const handleRefreshTelegram = async () => {
         setIsRefreshing(true);
@@ -82,21 +98,65 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         }
     };
 
+    const handleRefreshLine = async () => {
+        setIsRefreshingLine(true);
+        if (supabase) {
+            try {
+                const { data, error } = await supabase.from('profiles').select('line_user_id').eq('id', currentUser.id).maybeSingle();
+                if (error) throw error;
+                if (data) {
+                    onUpdateUser({ ...currentUser, lineUserId: data.line_user_id || '' });
+                    if (data.line_user_id) {
+                        alert("✅ ตรวจพบการเชื่อมต่อ LINE เรียบร้อยแล้วครับ!");
+                    } else {
+                        alert("ยังไม่พบการเชื่อมต่อ LINE กรุณากดปุ่ม 'กดเพื่อเชื่อมต่อ LINE ทันที' แล้วส่งข้อความใน LINE ครับ");
+                    }
+                }
+            } catch (err) {
+                console.error("Refresh line error:", err);
+                alert("ไม่สามารถตรวจสอบสถานะได้ในขณะนี้");
+            } finally {
+                setIsRefreshingLine(false);
+            }
+        } else {
+            setIsRefreshingLine(false);
+        }
+    };
+
+    const handleConnectLine = () => {
+        const linkCommand = `#ผูกLINE ${currentUser.id}`;
+        navigator.clipboard.writeText(linkCommand).catch(() => {});
+        setIsCopiedLine(true);
+        setTimeout(() => setIsCopiedLine(false), 8000);
+
+        if (lineBotId) {
+            const cleanId = lineBotId.replace('@', '').trim();
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            const lineUrl = `https://line.me/R/ti/p/@${cleanId}`;
+            
+            if (isMobile) {
+                window.location.href = lineUrl;
+            } else {
+                window.open(lineUrl, '_blank');
+            }
+        } else {
+            alert(`คัดลอกคำสั่ง: "${linkCommand}" เรียบร้อยแล้ว!\n\nกรุณาเปิด LINE Official Account ของโรงเรียน แล้วส่งข้อความนี้เพื่อเชื่อมต่อระบบครับ`);
+        }
+    };
+
     useEffect(() => {
         const loadBotConfig = async () => {
             if (supabase) {
                 try {
                     const { data, error } = await supabase
                         .from('school_configs')
-                        .select('telegram_bot_username')
+                        .select('telegram_bot_username, line_bot_basic_id')
                         .eq('school_id', currentUser.schoolId)
                         .maybeSingle();
                     
-                    if (data && data.telegram_bot_username) {
-                        setBotUsername(data.telegram_bot_username);
-                    } else {
-                        // Reset if no bot is configured for this specific school
-                        setBotUsername('');
+                    if (data) {
+                        if (data.telegram_bot_username) setBotUsername(data.telegram_bot_username);
+                        if (data.line_bot_basic_id) setLineBotId(data.line_bot_basic_id);
                     }
                 } catch (err) {
                     console.error("Error loading bot config:", err);
@@ -168,7 +228,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
             position: formData.position,
             password: formData.password,
             signatureBase64: signaturePreview,
-            telegramChatId: formData.telegramChatId
+            telegramChatId: formData.telegramChatId,
+            lineUserId: formData.lineUserId
         };
 
         try {
@@ -179,7 +240,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                     position: updated.position,
                     password: updated.password,
                     signature_base_64: updated.signatureBase64,
-                    telegram_chat_id: updated.telegramChatId
+                    telegram_chat_id: updated.telegramChatId,
+                    line_user_id: updated.lineUserId
                 }).eq('id', updated.id);
                 if (error) throw new Error(error.message);
             }
@@ -298,6 +360,97 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                                     <AlertCircle className="mx-auto text-amber-500" size={24}/>
                                     <p className="text-xs font-bold text-slate-600">แอดมินยังไม่ได้ตั้งค่า Username บอทให้โรงเรียนนี้ <br/>กรุณาแจ้งแอดมินโรงเรียนที่เมนู "การเชื่อมต่อ"</p>
                                 </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* LINE Official Account Section */}
+                    <div className="md:col-span-2 bg-emerald-50 p-6 rounded-2xl border border-emerald-200 space-y-4 relative overflow-hidden">
+                        <div className="flex justify-between items-start relative z-10">
+                            <div>
+                                <h4 className="font-bold text-emerald-900 flex items-center gap-2 mb-1">
+                                    <MessageSquare size={18} className="text-emerald-600"/> ระบบแจ้งเตือน LINE Official Account
+                                </h4>
+                                <p className="text-[11px] text-emerald-700">รับการแจ้งเตือนหนังสือราชการและการลาส่วนบุคคลผ่าน LINE อัตโนมัติ</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {currentUser.lineUserId ? (
+                                    <div className="bg-emerald-600 text-white px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-sm">
+                                        <CheckCircle size={12}/> เชื่อมต่อแล้ว
+                                    </div>
+                                ) : (
+                                    <div className="bg-slate-200 text-slate-500 px-3 py-1 rounded-full text-[10px] font-bold">ยังไม่ผูกบัญชี</div>
+                                )}
+                                <button 
+                                    type="button"
+                                    onClick={handleRefreshLine}
+                                    disabled={isRefreshingLine}
+                                    className="text-emerald-700 hover:text-emerald-900 flex items-center gap-1 text-[10px] font-bold bg-white/70 px-2 py-1 rounded-lg border border-emerald-200"
+                                >
+                                    <Zap size={12} className={isRefreshingLine ? 'animate-spin' : ''}/>
+                                    {isRefreshingLine ? 'กำลังตรวจ...' : 'รีเฟรชสถานะ'}
+                                </button>
+                            </div>
+                        </div>
+
+                        {!currentUser.lineUserId ? (
+                            <div className="p-4 bg-white/90 rounded-xl border border-dashed border-emerald-300 text-center space-y-3 relative z-10">
+                                <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                                    <MessageSquare size={20}/>
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-xs font-bold text-slate-700">เชื่อมต่อง่ายๆ เพียง 1 คลิก</p>
+                                    <p className="text-[11px] text-slate-500">
+                                        กดปุ่มด้านล่าง ระบบจะคัดลอกคำสั่ง <span className="font-mono font-bold text-emerald-700 bg-emerald-100 px-1 rounded">#ผูกLINE {currentUser.id}</span> ให้อัตโนมัติ แล้วเปิด LINE ให้ท่านกดส่งข้อความได้ทันที
+                                    </p>
+                                </div>
+                                
+                                {isCopiedLine && (
+                                    <div className="bg-emerald-100 text-emerald-800 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center justify-center gap-1">
+                                        <CheckCircle size={14}/> คัดลอกคำสั่งแล้ว! กำลังเปิด LINE โปรดวางแล้วกดส่งในแชทบอทครับ
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="space-y-1 relative z-10">
+                                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">My LINE User ID</label>
+                                <input disabled value={formData.lineUserId} className="w-full px-3 py-2 border rounded-lg bg-white font-mono text-sm font-bold text-emerald-700 shadow-sm"/>
+                            </div>
+                        )}
+
+                        <div className="flex flex-col sm:flex-row gap-2 relative z-10">
+                            <button 
+                                type="button" 
+                                onClick={handleConnectLine}
+                                disabled={isLoadingConfig}
+                                className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
+                            >
+                                {isLoadingConfig ? <Loader className="animate-spin" size={16}/> : <Zap size={16}/>} 
+                                {currentUser.lineUserId ? '🟢 อัปเดต/เชื่อมต่อ LINE ใหม่' : '🟢 กดเพื่อเชื่อมต่อ LINE ทันที (คลิกเดียว)'}
+                            </button>
+
+                            <button 
+                                type="button"
+                                onClick={() => setShowManualLineInput(!showManualLineInput)}
+                                className="px-4 py-3 bg-white text-slate-600 border border-emerald-300 rounded-xl font-medium text-xs hover:bg-emerald-50 transition-colors"
+                            >
+                                {showManualLineInput ? 'ซ่อนการระบุเอง' : 'ระบุ ID เอง'}
+                            </button>
+                        </div>
+
+                        {showManualLineInput && (
+                            <div className="p-3 bg-white rounded-xl border border-emerald-200 space-y-2 relative z-10">
+                                <label className="block text-xs font-bold text-slate-700">กรอก LINE User ID (ขึ้นต้นด้วย U...)</label>
+                                <div className="flex gap-2">
+                                    <input 
+                                        type="text" 
+                                        placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                                        value={formData.lineUserId}
+                                        onChange={e => setFormData({ ...formData, lineUserId: e.target.value.trim() })}
+                                        className="flex-1 px-3 py-1.5 border rounded-lg font-mono text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                                    />
+                                </div>
+                                <p className="text-[10px] text-slate-400">* ท่านสามารถดู User ID ได้โดยการส่งคำว่า "id" ไปใน LINE Official Account ของโรงเรียน</p>
                             </div>
                         )}
                     </div>

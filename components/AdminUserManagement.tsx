@@ -262,6 +262,7 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
         appBaseUrl: '',
         lineChannelAccessToken: '',
         lineTargetId: '',
+        lineBotBasicId: '',
         notifyLineLeave: true,
         notifyLineDirectorCalendar: true,
         notifyTelegramLeave: true,
@@ -499,6 +500,7 @@ function setTelegramWebhook() {
                              schoolName: currentSchool.name,
                              lineChannelAccessToken: data.line_channel_access_token || '',
                              lineTargetId: data.line_target_id || '',
+                             lineBotBasicId: data.line_bot_basic_id || '',
                              notifyLineLeave: data.notify_line_leave !== undefined && data.notify_line_leave !== null ? Boolean(data.notify_line_leave) : true,
                              notifyLineDirectorCalendar: data.notify_line_director_calendar !== undefined && data.notify_line_director_calendar !== null ? Boolean(data.notify_line_director_calendar) : true,
                              notifyTelegramLeave: data.notify_telegram_leave !== undefined && data.notify_telegram_leave !== null ? Boolean(data.notify_telegram_leave) : true,
@@ -521,6 +523,7 @@ function setTelegramWebhook() {
                             appBaseUrl: '',
                             lineChannelAccessToken: '',
                             lineTargetId: '',
+                            lineBotBasicId: '',
                             notifyLineLeave: true,
                             notifyLineDirectorCalendar: true,
                             notifyTelegramLeave: true,
@@ -1260,6 +1263,7 @@ function setTelegramWebhook() {
                 director_signature_y_offset: config.directorSignatureYOffset,
                 line_channel_access_token: config.lineChannelAccessToken || '',
                 line_target_id: config.lineTargetId || '',
+                line_bot_basic_id: config.lineBotBasicId || '',
                 notify_line_leave: config.notifyLineLeave !== false,
                 notify_line_director_calendar: config.notifyLineDirectorCalendar !== false,
                 notify_telegram_leave: config.notifyTelegramLeave !== false,
@@ -2007,7 +2011,23 @@ function setTelegramWebhook() {
                                             </div>
                                             <div className="space-y-1">
                                                 <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                                                    Target ID (User ID: U... หรือ Group ID: C...)
+                                                    LINE Official Account Basic ID (ID ของบอทโรงเรียน)
+                                                </label>
+                                                <input 
+                                                    type="text" 
+                                                    value={config.lineBotBasicId || ''} 
+                                                    onChange={e => setConfig({...config, lineBotBasicId: e.target.value})} 
+                                                    className="w-full px-4 py-2 border border-slate-100 focus:border-emerald-500 rounded-lg font-mono text-xs bg-slate-50 outline-none shadow-inner" 
+                                                    placeholder="@xxxxxxxx (เช่น @012abcde)"
+                                                />
+                                                <p className="text-[10px] text-slate-400 ml-1">
+                                                    * ใส่ Basic ID เพื่อให้ครูกดปุ่มเชื่อมต่อ LINE อัตโนมัติในหน้าข้อมูลส่วนตัวได้ทันที
+                                                </p>
+                                            </div>
+
+                                            <div className="space-y-1">
+                                                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                                                    Target ID แอดมิน/กลุ่มกลาง (User ID: U... หรือ Group ID: C...)
                                                 </label>
                                                 <input 
                                                     type="text" 
@@ -2017,6 +2037,30 @@ function setTelegramWebhook() {
                                                     placeholder="U12345678... หรือ C12345678..."
                                                 />
                                             </div>
+
+                                            <div className="p-3 bg-emerald-50/70 rounded-xl border border-emerald-200 text-[10px] text-emerald-800 space-y-1.5">
+                                                <div className="flex items-center justify-between font-bold">
+                                                    <span className="flex items-center gap-1"><Zap size={13} className="text-emerald-600"/> Webhook URL สำหรับผูก LINE อัตโนมัติ:</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const wh = `${window.location.origin}/api/line/webhook`;
+                                                            navigator.clipboard.writeText(wh);
+                                                            alert(`คัดลอก Webhook URL เรียบร้อยแล้ว:\n${wh}\n\nนำไปใส่ใน LINE Developers Console -> Messaging API -> Webhook URL แล้วเปิด Use webhook`);
+                                                        }}
+                                                        className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[9px] hover:bg-emerald-700"
+                                                    >
+                                                        คัดลอก Webhook URL
+                                                    </button>
+                                                </div>
+                                                <p className="font-mono text-[10px] bg-white p-1.5 rounded border border-emerald-200 text-slate-700 select-all break-all">
+                                                    {typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook` : '/api/line/webhook'}
+                                                </p>
+                                                <p className="text-[10px] text-emerald-700">
+                                                    นำ URL นี้ไปใส่ที่ <b>LINE Developers &gt; Messaging API &gt; Webhook URL</b> และกด <b>Verify</b> + เปิด <b>Use webhook</b> ครูจะสามารถพิมพ์ <span className="font-mono font-bold">#ผูกLINE [เลข13หลัก]</span> เพื่อผูกบัญชีได้ทันที!
+                                                </p>
+                                            </div>
+
                                             <button 
                                                 type="button"
                                                 onClick={handleTestLineNotification}
