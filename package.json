@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node server.js",
-    "build": "vite build",
+    "build": "node build-app.js",
     "start": "node server.js",
     "lint": "tsc --noEmit",
     "preview": "vite preview"
