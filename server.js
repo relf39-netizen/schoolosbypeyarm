@@ -210,6 +210,7 @@ async function startServer() {
           director_signature_y_offset FLOAT DEFAULT 0,
           line_channel_access_token VARCHAR(500),
           line_target_id VARCHAR(255),
+          telegram_target_id VARCHAR(255),
           notify_line_leave BOOLEAN DEFAULT TRUE,
           notify_line_director_calendar BOOLEAN DEFAULT TRUE,
           notify_telegram_leave BOOLEAN DEFAULT TRUE,
@@ -531,6 +532,7 @@ async function startServer() {
             { name: 'line_channel_access_token', type: 'VARCHAR(500)' },
             { name: 'line_target_id', type: 'VARCHAR(255)' },
             { name: 'line_bot_basic_id', type: 'VARCHAR(255)' },
+            { name: 'telegram_target_id', type: 'VARCHAR(255)' },
             { name: 'notify_line_leave', type: 'BOOLEAN DEFAULT TRUE' },
             { name: 'notify_line_director_calendar', type: 'BOOLEAN DEFAULT TRUE' },
             { name: 'notify_telegram_leave', type: 'BOOLEAN DEFAULT TRUE' },
@@ -1342,81 +1344,122 @@ async function startServer() {
 
       const { text, chat } = update.message;
       const chatId = chat.id.toString();
+      const rawText = (text || '').trim();
 
-      // Handle /start [userId]
-      if (text.startsWith('/start')) {
-        const parts = text.split(' ');
-        if (parts.length > 1) {
-          const userId = parts[1].trim();
-          const userLinkKey = `${token}_${userId}_${chatId}`;
+      // Find school_id for this bot token
+      const [cfg] = await query('SELECT school_id FROM school_configs WHERE telegram_bot_token = ?', [token]);
+      const schoolId = cfg ? cfg.school_id : null;
 
-          const lastLinkTs = processedUserTelegramLinks.get(userLinkKey);
-          if (lastLinkTs && Date.now() - lastLinkTs < 60000) {
-            console.log(`[Telegram] User link ${userLinkKey} processed within 60s. Skipping duplicate message.`);
-            return;
+      // Helper function to link a user by citizenId
+      const linkUserByCitizenId = async (citizenId) => {
+        let user = null;
+        let tenantPool = null;
+        if (schoolId) {
+          try {
+            tenantPool = await getPoolForSchool(schoolId);
+            const [tUser] = await new Promise((resolve, reject) => {
+              tenantPool.query('SELECT id, name, telegram_chat_id FROM profiles WHERE id = ?', [citizenId], (err, rows) => {
+                if (err) reject(err); else resolve(rows);
+              });
+            });
+            if (tUser) user = tUser;
+          } catch (e) {
+            console.warn('[Telegram] Error querying tenant pool:', e.message);
           }
+        }
 
-          console.log(`[Telegram] User ID [${userId}] linking with Chat ID [${chatId}]`);
+        if (!user) {
+          const [cUser] = await query('SELECT id, name, telegram_chat_id, school_id FROM profiles WHERE id = ?', [citizenId]);
+          if (cUser) user = cUser;
+        }
 
-          // Find school_id for this bot token
-          const [cfg] = await query('SELECT school_id FROM school_configs WHERE telegram_bot_token = ?', [token]);
-          const schoolId = cfg ? cfg.school_id : null;
+        if (user) {
+          // Update central DB
+          await query('UPDATE profiles SET telegram_chat_id = ? WHERE id = ?', [chatId, citizenId]);
 
-          let user = null;
-          let tenantPool = null;
-          if (schoolId) {
+          // Update tenant DB if exists
+          if (tenantPool) {
             try {
-              tenantPool = await getPoolForSchool(schoolId);
-              const [tUser] = await new Promise((resolve, reject) => {
-                tenantPool.query('SELECT id, name, telegram_chat_id FROM profiles WHERE id = ?', [userId], (err, rows) => {
-                  if (err) reject(err); else resolve(rows);
+              await new Promise((resolve, reject) => {
+                tenantPool.query('UPDATE profiles SET telegram_chat_id = ? WHERE id = ?', [chatId, citizenId], (err, res) => {
+                  if (err) reject(err); else resolve(res);
                 });
               });
-              if (tUser) user = tUser;
             } catch (e) {
-              console.warn('[Telegram] Error querying tenant pool:', e.message);
+              console.warn('[Telegram] Error updating tenant profile:', e.message);
             }
-          }
-
-          if (!user) {
-            const [cUser] = await query('SELECT id, name, telegram_chat_id FROM profiles WHERE id = ?', [userId]);
-            if (cUser) user = cUser;
-          }
-
-          if (user) {
-            if (user.telegram_chat_id === chatId) {
-              console.log(`[Telegram] Chat ID ${chatId} already linked to user ${user.name} (${userId}). Skipping duplicate notification.`);
-              return;
-            }
-
-            processedUserTelegramLinks.set(userLinkKey, Date.now());
-
-            // Update profile in central DB
-            await query('UPDATE profiles SET telegram_chat_id = ? WHERE id = ?', [chatId, userId]);
-
-            // Update profile in tenant DB if exists
-            if (tenantPool) {
-              try {
+          } else if (user.school_id) {
+            try {
+              const tPool = await getPoolForSchool(user.school_id);
+              if (tPool) {
                 await new Promise((resolve, reject) => {
-                  tenantPool.query('UPDATE profiles SET telegram_chat_id = ? WHERE id = ?', [chatId, userId], (err, res) => {
+                  tPool.query('UPDATE profiles SET telegram_chat_id = ? WHERE id = ?', [chatId, citizenId], (err, res) => {
                     if (err) reject(err); else resolve(res);
                   });
                 });
-              } catch (e) {
-                console.warn('[Telegram] Error updating tenant profile:', e.message);
               }
+            } catch (e) {
+              console.warn('[Telegram] Error updating user school tenant:', e.message);
             }
-
-            console.log(`[Telegram] Successfully linked Chat ID ${chatId} to user ${user.name} (${userId})`);
-            await sendTelegramMessage(token, chatId, `✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nบัญชีของท่าน (คุณ${user.name}) ได้รับการผูกกับระบบโรงเรียนเรียบร้อยแล้ว ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาผ่านช่องทางนี้ครับ`);
-          } else {
-            console.warn(`[Telegram] User ID ${userId} not found in database`);
-            await sendTelegramMessage(token, chatId, `❌ <b>ไม่พบข้อมูลผู้ใช้งาน</b>\n\nไม่พบรหัสผู้ใช้งาน "${userId}" ในระบบ\n\n<b>วิธีแก้ไข:</b>\n1. ตรวจสอบว่าท่านเข้าสู่ระบบในแอปแล้ว\n2. ลองกดปุ่มเชื่อมต่อจากเมนู "ข้อมูลส่วนตัว" อีกครั้งครับ`);
           }
+
+          console.log(`[Telegram] Successfully linked Chat ID ${chatId} to user ${user.name} (${citizenId})`);
+          await sendTelegramMessage(token, chatId, `✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nยินดีต้อนรับ คุณ<b>${user.name}</b>\nบัญชีของท่านได้รับการผูกกับระบบโรงเรียน (SchoolOS) เรียบร้อยแล้ว\n\nท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาส่วนบุคคลผ่านช่องทางนี้ครับ 🟢`);
+          return true;
         } else {
-          await sendTelegramMessage(token, chatId, `👋 <b>ยินดีต้อนรับสู่ระบบแจ้งเตือน!</b>\n\nกรุณาเริ่มการเชื่อมต่อจากเมนู "ข้อมูลส่วนตัว" ภายในแอปพลิเคชัน เพื่อผูกบัญชีของท่านครับ`);
+          console.warn(`[Telegram] User ID ${citizenId} not found in database`);
+          await sendTelegramMessage(token, chatId, `❌ <b>ไม่พบข้อมูลผู้ใช้งาน</b>\n\nไม่พบเลขประจำตัวประชาชน "${citizenId}" ในฐานข้อมูลของโรงเรียน\n\n<b>วิธีแก้ไข:</b>\n1. ตรวจสอบว่าเลขบัตรประชาชน 13 หลักถูกต้อง\n2. หรือไปที่เมนู <b>"ข้อมูลส่วนตัว"</b> ในระบบ แล้วกรอก Telegram Chat ID: <code>${chatId}</code> โดยตรงได้เลยครับ`);
+          return false;
         }
+      };
+
+      // Check for 13-digit linking command: /start [13-digits], #ผูก [13-digits], or direct 13-digit number
+      const linkMatch = rawText.match(/^\/start\s+([0-9]{13})$/) || 
+                         rawText.match(/(?:#ผูกLINE|#ผูก|ผูกLINE|ผูก|LINK|CONNECT)[:\s]*([0-9]{13})/i) || 
+                         rawText.match(/^([0-9]{13})$/);
+
+      if (linkMatch && linkMatch[1]) {
+        const citizenId = linkMatch[1].trim();
+        const userLinkKey = `${token}_${citizenId}_${chatId}`;
+        const lastLinkTs = processedUserTelegramLinks.get(userLinkKey);
+        if (lastLinkTs && Date.now() - lastLinkTs < 30000) {
+          console.log(`[Telegram] User link ${userLinkKey} processed within 30s. Skipping duplicate.`);
+          return;
+        }
+        processedUserTelegramLinks.set(userLinkKey, Date.now());
+        await linkUserByCitizenId(citizenId);
+        return;
       }
+
+      // Check for user requesting their Chat ID: /id, id, myid, รหัส
+      if (/^(\/id|\/myid|id|myid|รหัส|userid)$/i.test(rawText)) {
+        await sendTelegramMessage(token, chatId, `🆔 <b>Telegram Chat ID ของท่านคือ:</b>\n<code>${chatId}</code>\n\n📌 <b>วิธีผูกบัญชี:</b>\n1. คัดลอกเลขนี้ไปวางในเมนู <b>"ข้อมูลส่วนตัว"</b> ในระบบ\n2. หรือพิมพ์เลขบัตรประชาชน 13 หลักส่งมาที่นี่ เพื่อผูกอัตโนมัติได้ทันทีครับ`);
+        return;
+      }
+
+      // Handle standard /start without parameters or unknown command
+      if (rawText.startsWith('/start') || rawText.toLowerCase() === 'hi' || rawText.toLowerCase() === 'hello' || rawText === 'สวัสดี') {
+        await sendTelegramMessage(
+          token, 
+          chatId, 
+          `👋 <b>ยินดีต้อนรับสู่ระบบแจ้งเตือนโรงเรียน (SchoolOS)</b>\n\n` +
+          `📌 <b>Telegram Chat ID ของท่านคือ:</b> <code>${chatId}</code>\n\n` +
+          `<b>วิธีผูกบัญชีเพื่อรับแจ้งเตือน:</b>\n` +
+          `• <b>วิธีที่ 1:</b> พิมพ์เลขบัตรประชาชน 13 หลักของท่านส่งมาในแชทนี้ได้ทันที\n` +
+          `• <b>วิธีที่ 2:</b> คัดลอก Chat ID ด้านบน ไปวางในระบบที่เมนู <b>"ข้อมูลส่วนตัว"</b> แล้วกดบันทึก\n\n` +
+          `<i>หากเป็นแอดมินหรือกลุ่มแจ้งเตือน สามารถนำ ID นี้ไปใส่ในช่อง 'Target ID แอดมิน / กลุ่ม Telegram' ในหน้าการตั้งค่าได้เลยครับ</i>`
+        );
+        return;
+      }
+
+      // Fallback response for other messages
+      await sendTelegramMessage(
+        token, 
+        chatId, 
+        `💡 <b>คำแนะนำการใช้งาน:</b>\n` +
+        `• พิมพ์เลขบัตรประชาชน 13 หลัก เพื่อผูกบัญชีอัตโนมัติ\n` +
+        `• พิมพ์ <code>id</code> เพื่อดู Telegram Chat ID ของท่าน (ปัจจุบันคือ: <code>${chatId}</code>)`
+      );
     } catch (err) {
       console.error('[Telegram] Error processing webhook:', err);
     }
@@ -1566,11 +1609,17 @@ async function startServer() {
   });
 
   // --- LINE Webhook & 1-Click Auto Link Handler ---
-  app.post('/api/line/webhook', async (req, res) => {
+  app.all(['/api/line/webhook', '/api/line/webhook/:schoolId'], async (req, res) => {
+    // If health check / browser visit via GET
+    if (req.method === 'GET') {
+      return res.status(200).json({ status: 'ok', message: 'LINE Webhook endpoint is active and ready.' });
+    }
+
     // Return HTTP 200 immediately to acknowledge LINE platform
     res.status(200).send('OK');
 
     try {
+      const { schoolId: paramSchoolId } = req.params;
       const events = req.body?.events || [];
       if (!Array.isArray(events) || events.length === 0) return;
 
@@ -1578,43 +1627,70 @@ async function startServer() {
         const lineUserId = event?.source?.userId;
         const replyToken = event?.replyToken;
 
+        // Skip LINE dummy test tokens during webhook verify
+        if (replyToken === '00000000000000000000000000000000' || replyToken === 'ffffffffffffffffffffffffffffffff') {
+          console.log('[LINE Webhook] Received verification test ping from LINE Developers Console.');
+          continue;
+        }
+
         // Fetch school configs to find Channel Access Token
         let schoolToken = null;
         try {
-          const [cfg] = await query('SELECT line_channel_access_token FROM school_configs WHERE line_channel_access_token IS NOT NULL AND line_channel_access_token != "" LIMIT 1');
-          if (cfg && cfg.line_channel_access_token) {
-            schoolToken = cfg.line_channel_access_token;
+          if (paramSchoolId) {
+            const [cfg] = await query('SELECT line_channel_access_token FROM school_configs WHERE school_id = ? AND line_channel_access_token IS NOT NULL AND line_channel_access_token != ""', [paramSchoolId]);
+            if (cfg && cfg.line_channel_access_token) {
+              schoolToken = cfg.line_channel_access_token;
+            }
+          }
+          if (!schoolToken) {
+            const [cfg] = await query('SELECT line_channel_access_token FROM school_configs WHERE line_channel_access_token IS NOT NULL AND line_channel_access_token != "" ORDER BY id DESC LIMIT 1');
+            if (cfg && cfg.line_channel_access_token) {
+              schoolToken = cfg.line_channel_access_token;
+            }
           }
         } catch (e) {
           console.warn('[LINE Webhook] Failed to fetch channel access token:', e.message);
         }
 
         // Helper function to send reply message back to user
-        const replyMessage = async (textMessage) => {
-          if (!replyToken || !schoolToken) return;
+        const replyMessage = async (textMessage, overrideToken = null) => {
+          const tokenToUse = overrideToken || schoolToken;
+          if (!replyToken || !tokenToUse) {
+            console.warn('[LINE Webhook] Cannot reply: replyToken or schoolToken missing. tokenToUse exists?', !!tokenToUse);
+            return;
+          }
           try {
-            await fetch('https://api.line.me/v2/bot/message/reply', {
+            const replyRes = await fetch('https://api.line.me/v2/bot/message/reply', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${schoolToken}`
+                'Authorization': `Bearer ${tokenToUse}`
               },
               body: JSON.stringify({
                 replyToken,
                 messages: [{ type: 'text', text: textMessage }]
               })
             });
+
+            if (!replyRes.ok) {
+              const errBody = await replyRes.text();
+              console.error('[LINE Webhook Reply Error]', replyRes.status, errBody);
+            } else {
+              console.log(`[LINE Webhook Reply Success] Replied to user ${lineUserId}`);
+            }
           } catch (replyErr) {
-            console.error('[LINE Webhook Reply Error]', replyErr);
+            console.error('[LINE Webhook Reply Exception]', replyErr);
           }
         };
 
-        // Handle text messages (e.g. #ผูกLINE 3300600837116 or ผูกLINE:3300600837116 or 13-digit ID)
+        // Handle text messages (e.g. #ผูกLINE 3300600837116, #ผูก 3300600837116, or 13-digit ID)
         if (event.type === 'message' && event.message?.type === 'text') {
           const rawText = (event.message.text || '').trim();
           console.log(`[LINE Webhook] Received message from ${lineUserId}: "${rawText}"`);
 
-          const match = rawText.match(/(?:#ผูกLINE|ผูกLINE|LINK|CONNECT)[:\s]*([0-9]{13})/i) || rawText.match(/^([0-9]{13})$/);
+          const match = rawText.match(/(?:#ผูกLINE|#ผูกไลน์|#ผูก|ผูกLINE|ผูกไลน์|ผูก|LINK|CONNECT)[\s:]*([0-9]{13})/i) || 
+                        rawText.match(/^([0-9]{13})$/) ||
+                        rawText.match(/([0-9]{13})/);
 
           if (match && match[1]) {
             const citizenId = match[1].trim();
@@ -1624,9 +1700,46 @@ async function startServer() {
             const [cUser] = await query('SELECT id, school_id, name FROM profiles WHERE id = ?', [citizenId]);
             if (cUser) teacher = cUser;
 
+            // If not found in central DB, try to search in tenant DBs
+            if (!teacher) {
+              try {
+                const schools = await query('SELECT id FROM schools');
+                for (const sch of schools) {
+                  const tPool = await getPoolForSchool(sch.id);
+                  if (tPool) {
+                    const [tUser] = await new Promise((resolve) => {
+                      tPool.query('SELECT id, school_id, name FROM profiles WHERE id = ?', [citizenId], (err, rows) => {
+                        resolve(rows || []);
+                      });
+                    });
+                    if (tUser) {
+                      teacher = { ...tUser, school_id: sch.id };
+                      break;
+                    }
+                  }
+                }
+              } catch (schErr) {
+                console.warn('[LINE Webhook] Error searching schools for teacher:', schErr.message);
+              }
+            }
+
             if (teacher) {
+              // If teacher has a specific school, try to retrieve that school's token
+              if (teacher.school_id) {
+                try {
+                  const [tCfg] = await query('SELECT line_channel_access_token FROM school_configs WHERE school_id = ? AND line_channel_access_token IS NOT NULL AND line_channel_access_token != ""', [teacher.school_id]);
+                  if (tCfg && tCfg.line_channel_access_token) {
+                    schoolToken = tCfg.line_channel_access_token;
+                  }
+                } catch (tCfgErr) {
+                  console.warn('[LINE Webhook] Error querying teacher school config:', tCfgErr.message);
+                }
+              }
+
+              // Update central DB
               await query('UPDATE profiles SET line_user_id = ? WHERE id = ?', [lineUserId, citizenId]);
 
+              // Update tenant DB
               if (teacher.school_id) {
                 try {
                   const tenantPool = await getPoolForSchool(teacher.school_id);
@@ -1643,20 +1756,20 @@ async function startServer() {
               }
 
               console.log(`[LINE Webhook] Successfully linked LINE ID ${lineUserId} to ${teacher.name} (${citizenId})`);
-              await replyMessage(`✅ เชื่อมต่อสำเร็จ!\n\nยินดีต้อนรับ คุณ${teacher.name}\nระบบได้ผูกบัญชี LINE กับระบบ School-OS ของโรงเรียนเรียบร้อยแล้ว\n\nนับจากนี้ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาส่วนบุคคลผ่านช่องทางนี้โดยอัตโนมัติครับ 🟢`);
+              await replyMessage(`✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nยินดีต้อนรับ คุณ<b>${teacher.name}</b>\nระบบได้ผูกบัญชี LINE กับระบบ School-OS ของโรงเรียนเรียบร้อยแล้ว\n\nนับจากนี้ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาส่วนบุคคลผ่านช่องทางนี้โดยอัตโนมัติครับ 🟢`);
             } else {
-              await replyMessage(`❌ ไม่พบข้อมูลผู้ใช้งาน\n\nไม่พบเลขประจำตัวประชาชน "${citizenId}" ในฐานข้อมูลของระบบ\nกรุณาตรวจสอบเลขประจำตัวประชาชนของท่าน หรือเข้าสู่ระบบ School-OS เพื่อตรวจสอบครับ`);
+              await replyMessage(`❌ <b>ไม่พบข้อมูลผู้ใช้งาน</b>\n\nไม่พบเลขประจำตัวประชาชน "${citizenId}" ในฐานข้อมูลของระบบ\n\n<b>คำแนะนำ:</b>\n1. ตรวจสอบเลขประจำตัวประชาชน 13 หลัก\n2. หรือเข้าสู่ระบบ School-OS แล้วไปที่เมนู "ข้อมูลส่วนตัว" เพื่อกรอก LINE User ID: ${lineUserId} โดยตรงได้เลยครับ`);
             }
-          } else if (rawText.toLowerCase() === 'id' || rawText === 'รหัส' || rawText.toLowerCase() === 'userid') {
-            await replyMessage(`🆔 LINE User ID ของคุณคือ:\n${lineUserId}\n\n(ท่านสามารถนำรหัสนี้ไปใส่ในหน้าข้อมูลส่วนตัว หรือพิมพ์: #ผูกLINE ตามด้วยเลขบัตรประชาชน 13 หลัก เพื่อผูกอัตโนมัติได้เลยครับ)`);
+          } else if (/^(id|userid|myid|รหัส)$/i.test(rawText)) {
+            await replyMessage(`🆔 <b>LINE User ID ของท่านคือ:</b>\n${lineUserId}\n\n(ท่านสามารถนำรหัสนี้ไปใส่ในหน้าข้อมูลส่วนตัว หรือพิมพ์: #ผูกLINE ตามด้วยเลขบัตรประชาชน 13 หลัก เพื่อผูกอัตโนมัติได้เลยครับ)`);
           } else {
-            await replyMessage(`👋 สวัสดีครับ ยินดีต้อนรับสู่ระบบแจ้งเตือนโรงเรียน (School-OS)\n\nหากต้องการเชื่อมต่อเพื่อรับการแจ้งเตือนส่วนบุคคล กรุณาพิมพ์:\n#ผูกLINE [เลขบัตรประชาชน 13 หลัก]\n\nเช่น:\n#ผูกLINE 3300600837116\n\nหรือกดปุ่มเชื่อมต่อจากเมนู "ข้อมูลของฉัน" ในระบบได้ทันทีครับ`);
+            await replyMessage(`👋 สวัสดีครับ ยินดีต้อนรับสู่ระบบแจ้งเตือนโรงเรียน (School-OS)\n\n📌 <b>LINE User ID ของท่านคือ:</b>\n${lineUserId}\n\n<b>หากต้องการเชื่อมต่อเพื่อรับแจ้งเตือน กรุณาพิมพ์:</b>\n#ผูกLINE [เลขบัตรประชาชน 13 หลัก]\n\nเช่น:\n#ผูกLINE 3300600837116\n\nหรือกดปุ่มเชื่อมต่อจากเมนู "ข้อมูลของฉัน" ในระบบได้ทันทีครับ`);
           }
         }
         
         if (event.type === 'follow') {
           console.log(`[LINE Webhook] User followed bot: ${lineUserId}`);
-          await replyMessage(`👋 ยินดีต้อนรับสู่ LINE Official Account ของโรงเรียนครับ!\n\nหากท่านเป็นครูหรือบุคลากร สามารถผูกบัญชีเพื่อรับแจ้งเตือนได้ง่ายๆ เพียงพิมพ์:\n#ผูกLINE [เลขบัตรประชาชน 13 หลัก]\n\nเช่น:\n#ผูกLINE 3300600837116\n\nเพื่อเชื่อมต่อระบบแจ้งเตือนอัตโนมัติครับ`);
+          await replyMessage(`👋 ยินดีต้อนรับสู่ LINE Official Account ของโรงเรียนครับ!\n\n📌 <b>LINE User ID ของท่านคือ:</b>\n${lineUserId}\n\nหากท่านเป็นครูหรือบุคลากร สามารถผูกบัญชีเพื่อรับแจ้งเตือนได้ง่ายๆ เพียงพิมพ์:\n#ผูกLINE [เลขบัตรประชาชน 13 หลัก]\n\nเช่น:\n#ผูกLINE 3300600837116\n\nเพื่อเชื่อมต่อระบบแจ้งเตือนอัตโนมัติครับ`);
         }
       }
     } catch (err) {
@@ -1734,6 +1847,88 @@ async function startServer() {
 
       return res.json({ success: true, message: 'ส่งข้อความทดสอบสำเร็จ' });
     } catch (err) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // --- Telegram Test Route ---
+  app.post('/api/telegram/test', async (req, res) => {
+    try {
+      const { botToken, targetId, schoolId } = req.body;
+      let token = botToken;
+      let chat = targetId;
+
+      if ((!token || !chat) && schoolId) {
+        const [cfg] = await query('SELECT telegram_bot_token, telegram_target_id FROM school_configs WHERE school_id = ?', [schoolId]);
+        if (cfg) {
+          token = token || cfg.telegram_bot_token;
+          chat = chat || cfg.telegram_target_id;
+        }
+      }
+
+      if (!token) {
+        return res.status(400).json({ success: false, message: 'กรุณาระบุ Telegram Bot Token' });
+      }
+      if (!chat) {
+        return res.status(400).json({ success: false, message: 'กรุณาระบุ Telegram Target ID (Chat ID หรือ Group ID)' });
+      }
+
+      const testMsg = `🟢 <b>ทดสอบการเชื่อมต่อระบบโรงเรียน (SchoolOS)</b>\n\nการเชื่อมต่อระหว่างระบบกับ Telegram Bot สำเร็จเรียบร้อยแล้ว!\nช่องทางนี้พร้อมรับการแจ้งเตือนงานสารบรรณ วาระ ผอ. และการลาของบุคลากรครับ 🚀\n\n<i>เวลาทดสอบ: ${new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}</i>`;
+
+      const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chat,
+          text: testMsg,
+          parse_mode: 'HTML'
+        })
+      });
+
+      const tgData = await tgRes.json().catch(() => ({}));
+      if (!tgRes.ok || !tgData.ok) {
+        console.error('[Telegram Test Error]', tgData);
+        return res.status(400).json({ success: false, message: tgData.description || 'Telegram API เกิดข้อผิดพลาด ตรวจสอบ Bot Token และ Chat ID' });
+      }
+
+      return res.json({ success: true, message: 'ส่งข้อความทดสอบ Telegram สำเร็จ' });
+    } catch (err) {
+      console.error('[Telegram Test Exception]', err);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // --- Telegram Set Webhook Route ---
+  app.post('/api/telegram/set-webhook', async (req, res) => {
+    try {
+      const { botToken, webhookUrl } = req.body;
+      if (!botToken) {
+        return res.status(400).json({ success: false, message: 'กรุณาระบุ Bot Token' });
+      }
+
+      const host = req.get('host');
+      const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+      const targetUrl = webhookUrl || `${protocol}://${host}/api/telegram/webhook/${botToken}`;
+
+      console.log(`[Telegram SetWebhook] Setting webhook to: ${targetUrl}`);
+
+      const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: targetUrl,
+          allowed_updates: ['message', 'callback_query']
+        })
+      });
+
+      const tgData = await tgRes.json().catch(() => ({}));
+      if (!tgRes.ok || !tgData.ok) {
+        return res.status(400).json({ success: false, message: tgData.description || 'ไม่สามารถตั้งค่า Webhook ได้' });
+      }
+
+      return res.json({ success: true, message: 'ตั้งค่า Telegram Webhook สำเร็จเรียบร้อย!', webhookUrl: targetUrl });
+    } catch (err) {
+      console.error('[Telegram SetWebhook Exception]', err);
       return res.status(500).json({ success: false, message: err.message });
     }
   });

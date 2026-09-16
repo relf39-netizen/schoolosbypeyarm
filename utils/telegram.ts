@@ -59,3 +59,60 @@ export const sendTelegramMessage = async (botToken: string, chatId: string, mess
         console.error("Failed to send Telegram message fetch error:", error);
     }
 };
+
+/**
+ * Tests the Telegram connection by sending a test push message
+ */
+export const testTelegramConnection = async (botToken: string, chatId: string): Promise<{ success: boolean; message: string }> => {
+    if (!botToken || !chatId) {
+        return { success: false, message: "กรุณาระบุทั้ง Telegram Bot Token และ Chat ID" };
+    }
+
+    try {
+        const response = await fetch('/api/telegram/test', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                botToken: botToken.trim(),
+                chatId: chatId.trim()
+            })
+        });
+
+        const data = await response.json();
+        if (response.ok && data.success) {
+            return { success: true, message: "ส่งข้อความทดสอบเข้า Telegram สำเร็จแล้ว!" };
+        } else {
+            return { success: false, message: data.message || "ส่งข้อความทดสอบล้มเหลว กรุณาตรวจสอบ Bot Token และ Chat ID" };
+        }
+    } catch (error: any) {
+        return { success: false, message: error.message || "เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์" };
+    }
+};
+
+/**
+ * Automatically sets the Telegram Webhook
+ */
+export const autoSetTelegramWebhook = async (botToken: string): Promise<{ success: boolean; message: string }> => {
+    if (!botToken) {
+        return { success: false, message: "กรุณาระบุ Bot Token" };
+    }
+
+    try {
+        const response = await fetch('/api/telegram/set-webhook', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                botToken: botToken.trim()
+            })
+        });
+
+        const data = await response.json();
+        return { success: data.success, message: data.message };
+    } catch (error: any) {
+        return { success: false, message: error.message || "เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์" };
+    }
+};

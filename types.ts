@@ -430,6 +430,7 @@ export interface SystemConfig {
   // Telegram Notification
   telegramBotToken?: string; // Token from @BotFather
   telegramBotUsername?: string; // Username of the bot (e.g. SchoolOS_Bot)
+  telegramTargetId?: string; // Target Chat ID or Group ID for school notifications
   appBaseUrl?: string; // The deployed URL of this app (e.g., https://myschool.vercel.app)
 
   // LINE Official Account / Business Messaging API

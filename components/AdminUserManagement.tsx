@@ -17,6 +17,7 @@ import { db as firebaseDb, isConfigured as isFirebaseConfigured, collection as f
 import { Teacher, TeacherRole, SystemConfig, School, Student, ClassRoom, AcademicYear } from '../types';
 import { getDirectDriveUrl } from '../utils/drive';
 import { testLineConnection } from '../utils/line';
+import { testTelegramConnection, autoSetTelegramWebhook } from '../utils/telegram';
 import { ACADEMIC_POSITIONS } from '../constants';
 import * as XLSX from 'xlsx';
 
@@ -259,6 +260,7 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
         officialGarudaBase64: '',
         telegramBotToken: '',
         telegramBotUsername: '',
+        telegramTargetId: '',
         appBaseUrl: '',
         lineChannelAccessToken: '',
         lineTargetId: '',
@@ -268,6 +270,9 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
         notifyTelegramLeave: true,
         notifyTelegramDirectorCalendar: true
     });
+
+    const [isTestingTelegram, setIsTestingTelegram] = useState(false);
+    const [isSettingTelegramWebhook, setIsSettingTelegramWebhook] = useState(false);
 
     const gasCode = `/**
  * SchoolOS - Cloud Storage & Telegram Tracking Bridge v17.0 (MySQL Edition)
@@ -491,6 +496,7 @@ function setTelegramWebhook() {
                              scriptUrl: data.script_url || '',
                              telegramBotToken: data.telegram_bot_token || '',
                              telegramBotUsername: data.telegram_bot_username || '',
+                             telegramTargetId: data.telegram_target_id || '',
                              appBaseUrl: data.app_base_url || '',
                              officialGarudaBase64: data.official_garuda_base_64 || '',
                              schoolLogoBase64: data.school_logo_base_64 || '',
@@ -1255,6 +1261,7 @@ function setTelegramWebhook() {
                 script_url: config.scriptUrl,
                 telegram_bot_token: config.telegramBotToken,
                 telegram_bot_username: config.telegramBotUsername,
+                telegram_target_id: config.telegramTargetId || '',
                 app_base_url: config.appBaseUrl,
                 official_garuda_base_64: config.officialGarudaBase64,
                 school_logo_base_64: config.schoolLogoBase64 || '',
@@ -1295,6 +1302,46 @@ function setTelegramWebhook() {
             alert("❌ ขัดข้อง: " + e.message);
         } finally {
             setIsTestingLine(false);
+        }
+    };
+
+    const handleTestTelegramNotification = async () => {
+        if (!config.telegramBotToken || !config.telegramTargetId) {
+            alert("กรุณาระบุทั้ง Telegram Bot Token และ Target ID (Chat ID หรือ Group ID) ก่อนกดทดสอบ");
+            return;
+        }
+        setIsTestingTelegram(true);
+        try {
+            const res = await testTelegramConnection(config.telegramBotToken, config.telegramTargetId);
+            if (res.success) {
+                alert("✅ " + res.message);
+            } else {
+                alert("❌ " + res.message);
+            }
+        } catch (e: any) {
+            alert("❌ ขัดข้อง: " + e.message);
+        } finally {
+            setIsTestingTelegram(false);
+        }
+    };
+
+    const handleAutoSetTelegramWebhook = async () => {
+        if (!config.telegramBotToken) {
+            alert("กรุณาระบุ Telegram Bot Token ก่อน");
+            return;
+        }
+        setIsSettingTelegramWebhook(true);
+        try {
+            const res = await autoSetTelegramWebhook(config.telegramBotToken);
+            if (res.success) {
+                alert("✅ " + res.message);
+            } else {
+                alert("❌ " + res.message);
+            }
+        } catch (e: any) {
+            alert("❌ ขัดข้อง: " + e.message);
+        } finally {
+            setIsSettingTelegramWebhook(false);
         }
     };
 
@@ -1625,12 +1672,22 @@ function setTelegramWebhook() {
                                             <button onClick={() => { if(confirm('ยืนยันลบผู้ใช้งาน?')) onDeleteTeacher(t.id); }} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-all"><Trash2 size={16}/></button>
                                         </div>
                                     </div>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {t.roles.map(role => (
-                                            <span key={role} className="px-2 py-0.5 bg-white border border-slate-100 text-slate-500 rounded-md text-[9px] font-bold uppercase tracking-tighter">
-                                                {AVAILABLE_ROLES.find(r => r.id === role)?.label.split(' ')[0] || role}
+                                    <div className="flex flex-wrap gap-1.5 items-center justify-between mt-2 pt-2 border-t border-slate-100">
+                                        <div className="flex flex-wrap gap-1">
+                                            {t.roles.map(role => (
+                                                <span key={role} className="px-2 py-0.5 bg-white border border-slate-100 text-slate-500 rounded-md text-[9px] font-bold uppercase tracking-tighter">
+                                                    {AVAILABLE_ROLES.find(r => r.id === role)?.label.split(' ')[0] || role}
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                            <span title={t.telegramChatId ? `Telegram ID: ${t.telegramChatId}` : 'Telegram: ยังไม่ผูกบัญชี'} className={`px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center gap-0.5 ${t.telegramChatId ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-400'}`}>
+                                                <Smartphone size={9}/> TG
                                             </span>
-                                        ))}
+                                            <span title={t.lineUserId ? `LINE ID: ${t.lineUserId}` : 'LINE: ยังไม่ผูกบัญชี'} className={`px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center gap-0.5 ${t.lineUserId ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-400'}`}>
+                                                <MessageSquare size={9}/> LINE
+                                            </span>
+                                        </div>
                                     </div>
                                     {t.isSuspended && (
                                         <div className="absolute top-0 right-0 bg-red-500 text-white text-[8px] font-black px-2 py-0.5 rounded-bl-lg uppercase tracking-widest">Suspended</div>
@@ -1951,45 +2008,69 @@ function setTelegramWebhook() {
                                         </div>
                                     </div>
                                     <div className="space-y-6"><h5 className="font-black text-slate-800 flex items-center gap-3 uppercase text-[10px] tracking-widest ml-4"><Smartphone className="text-indigo-500" size={20}/> Telegram Gateway</h5>
-                                        <div className="bg-white p-6 rounded-2xl border border-slate-100 space-y-6 shadow-sm">
-                                            <div className="space-y-1"><label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Bot API Token</label><input type="password" value={config.telegramBotToken || ''} onChange={e => setConfig({...config, telegramBotToken: e.target.value})} className="w-full px-4 py-2 border border-slate-100 focus:border-indigo-500 rounded-lg font-mono text-xs bg-slate-50 outline-none shadow-inner" placeholder="123456789:ABCDefgh..."/></div>
-                                            <div className="space-y-1"><label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Bot Username</label><input type="text" value={config.telegramBotUsername || ''} onChange={e => setConfig({...config, telegramBotUsername: e.target.value})} className="w-full px-4 py-2 border border-slate-100 focus:border-indigo-500 rounded-lg font-mono text-xs bg-slate-50 outline-none shadow-inner" placeholder="@SchoolOS_Bot"/></div>
-                                            <button 
-                                                type="button"
-                                                onClick={async () => {
-                                                    if (!config.scriptUrl || !config.telegramBotToken) {
-                                                        alert("กรุณาระบุ GAS Web App URL และ Bot Token ก่อน");
-                                                        return;
-                                                    }
-                                                    try {
-                                                        const resp = await fetch(config.scriptUrl, {
-                                                            method: 'POST',
-                                                            body: JSON.stringify({ action: 'setup' }),
-                                                            headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-                                                        });
-                                                        const responseText = await resp.text();
-                                                        let res;
-                                                        try {
-                                                            res = JSON.parse(responseText);
-                                                        } catch (e) {
-                                                            if (responseText.trim().startsWith('error:')) {
-                                                                throw new Error(responseText.trim().replace('error:', '').trim());
-                                                            }
-                                                            throw new Error("Server returned invalid JSON response");
-                                                        }
-                                                        if (res.status === 'success') {
-                                                            alert("เชื่อมต่อ Webhook สำเร็จ! บอทพร้อมใช้งานแล้ว");
-                                                        } else {
-                                                            alert("เชื่อมต่อล้มเหลว: " + res.message);
-                                                        }
-                                                    } catch (e: any) {
-                                                        alert("ขัดข้อง: " + e.message);
-                                                    }
-                                                }}
-                                                className="w-full py-2 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-black uppercase hover:bg-indigo-100 transition-all flex items-center justify-center gap-2 border border-indigo-100"
-                                            >
-                                                <RefreshCw size={14}/> เชื่อมต่อ Webhook (Set Webhook)
-                                            </button>
+                                        <div className="bg-white p-6 rounded-2xl border border-slate-100 space-y-5 shadow-sm">
+                                            <div className="space-y-1"><label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Bot API Token</label><input type="password" value={config.telegramBotToken || ''} onChange={e => setConfig({...config, telegramBotToken: e.target.value.trim()})} className="w-full px-4 py-2 border border-slate-100 focus:border-indigo-500 rounded-lg font-mono text-xs bg-slate-50 outline-none shadow-inner" placeholder="123456789:ABCDefgh..."/></div>
+                                            <div className="space-y-1"><label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Bot Username</label><input type="text" value={config.telegramBotUsername || ''} onChange={e => setConfig({...config, telegramBotUsername: e.target.value.trim()})} className="w-full px-4 py-2 border border-slate-100 focus:border-indigo-500 rounded-lg font-mono text-xs bg-slate-50 outline-none shadow-inner" placeholder="@SchoolOS_Bot"/></div>
+                                            <div className="space-y-1">
+                                                <div className="flex justify-between items-center">
+                                                    <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Target ID แอดมิน / กลุ่ม Telegram (Chat ID / Group ID)</label>
+                                                    <span className="text-[9px] text-indigo-600 font-bold">แจ้งเตือนกลาง</span>
+                                                </div>
+                                                <input 
+                                                    type="text" 
+                                                    value={config.telegramTargetId || ''} 
+                                                    onChange={e => setConfig({...config, telegramTargetId: e.target.value.trim()})} 
+                                                    className="w-full px-4 py-2 border border-slate-100 focus:border-indigo-500 rounded-lg font-mono text-xs bg-slate-50 outline-none shadow-inner" 
+                                                    placeholder="เช่น 123456789 หรือ -100123456789 (ไอดีกลุ่ม)"
+                                                />
+                                                <p className="text-[9px] text-slate-400 ml-1">
+                                                    * ใส่ Chat ID ของแอดมิน หรือ ID กลุ่มสำหรับรับแจ้งเตือนการลา/วาระ ผอ. กลาง (ดูได้จากบอท @userinfobot หรือ @raw_data_bot)
+                                                </p>
+                                            </div>
+
+                                            <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                                                <button 
+                                                    type="button"
+                                                    onClick={handleTestTelegramNotification}
+                                                    disabled={isTestingTelegram}
+                                                    className="flex-1 py-2.5 bg-indigo-50 text-indigo-700 rounded-xl text-[10px] font-black uppercase hover:bg-indigo-100 transition-all flex items-center justify-center gap-2 border border-indigo-100 active:scale-95"
+                                                >
+                                                    {isTestingTelegram ? <Loader className="animate-spin" size={14}/> : <Send size={14}/>} 
+                                                    ทดสอบส่งข้อความ (Push Test)
+                                                </button>
+                                                <button 
+                                                    type="button"
+                                                    onClick={handleAutoSetTelegramWebhook}
+                                                    disabled={isSettingTelegramWebhook}
+                                                    className="py-2.5 px-4 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-sm active:scale-95"
+                                                >
+                                                    {isSettingTelegramWebhook ? <Loader className="animate-spin" size={14}/> : <Zap size={14}/>} 
+                                                    ตั้งค่า Webhook ทันที
+                                                </button>
+                                            </div>
+
+                                            <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 text-[10px] text-slate-600 space-y-1.5">
+                                                <div className="flex justify-between items-center">
+                                                    <span className="font-bold text-indigo-900">🔗 Telegram Webhook URL:</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const wh = `${window.location.origin}/api/telegram/webhook/${config.telegramBotToken || '[YOUR_BOT_TOKEN]'}`;
+                                                            navigator.clipboard.writeText(wh);
+                                                            alert(`คัดลอก Telegram Webhook URL เรียบร้อยแล้ว:\n${wh}`);
+                                                        }}
+                                                        className="px-2 py-0.5 bg-indigo-600 text-white rounded text-[9px] hover:bg-indigo-700 font-bold"
+                                                    >
+                                                        คัดลอก URL
+                                                    </button>
+                                                </div>
+                                                <p className="font-mono text-[9px] bg-white p-1.5 rounded border border-indigo-200 text-slate-700 select-all break-all">
+                                                    {typeof window !== 'undefined' ? `${window.location.origin}/api/telegram/webhook/${config.telegramBotToken ? (config.telegramBotToken.substring(0, 10) + '...') : '[YOUR_BOT_TOKEN]'}` : '/api/telegram/webhook/[TOKEN]'}
+                                                </p>
+                                                <p className="text-[9px] text-indigo-700">
+                                                    * เมื่อตั้งค่า Webhook แล้ว ครูสามารถพิมพ์เลขประจำตัว 13 หลักส่งให้บอทใน Telegram เพื่อผูกบัญชีอัตโนมัติได้ทันที
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="space-y-6">
@@ -2038,27 +2119,29 @@ function setTelegramWebhook() {
                                                 />
                                             </div>
 
-                                            <div className="p-3 bg-emerald-50/70 rounded-xl border border-emerald-200 text-[10px] text-emerald-800 space-y-1.5">
+                                            <div className="p-4 bg-emerald-50/70 rounded-xl border border-emerald-200 text-[10px] text-emerald-900 space-y-2.5">
                                                 <div className="flex items-center justify-between font-bold">
-                                                    <span className="flex items-center gap-1"><Zap size={13} className="text-emerald-600"/> Webhook URL สำหรับผูก LINE อัตโนมัติ:</span>
+                                                    <span className="flex items-center gap-1.5"><Zap size={14} className="text-emerald-600"/> Webhook URL สำหรับผูก LINE อัตโนมัติ:</span>
                                                     <button
                                                         type="button"
                                                         onClick={() => {
-                                                            const wh = `${window.location.origin}/api/line/webhook`;
+                                                            const wh = `${window.location.origin}/api/line/webhook/${currentSchool.id}`;
                                                             navigator.clipboard.writeText(wh);
-                                                            alert(`คัดลอก Webhook URL เรียบร้อยแล้ว:\n${wh}\n\nนำไปใส่ใน LINE Developers Console -> Messaging API -> Webhook URL แล้วเปิด Use webhook`);
+                                                            alert(`คัดลอก Webhook URL เรียบร้อยแล้ว:\n${wh}\n\nนำไปใส่ใน LINE Developers Console -> Messaging API -> Webhook URL แล้วกด Verify และเปิด Use webhook`);
                                                         }}
-                                                        className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[9px] hover:bg-emerald-700"
+                                                        className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-[9px] font-bold hover:bg-emerald-700 shadow-sm"
                                                     >
-                                                        คัดลอก Webhook URL
+                                                        คัดลอก Webhook URL (ประจำโรงเรียน)
                                                     </button>
                                                 </div>
-                                                <p className="font-mono text-[10px] bg-white p-1.5 rounded border border-emerald-200 text-slate-700 select-all break-all">
-                                                    {typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook` : '/api/line/webhook'}
+                                                <p className="font-mono text-[10px] bg-white p-2 rounded-lg border border-emerald-200 text-slate-800 select-all break-all font-bold">
+                                                    {typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook/${currentSchool.id}` : `/api/line/webhook/${currentSchool.id}`}
                                                 </p>
-                                                <p className="text-[10px] text-emerald-700">
-                                                    นำ URL นี้ไปใส่ที่ <b>LINE Developers &gt; Messaging API &gt; Webhook URL</b> และกด <b>Verify</b> + เปิด <b>Use webhook</b> ครูจะสามารถพิมพ์ <span className="font-mono font-bold">#ผูกLINE [เลข13หลัก]</span> เพื่อผูกบัญชีได้ทันที!
-                                                </p>
+                                                <div className="text-[10px] text-emerald-900 space-y-1 bg-white/70 p-2.5 rounded-lg border border-emerald-100">
+                                                    <p className="font-bold text-emerald-800">📌 ขั้นตอนตั้งค่าใน LINE ให้บอทตอบกลับอัตโนมัติ:</p>
+                                                    <p>1. ใน <b>LINE Developers Console</b> &gt; เมนู <b>Messaging API</b>: นำ URL ด้านบนไปใส่ในช่อง <b>Webhook URL</b> &gt; กด <b>Verify</b> (ต้องขึ้น Success) &gt; ติ๊กเปิด <b>Use webhook</b> ให้เป็นสีเขียว</p>
+                                                    <p>2. ใน <b>LINE Official Account Manager</b> (manager.line.biz) &gt; <b>การตั้งค่าตอบกลับ (Response settings)</b>: ให้เปิด Webhook เป็น <b>"เปิด (ON)"</b> และเลือกโหมดการตอบกลับเป็น <b>"แชท (Chat)"</b></p>
+                                                </div>
                                             </div>
 
                                             <button 
@@ -2909,6 +2992,40 @@ function setTelegramWebhook() {
                                 <div className="space-y-1.5"><label className="block text-[10px] font-black text-slate-400 uppercase ml-1">ชื่อ - นามสกุล</label><input type="text" required value={editForm.name || ''} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500 transition-all shadow-inner"/></div>
                                 <div className="space-y-1.5"><label className="block text-[10px] font-black text-slate-400 uppercase ml-1">ตำแหน่ง</label><div className="relative"><select value={editForm.position || ''} onChange={e => setEditForm({...editForm, position: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-xl font-bold appearance-none outline-none focus:border-blue-500 transition-all shadow-inner">{ACADEMIC_POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}</select><ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={16}/></div></div>
                                 <div className="space-y-1.5"><label className="block text-[10px] font-black text-slate-400 uppercase ml-1">รหัสผ่าน</label><div className="relative group"><Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors" size={18}/><input type={showPasswordInModal ? "text" : "password"} value={editForm.password || ''} onChange={e => setEditForm({...editForm, password: e.target.value})} className="w-full pl-10 pr-10 py-2 bg-slate-50 border rounded-xl font-mono font-bold text-blue-600 outline-none focus:border-blue-500 transition-all shadow-inner text-lg"/><button type="button" onClick={() => setShowPasswordInModal(!showPasswordInModal)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-blue-500 transition-colors">{showPasswordInModal ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></div>
+                            </div>
+
+                            {/* Messaging Notification Connectors */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100 shadow-inner">
+                                <div className="space-y-1.5">
+                                    <label className="block text-[10px] font-black text-indigo-600 uppercase ml-1 flex items-center gap-1.5">
+                                        <Smartphone size={12}/> Telegram Chat ID
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="เช่น 123456789" 
+                                        value={editForm.telegramChatId || ''} 
+                                        onChange={e => setEditForm({ ...editForm, telegramChatId: e.target.value.trim() })} 
+                                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-mono text-xs font-bold text-indigo-700 outline-none focus:border-indigo-500 shadow-sm"
+                                    />
+                                    <p className="text-[9px] text-slate-400 leading-tight">
+                                        * ดูได้จากบอท @userinfobot ใน Telegram
+                                    </p>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="block text-[10px] font-black text-emerald-600 uppercase ml-1 flex items-center gap-1.5">
+                                        <MessageSquare size={12}/> LINE User ID
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="ขึ้นต้นด้วย U..." 
+                                        value={editForm.lineUserId || ''} 
+                                        onChange={e => setEditForm({ ...editForm, lineUserId: e.target.value.trim() })} 
+                                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-mono text-xs font-bold text-emerald-700 outline-none focus:border-emerald-500 shadow-sm"
+                                    />
+                                    <p className="text-[9px] text-slate-400 leading-tight">
+                                        * หรือให้ครูพิมพ์ #ผูกLINE [เลข13หลัก] ใน LINE OA
+                                    </p>
+                                </div>
                             </div>
                             <div className="space-y-4">
                                 <label className="block text-[10px] font-black text-slate-400 uppercase ml-1">การมอบหมายพิเศษ</label>

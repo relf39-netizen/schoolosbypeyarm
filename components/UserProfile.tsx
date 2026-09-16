@@ -28,6 +28,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
     const [isRefreshingLine, setIsRefreshingLine] = useState(false);
     const [isCopiedLine, setIsCopiedLine] = useState(false);
     const [showManualLineInput, setShowManualLineInput] = useState(false);
+    const [showManualTelegramInput, setShowManualTelegramInput] = useState(false);
 
     // Sync formData when currentUser prop changes (e.g. from realtime update)
     useEffect(() => {
@@ -322,37 +323,76 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                             )}
                         </div>
 
-                        {!currentUser.telegramChatId ? (
+                        {!currentUser.telegramChatId && !showManualTelegramInput ? (
                             <div className="p-4 bg-white/80 rounded-xl border border-dashed border-indigo-200 text-center space-y-3 relative z-10">
                                 <MessageCircle size={24} className="mx-auto text-indigo-300"/>
-                                <p className="text-xs font-bold text-slate-600">กดปุ่มด้านล่างเพื่อเชื่อมต่อบอทโรงเรียนอัตโนมัติ <br/>ระบบจะส่งเลข Chat ID ให้ท่านโดยไม่ต้องพิมพ์เอง <br/><span className="text-indigo-600">เมื่อกดปุ่มแล้ว โปรดกดปุ่ม Start (เริ่ม) ในบอท Telegram ด้วยครับ</span></p>
+                                <p className="text-xs font-bold text-slate-600">กดปุ่มเชื่อมต่อเพื่อเปิด Telegram อัตโนมัติ หรือกดปุ่ม <b>"ระบุ Chat ID เอง"</b><br/><span className="text-indigo-600 font-bold">เมื่อกดปุ่มแล้ว โปรดกดปุ่ม Start (เริ่ม) ในบอท Telegram ด้วยครับ</span></p>
                                 
                                 <button 
                                     type="button"
                                     onClick={handleRefreshTelegram}
                                     disabled={isRefreshing}
-                                    className="mx-auto text-[10px] text-indigo-400 hover:text-indigo-600 font-bold flex items-center gap-1 border border-indigo-100 px-3 py-1 rounded-full bg-white/50"
+                                    className="mx-auto text-[10px] text-indigo-500 hover:text-indigo-700 font-bold flex items-center gap-1 border border-indigo-100 px-3 py-1 rounded-full bg-white/50"
                                 >
                                     {isRefreshing ? <Loader size={10} className="animate-spin"/> : <Zap size={10}/>}
-                                    กดตรวจสอบสถานะหากท่านกดใน Telegram แล้ว
+                                    กดตรวจสอบสถานะหากท่านกด Start ใน Telegram แล้ว
                                 </button>
                             </div>
-                        ) : (
-                            <div className="space-y-1 relative z-10">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">My Telegram Chat ID</label>
-                                <input disabled value={formData.telegramChatId} className="w-full px-3 py-2 border rounded-lg bg-white font-mono text-sm font-bold text-indigo-600 shadow-sm"/>
+                        ) : null}
+
+                        {(currentUser.telegramChatId || showManualTelegramInput) && (
+                            <div className="space-y-1.5 relative z-10 bg-white p-3 rounded-xl border border-indigo-200 shadow-sm">
+                                <div className="flex justify-between items-center">
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                                        Telegram Chat ID (ตัวเลข)
+                                    </label>
+                                    <span className="text-[9px] text-indigo-600 font-bold">
+                                        {formData.telegramChatId ? 'พร้อมใช้งาน' : 'ยังไม่ระบุ'}
+                                    </span>
+                                </div>
+                                <div className="flex gap-2">
+                                    <input 
+                                        type="text"
+                                        placeholder="เช่น 123456789 หรือ -100123456789"
+                                        value={formData.telegramChatId || ''} 
+                                        onChange={e => setFormData({ ...formData, telegramChatId: e.target.value.trim() })}
+                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 focus:bg-white font-mono text-sm font-bold text-indigo-700 outline-none focus:border-indigo-500 transition-all shadow-inner"
+                                    />
+                                    {formData.telegramChatId && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, telegramChatId: '' })}
+                                            className="px-2.5 py-1 text-slate-400 hover:text-rose-500 border border-slate-200 rounded-lg text-xs"
+                                            title="ล้างค่า"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
+                                <p className="text-[10px] text-slate-500 leading-relaxed">
+                                    💡 <b>วิธีดู Chat ID:</b> เปิด Telegram ค้นหาบอท <b>@userinfobot</b> แล้วกด Start นำเลข <code>Id</code> มาใส่ในช่องนี้ แล้วกด <b>"บันทึกข้อมูลส่วนตัว"</b> ด้านล่าง หรือส่งเลขบัตรประชาชน 13 หลักให้บอทของโรงเรียนเพื่อผูกอัตโนมัติ
+                                </p>
                             </div>
                         )}
 
-                        <button 
-                            type="button" 
-                            onClick={handleConnectTelegram}
-                            disabled={isLoadingConfig}
-                            className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm relative z-10"
-                        >
-                            {isLoadingConfig ? <Loader className="animate-spin" size={16}/> : <Zap size={16}/>} 
-                            {currentUser.telegramChatId ? 'อัปเดตการเชื่อมต่อใหม่' : 'เชื่อมต่อ Telegram ทันที'}
-                        </button>
+                        <div className="flex flex-col sm:flex-row gap-2 relative z-10">
+                            <button 
+                                type="button" 
+                                onClick={handleConnectTelegram}
+                                disabled={isLoadingConfig}
+                                className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
+                            >
+                                {isLoadingConfig ? <Loader className="animate-spin" size={16}/> : <Zap size={16}/>} 
+                                {currentUser.telegramChatId ? 'เชื่อมต่อ Telegram อีกครั้ง' : 'เชื่อมต่อ Telegram ทันที (อัตโนมัติ)'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowManualTelegramInput(!showManualTelegramInput)}
+                                className="px-4 py-3 bg-white text-indigo-600 border border-indigo-200 rounded-xl font-bold text-xs hover:bg-indigo-50 transition-all"
+                            >
+                                {showManualTelegramInput ? 'ซ่อนช่องระบุเอง' : 'ระบุ Chat ID เอง'}
+                            </button>
+                        </div>
 
                         {!isLoadingConfig && !botUsername && (
                             <div className="absolute inset-0 bg-white/90 backdrop-blur-[2px] z-20 flex items-center justify-center p-4 text-center">
@@ -414,7 +454,24 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                         ) : (
                             <div className="space-y-1 relative z-10">
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">My LINE User ID</label>
-                                <input disabled value={formData.lineUserId} className="w-full px-3 py-2 border rounded-lg bg-white font-mono text-sm font-bold text-emerald-700 shadow-sm"/>
+                                <div className="flex gap-2">
+                                    <input 
+                                        type="text"
+                                        value={formData.lineUserId || ''} 
+                                        onChange={e => setFormData({ ...formData, lineUserId: e.target.value.trim() })}
+                                        className="w-full px-3 py-2 border rounded-lg bg-white font-mono text-sm font-bold text-emerald-700 shadow-sm outline-none focus:border-emerald-500"
+                                    />
+                                    {formData.lineUserId && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, lineUserId: '' })}
+                                            className="px-2.5 py-1 text-slate-400 hover:text-rose-500 border border-slate-200 rounded-lg text-xs"
+                                            title="ล้างค่า"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         )}
 
