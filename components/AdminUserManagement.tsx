@@ -247,6 +247,9 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const [isGettingLocation, setIsGettingLocation] = useState(false);
     const [availableClasses, setAvailableClasses] = useState<string[]>([]);
     const [isTestingLine, setIsTestingLine] = useState(false);
+    const [recentLineEvents, setRecentLineEvents] = useState<any[]>([]);
+    const [isLoadingLineEvents, setIsLoadingLineEvents] = useState(false);
+    const [selectedTeacherForLink, setSelectedTeacherForLink] = useState<{ [key: string]: string }>({});
 
     const [config, setConfig] = useState<SystemConfig>({ 
         driveFolderId: '', 
@@ -1345,6 +1348,44 @@ function setTelegramWebhook() {
         }
     };
 
+    const fetchRecentLineEvents = async () => {
+        setIsLoadingLineEvents(true);
+        try {
+            const res = await fetch(`/api/line/recent-events?schoolId=${currentSchool?.id || ''}`);
+            if (res.ok) {
+                const data = await res.json();
+                setRecentLineEvents(Array.isArray(data) ? data : []);
+            }
+        } catch (e: any) {
+            console.error("Failed to fetch recent LINE events:", e);
+        } finally {
+            setIsLoadingLineEvents(false);
+        }
+    };
+
+    const handleLinkLineUserDirectly = async (citizenId: string, lineUserId: string) => {
+        if (!citizenId || !lineUserId) {
+            alert("กรุณาเลือกบุคลากรที่ต้องการผูกบัญชี");
+            return;
+        }
+        try {
+            const res = await fetch('/api/line/link-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ citizenId, lineUserId })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                alert(`✅ ผูกบัญชี LINE User ID: ${lineUserId} กับบุคลากรเรียบร้อยแล้ว!`);
+                fetchRecentLineEvents();
+            } else {
+                alert(`❌ ผูกบัญชีไม่สำเร็จ: ${data.message || 'เกิดข้อผิดพลาด'}`);
+            }
+        } catch (e: any) {
+            alert(`❌ ผูกบัญชีไม่สำเร็จ: ${e.message}`);
+        }
+    };
+
     const handleSaveSchool = async (e: React.FormEvent) => {
         e.preventDefault();
         if (schoolForm.id) {
@@ -2119,29 +2160,149 @@ function setTelegramWebhook() {
                                                 />
                                             </div>
 
-                                            <div className="p-4 bg-emerald-50/70 rounded-xl border border-emerald-200 text-[10px] text-emerald-900 space-y-2.5">
-                                                <div className="flex items-center justify-between font-bold">
-                                                    <span className="flex items-center gap-1.5"><Zap size={14} className="text-emerald-600"/> Webhook URL สำหรับผูก LINE อัตโนมัติ:</span>
+                                             <div className="p-4 bg-emerald-50/70 rounded-xl border border-emerald-200 text-[10px] text-emerald-900 space-y-3">
+                                                <div className="flex items-center justify-between font-bold border-b border-emerald-200/60 pb-2">
+                                                    <span className="flex items-center gap-1.5 text-xs text-emerald-950 font-black"><Zap size={15} className="text-emerald-600"/> Webhook URL สำหรับเชื่อมต่อ LINE OA:</span>
+                                                    <span className="px-2 py-0.5 bg-emerald-200/70 text-emerald-900 rounded font-bold text-[9px]">รองรับทั้ง 2 แบบ</span>
+                                                </div>
+
+                                                <div className="space-y-1.5">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="font-bold text-emerald-800">1. แบบระบุโรงเรียน (แนะนำที่สุด):</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const wh = `${window.location.origin}/api/line/webhook/${currentSchool?.id || ''}`;
+                                                                navigator.clipboard.writeText(wh);
+                                                                alert(`คัดลอก Webhook URL เรียบร้อยแล้ว:\n${wh}\n\nนำไปใส่ใน LINE Developers Console -> Messaging API -> Webhook URL แล้วกด Verify และเปิด Use webhook`);
+                                                            }}
+                                                            className="px-2 py-0.5 bg-emerald-600 text-white rounded font-bold text-[9px] hover:bg-emerald-700 shadow-sm flex items-center gap-1"
+                                                        >
+                                                            <Copy size={10}/> คัดลอก URL โรงเรียน
+                                                        </button>
+                                                    </div>
+                                                    <p className="font-mono text-[10px] bg-white p-2 rounded-lg border border-emerald-200 text-emerald-900 select-all break-all font-bold">
+                                                        {typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook/${currentSchool?.id || ''}` : `/api/line/webhook/${currentSchool?.id || ''}`}
+                                                    </p>
+                                                </div>
+
+                                                <div className="space-y-1.5">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="font-bold text-slate-700">2. แบบกลาง (Universal Webhook):</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const wh = `${window.location.origin}/api/line/webhook`;
+                                                                navigator.clipboard.writeText(wh);
+                                                                alert(`คัดลอก Webhook URL แบบกลางเรียบร้อยแล้ว:\n${wh}`);
+                                                            }}
+                                                            className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded font-bold text-[9px] hover:bg-slate-300 flex items-center gap-1"
+                                                        >
+                                                            <Copy size={10}/> คัดลอก URL กลาง
+                                                        </button>
+                                                    </div>
+                                                    <p className="font-mono text-[10px] bg-white/70 p-2 rounded-lg border border-slate-200 text-slate-600 select-all break-all">
+                                                        {typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook` : `/api/line/webhook`}
+                                                    </p>
+                                                </div>
+
+                                                <div className="text-[10px] text-emerald-900 space-y-1.5 bg-white/80 p-3 rounded-lg border border-emerald-200/80">
+                                                    <p className="font-bold text-emerald-800 flex items-center gap-1">
+                                                        <Info size={13} className="text-emerald-600 shrink-0"/> 2 จุดสำคัญที่ต้องเปิดใน LINE ให้บอทตอบกลับ:
+                                                    </p>
+                                                    <p><b>จุดที่ 1 (LINE Developers Console):</b> ไปที่ <i>Messaging API</i> &gt; นำ URL ด้านบนใส่ในช่อง <i>Webhook URL</i> &gt; กด <b>Verify</b> (ต้องขึ้น Success) &gt; ติ๊กเปิด <b>Use webhook</b> ให้เป็นสีเขียว</p>
+                                                    <p><b>จุดที่ 2 (LINE Official Account Manager - manager.line.biz):</b> ไปที่ <i>ตั้งค่า (Settings)</i> &gt; <i>การตั้งค่าตอบกลับ (Response settings)</i> &gt; เลือกโหมดเป็น <b>"แชท (Chat)"</b> &gt; เปิด Webhook เป็น <b>"เปิด (ON)"</b> และปิดข้อความตอบกลับอัตโนมัติ</p>
+                                                </div>
+                                            </div>
+
+                                            {/* Recent LINE Inbound Messages Tool */}
+                                            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <h6 className="font-black text-slate-800 text-[11px] flex items-center gap-1.5">
+                                                            <MessageSquare size={13} className="text-emerald-600"/> ข้อความ LINE ล่าสุด &amp; ช่วยคัดลอก LINE User ID
+                                                        </h6>
+                                                        <p className="text-[9px] text-slate-500">ตรวจสอบว่าข้อความจากแชทเข้ามาถึงระบบหรือไม่ และคัดลอก LINE User ID ได้ทันที</p>
+                                                    </div>
                                                     <button
                                                         type="button"
-                                                        onClick={() => {
-                                                            const wh = `${window.location.origin}/api/line/webhook/${currentSchool.id}`;
-                                                            navigator.clipboard.writeText(wh);
-                                                            alert(`คัดลอก Webhook URL เรียบร้อยแล้ว:\n${wh}\n\nนำไปใส่ใน LINE Developers Console -> Messaging API -> Webhook URL แล้วกด Verify และเปิด Use webhook`);
-                                                        }}
-                                                        className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-[9px] font-bold hover:bg-emerald-700 shadow-sm"
+                                                        onClick={fetchRecentLineEvents}
+                                                        disabled={isLoadingLineEvents}
+                                                        className="px-2.5 py-1 bg-white border border-slate-200 text-slate-700 rounded-lg text-[9px] font-bold hover:bg-slate-100 flex items-center gap-1 shadow-sm"
                                                     >
-                                                        คัดลอก Webhook URL (ประจำโรงเรียน)
+                                                        <RefreshCw size={11} className={isLoadingLineEvents ? 'animate-spin' : ''}/>
+                                                        {isLoadingLineEvents ? 'กำลังดึง...' : 'ดึงข้อความล่าสุด'}
                                                     </button>
                                                 </div>
-                                                <p className="font-mono text-[10px] bg-white p-2 rounded-lg border border-emerald-200 text-slate-800 select-all break-all font-bold">
-                                                    {typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook/${currentSchool.id}` : `/api/line/webhook/${currentSchool.id}`}
-                                                </p>
-                                                <div className="text-[10px] text-emerald-900 space-y-1 bg-white/70 p-2.5 rounded-lg border border-emerald-100">
-                                                    <p className="font-bold text-emerald-800">📌 ขั้นตอนตั้งค่าใน LINE ให้บอทตอบกลับอัตโนมัติ:</p>
-                                                    <p>1. ใน <b>LINE Developers Console</b> &gt; เมนู <b>Messaging API</b>: นำ URL ด้านบนไปใส่ในช่อง <b>Webhook URL</b> &gt; กด <b>Verify</b> (ต้องขึ้น Success) &gt; ติ๊กเปิด <b>Use webhook</b> ให้เป็นสีเขียว</p>
-                                                    <p>2. ใน <b>LINE Official Account Manager</b> (manager.line.biz) &gt; <b>การตั้งค่าตอบกลับ (Response settings)</b>: ให้เปิด Webhook เป็น <b>"เปิด (ON)"</b> และเลือกโหมดการตอบกลับเป็น <b>"แชท (Chat)"</b></p>
-                                                </div>
+
+                                                {recentLineEvents.length > 0 ? (
+                                                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                                        {recentLineEvents.map((evt) => (
+                                                            <div key={evt.id} className="p-2.5 bg-white rounded-lg border border-slate-200 text-[10px] space-y-1.5 shadow-sm">
+                                                                <div className="flex items-center justify-between">
+                                                                    <div className="flex items-center gap-1 font-mono text-[9px] text-slate-500">
+                                                                        <span>{new Date(evt.timestamp).toLocaleTimeString('th-TH')}</span>
+                                                                        <span className="font-bold text-slate-800">[{evt.text || evt.type}]</span>
+                                                                    </div>
+                                                                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
+                                                                        evt.status === 'linked_successfully' ? 'bg-emerald-100 text-emerald-800' :
+                                                                        evt.status === 'replied' ? 'bg-blue-100 text-blue-800' :
+                                                                        'bg-amber-100 text-amber-800'
+                                                                    }`}>
+                                                                        {evt.linkedUserName ? `ผูกแล้ว: ${evt.linkedUserName}` : evt.status}
+                                                                    </span>
+                                                                </div>
+
+                                                                <div className="flex items-center justify-between gap-2 bg-slate-50 p-1.5 rounded border border-slate-100">
+                                                                    <span className="font-mono font-bold text-emerald-700 select-all truncate text-[9px]">
+                                                                        {evt.lineUserId}
+                                                                    </span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            navigator.clipboard.writeText(evt.lineUserId);
+                                                                            alert(`คัดลอก LINE User ID: ${evt.lineUserId} เรียบร้อยแล้ว`);
+                                                                        }}
+                                                                        className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[8px] font-bold hover:bg-emerald-700 shrink-0 flex items-center gap-1"
+                                                                    >
+                                                                        <Copy size={9}/> คัดลอก ID
+                                                                    </button>
+                                                                </div>
+
+                                                                {/* Quick link dropdown */}
+                                                                <div className="flex items-center gap-1.5 pt-1 border-t border-slate-100">
+                                                                    <span className="text-[8px] text-slate-400 shrink-0">ผูกกับครู:</span>
+                                                                    <select
+                                                                        value={selectedTeacherForLink[evt.id] || ''}
+                                                                        onChange={e => setSelectedTeacherForLink({ ...selectedTeacherForLink, [evt.id]: e.target.value })}
+                                                                        className="flex-1 text-[9px] border border-slate-200 rounded px-1.5 py-0.5 bg-white outline-none"
+                                                                    >
+                                                                        <option value="">-- เลือกบุคลากรเพื่อผูกบัญชี --</option>
+                                                                        {teachers.map(t => (
+                                                                            <option key={t.id} value={t.id}>
+                                                                                {t.name} ({t.id}) {t.lineUserId ? '🟢' : '⚪'}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleLinkLineUserDirectly(selectedTeacherForLink[evt.id], evt.lineUserId)}
+                                                                        className="px-2 py-0.5 bg-indigo-600 text-white rounded text-[8px] font-bold hover:bg-indigo-700 shrink-0"
+                                                                    >
+                                                                        ผูกทันที
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-center py-3 px-2 bg-white rounded-lg border border-dashed border-slate-200 text-[10px] text-slate-400">
+                                                        ยังไม่มีข้อความทักเข้ามา หรือยังไม่ได้กด "ดึงข้อความล่าสุด"<br/>
+                                                        <span className="text-[9px] text-slate-400 font-sans">
+                                                            (ลองพิมพ์คำว่า <b>id</b> หรือ <b>สวัสดี</b> ในแชท LINE OA ของโรงเรียน แล้วกดปุ่ม "ดึงข้อความล่าสุด" ด้านบน)
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             <button 

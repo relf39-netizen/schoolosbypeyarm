@@ -208,7 +208,7 @@ async function startServer() {
           director_signature_base_64 LONGTEXT,
           director_signature_scale FLOAT DEFAULT 1.0,
           director_signature_y_offset FLOAT DEFAULT 0,
-          line_channel_access_token VARCHAR(500),
+          line_channel_access_token TEXT,
           line_target_id VARCHAR(255),
           telegram_target_id VARCHAR(255),
           notify_line_leave BOOLEAN DEFAULT TRUE,
@@ -1608,6 +1608,22 @@ async function startServer() {
     }
   });
 
+  // In-memory buffer of recent LINE webhook events (last 50 events)
+  const recentLineEvents = [];
+
+  app.get('/api/line/recent-events', (req, res) => {
+    try {
+      const { schoolId } = req.query;
+      let events = recentLineEvents;
+      if (schoolId) {
+        events = events.filter(e => !e.schoolId || String(e.schoolId) === String(schoolId));
+      }
+      res.json(events);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // --- LINE Webhook & 1-Click Auto Link Handler ---
   app.all(['/api/line/webhook', '/api/line/webhook/:schoolId'], async (req, res) => {
     // If health check / browser visit via GET
@@ -1633,30 +1649,67 @@ async function startServer() {
           continue;
         }
 
+        // Record incoming event in recent events buffer
+        const eventLog = {
+          id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
+          lineUserId: lineUserId || 'unknown',
+          text: (event.message?.text || '').trim(),
+          type: event.type,
+          timestamp: new Date().toISOString(),
+          schoolId: paramSchoolId || null,
+          status: 'received',
+          linkedUserName: null
+        };
+        recentLineEvents.unshift(eventLog);
+        if (recentLineEvents.length > 50) recentLineEvents.pop();
+
         // Fetch school configs to find Channel Access Token
         let schoolToken = null;
         try {
           if (paramSchoolId) {
             const [cfg] = await query('SELECT line_channel_access_token FROM school_configs WHERE school_id = ? AND line_channel_access_token IS NOT NULL AND line_channel_access_token != ""', [paramSchoolId]);
             if (cfg && cfg.line_channel_access_token) {
-              schoolToken = cfg.line_channel_access_token;
+              schoolToken = cfg.line_channel_access_token.trim();
             }
           }
           if (!schoolToken) {
-            const [cfg] = await query('SELECT line_channel_access_token FROM school_configs WHERE line_channel_access_token IS NOT NULL AND line_channel_access_token != "" ORDER BY id DESC LIMIT 1');
+            const [cfg] = await query('SELECT line_channel_access_token FROM school_configs WHERE line_channel_access_token IS NOT NULL AND line_channel_access_token != "" LIMIT 1');
             if (cfg && cfg.line_channel_access_token) {
-              schoolToken = cfg.line_channel_access_token;
+              schoolToken = cfg.line_channel_access_token.trim();
+            }
+          }
+          if (!schoolToken) {
+            // Check tenant databases if not in central
+            try {
+              const allSchools = await query('SELECT id FROM schools');
+              for (const s of allSchools) {
+                const tPool = await getPoolForSchool(s.id);
+                if (tPool) {
+                  const [tCfg] = await new Promise((resolve) => {
+                    tPool.query('SELECT line_channel_access_token FROM school_configs WHERE line_channel_access_token IS NOT NULL AND line_channel_access_token != "" LIMIT 1', (err, rows) => {
+                      resolve(rows || []);
+                    });
+                  });
+                  if (tCfg && tCfg.line_channel_access_token) {
+                    schoolToken = tCfg.line_channel_access_token.trim();
+                    break;
+                  }
+                }
+              }
+            } catch (tErr) {
+              console.warn('[LINE Webhook] Error checking tenant pools for token:', tErr.message);
             }
           }
         } catch (e) {
           console.warn('[LINE Webhook] Failed to fetch channel access token:', e.message);
         }
 
-        // Helper function to send reply message back to user
+        // Helper function to send reply message back to user (pure plain text, NO HTML tags)
         const replyMessage = async (textMessage, overrideToken = null) => {
           const tokenToUse = overrideToken || schoolToken;
           if (!replyToken || !tokenToUse) {
             console.warn('[LINE Webhook] Cannot reply: replyToken or schoolToken missing. tokenToUse exists?', !!tokenToUse);
+            eventLog.status = 'reply_skipped_no_token';
             return;
           }
           try {
@@ -1675,11 +1728,14 @@ async function startServer() {
             if (!replyRes.ok) {
               const errBody = await replyRes.text();
               console.error('[LINE Webhook Reply Error]', replyRes.status, errBody);
+              eventLog.status = `reply_error_${replyRes.status}`;
             } else {
               console.log(`[LINE Webhook Reply Success] Replied to user ${lineUserId}`);
+              eventLog.status = 'replied';
             }
           } catch (replyErr) {
             console.error('[LINE Webhook Reply Exception]', replyErr);
+            eventLog.status = 'reply_exception';
           }
         };
 
@@ -1729,7 +1785,7 @@ async function startServer() {
                 try {
                   const [tCfg] = await query('SELECT line_channel_access_token FROM school_configs WHERE school_id = ? AND line_channel_access_token IS NOT NULL AND line_channel_access_token != ""', [teacher.school_id]);
                   if (tCfg && tCfg.line_channel_access_token) {
-                    schoolToken = tCfg.line_channel_access_token;
+                    schoolToken = tCfg.line_channel_access_token.trim();
                   }
                 } catch (tCfgErr) {
                   console.warn('[LINE Webhook] Error querying teacher school config:', tCfgErr.message);
@@ -1756,20 +1812,23 @@ async function startServer() {
               }
 
               console.log(`[LINE Webhook] Successfully linked LINE ID ${lineUserId} to ${teacher.name} (${citizenId})`);
-              await replyMessage(`✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nยินดีต้อนรับ คุณ<b>${teacher.name}</b>\nระบบได้ผูกบัญชี LINE กับระบบ School-OS ของโรงเรียนเรียบร้อยแล้ว\n\nนับจากนี้ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาส่วนบุคคลผ่านช่องทางนี้โดยอัตโนมัติครับ 🟢`);
+              eventLog.linkedUserName = teacher.name;
+              eventLog.status = 'linked_successfully';
+
+              await replyMessage(`✅ เชื่อมต่อสำเร็จ!\n\nยินดีต้อนรับ คุณ ${teacher.name}\nระบบได้ผูกบัญชี LINE กับระบบ School-OS เรียบร้อยแล้ว\n\nนับจากนี้ท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาส่วนบุคคลผ่านช่องทางนี้โดยอัตโนมัติครับ 🟢`);
             } else {
-              await replyMessage(`❌ <b>ไม่พบข้อมูลผู้ใช้งาน</b>\n\nไม่พบเลขประจำตัวประชาชน "${citizenId}" ในฐานข้อมูลของระบบ\n\n<b>คำแนะนำ:</b>\n1. ตรวจสอบเลขประจำตัวประชาชน 13 หลัก\n2. หรือเข้าสู่ระบบ School-OS แล้วไปที่เมนู "ข้อมูลส่วนตัว" เพื่อกรอก LINE User ID: ${lineUserId} โดยตรงได้เลยครับ`);
+              await replyMessage(`❌ ไม่พบข้อมูลผู้ใช้งาน\n\nไม่พบเลขประจำตัวประชาชน "${citizenId}" ในฐานข้อมูลของระบบ\n\n📌 LINE User ID ของท่านคือ:\n${lineUserId}\n\nคำแนะนำ:\n1. ตรวจสอบเลขประจำตัวประชาชน 13 หลัก\n2. หรือเข้าสู่ระบบ School-OS แล้วไปที่เมนู "ข้อมูลส่วนตัว" เพื่อกรอก LINE User ID ด้านบนโดยตรงได้เลยครับ`);
             }
           } else if (/^(id|userid|myid|รหัส)$/i.test(rawText)) {
-            await replyMessage(`🆔 <b>LINE User ID ของท่านคือ:</b>\n${lineUserId}\n\n(ท่านสามารถนำรหัสนี้ไปใส่ในหน้าข้อมูลส่วนตัว หรือพิมพ์: #ผูกLINE ตามด้วยเลขบัตรประชาชน 13 หลัก เพื่อผูกอัตโนมัติได้เลยครับ)`);
+            await replyMessage(`🆔 LINE User ID ของท่านคือ:\n${lineUserId}\n\n📌 วิธีเชื่อมต่อ:\n1. คัดลอกรหัส User ID ด้านบนไปวางในระบบที่เมนู "ข้อมูลส่วนตัว" หรือ\n2. พิมพ์: #ผูกLINE ตามด้วยเลขบัตรประชาชน 13 หลัก (เช่น #ผูกLINE 3300600837116) ส่งมาที่นี่เพื่อผูกอัตโนมัติได้ทันทีครับ`);
           } else {
-            await replyMessage(`👋 สวัสดีครับ ยินดีต้อนรับสู่ระบบแจ้งเตือนโรงเรียน (School-OS)\n\n📌 <b>LINE User ID ของท่านคือ:</b>\n${lineUserId}\n\n<b>หากต้องการเชื่อมต่อเพื่อรับแจ้งเตือน กรุณาพิมพ์:</b>\n#ผูกLINE [เลขบัตรประชาชน 13 หลัก]\n\nเช่น:\n#ผูกLINE 3300600837116\n\nหรือกดปุ่มเชื่อมต่อจากเมนู "ข้อมูลของฉัน" ในระบบได้ทันทีครับ`);
+            await replyMessage(`👋 สวัสดีครับ ยินดีต้อนรับสู่ระบบแจ้งเตือนโรงเรียน (School-OS)\n\n📌 LINE User ID ของท่านคือ:\n${lineUserId}\n\nหากต้องการเชื่อมต่อเพื่อรับแจ้งเตือน กรุณาพิมพ์:\n#ผูกLINE [เลขบัตรประชาชน 13 หลัก]\n\nเช่น:\n#ผูกLINE 3300600837116\n\n(หรือนำ LINE User ID ด้านบนไปกรอกในระบบที่เมนู "ข้อมูลส่วนตัว" ได้เช่นกันครับ)`);
           }
         }
         
         if (event.type === 'follow') {
           console.log(`[LINE Webhook] User followed bot: ${lineUserId}`);
-          await replyMessage(`👋 ยินดีต้อนรับสู่ LINE Official Account ของโรงเรียนครับ!\n\n📌 <b>LINE User ID ของท่านคือ:</b>\n${lineUserId}\n\nหากท่านเป็นครูหรือบุคลากร สามารถผูกบัญชีเพื่อรับแจ้งเตือนได้ง่ายๆ เพียงพิมพ์:\n#ผูกLINE [เลขบัตรประชาชน 13 หลัก]\n\nเช่น:\n#ผูกLINE 3300600837116\n\nเพื่อเชื่อมต่อระบบแจ้งเตือนอัตโนมัติครับ`);
+          await replyMessage(`👋 ยินดีต้อนรับสู่ LINE Official Account ของโรงเรียนครับ!\n\n📌 LINE User ID ของท่านคือ:\n${lineUserId}\n\nหากท่านเป็นครูหรือบุคลากร สามารถผูกบัญชีเพื่อรับแจ้งเตือนได้ง่ายๆ เพียงพิมพ์:\n#ผูกLINE [เลขบัตรประชาชน 13 หลัก]\n\nเช่น:\n#ผูกLINE 3300600837116\n\nเพื่อเชื่อมต่อระบบแจ้งเตือนอัตโนมัติครับ`);
         }
       }
     } catch (err) {

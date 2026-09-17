@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Teacher, SystemConfig } from '../types';
 import { ACADEMIC_POSITIONS } from '../constants';
-import { User, Lock, Save, UploadCloud, FileSignature, Briefcase, Eye, EyeOff, Loader, MessageCircle, Smartphone, CheckCircle, Zap, AlertCircle, Info, Copy, MessageSquare } from 'lucide-react';
+import { User, Lock, Save, UploadCloud, FileSignature, Briefcase, Eye, EyeOff, Loader, MessageCircle, Smartphone, CheckCircle, Zap, AlertCircle, Info, Copy, MessageSquare, Search } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
 interface UserProfileProps {
@@ -26,6 +26,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
     const [isLoadingConfig, setIsLoadingConfig] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isRefreshingLine, setIsRefreshingLine] = useState(false);
+    const [isSearchingRecentLine, setIsSearchingRecentLine] = useState(false);
     const [isCopiedLine, setIsCopiedLine] = useState(false);
     const [showManualLineInput, setShowManualLineInput] = useState(false);
     const [showManualTelegramInput, setShowManualTelegramInput] = useState(false);
@@ -110,7 +111,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                     if (data.line_user_id) {
                         alert("✅ ตรวจพบการเชื่อมต่อ LINE เรียบร้อยแล้วครับ!");
                     } else {
-                        alert("ยังไม่พบการเชื่อมต่อ LINE กรุณากดปุ่ม 'กดเพื่อเชื่อมต่อ LINE ทันที' แล้วส่งข้อความใน LINE ครับ");
+                        alert("ยังไม่พบการเชื่อมต่อ LINE กรุณากดปุ่ม 'กดเพื่อเชื่อมต่อ LINE ทันที' แล้วส่งข้อความใน LINE หรือใช้ปุ่ม 'ดึง LINE ID ล่าสุด' ครับ");
                     }
                 }
             } catch (err) {
@@ -121,6 +122,44 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
             }
         } else {
             setIsRefreshingLine(false);
+        }
+    };
+
+    const handleFindRecentLineId = async () => {
+        setIsSearchingRecentLine(true);
+        try {
+            const res = await fetch(`/api/line/recent-events?schoolId=${currentUser.schoolId || ''}`);
+            if (res.ok) {
+                const events = await res.json();
+                if (Array.isArray(events) && events.length > 0) {
+                    // Try to find an event with user's 13-digit ID
+                    const match = events.find(e => e.text && e.text.includes(currentUser.id));
+                    if (match && match.lineUserId) {
+                        setFormData(prev => ({ ...prev, lineUserId: match.lineUserId }));
+                        setShowManualLineInput(true);
+                        alert(`🎯 ตรวจพบ LINE User ID ของท่านแล้ว!\n\nUser ID: ${match.lineUserId}\nข้อความที่ส่ง: "${match.text}"\n\nระบบนำมากรอกในช่องให้เรียบร้อยแล้ว กรุณากดปุ่ม "บันทึกการเปลี่ยนแปลง" ด้านล่างของหน้าเพื่อยืนยันครับ`);
+                        return;
+                    }
+
+                    // Otherwise pick the most recent event
+                    const latest = events[0];
+                    if (latest && latest.lineUserId && latest.lineUserId !== 'unknown') {
+                        const confirmUse = window.confirm(`พบข้อความล่าสุดจาก LINE:\n"${latest.text || latest.type}"\nรหัส LINE User ID: ${latest.lineUserId}\nเวลา: ${new Date(latest.timestamp).toLocaleTimeString('th-TH')}\n\nนี่คือบัญชี LINE ของท่านใช่หรือไม่? (กด ตกลง เพื่อนำรหัสนี้มาใส่ในระบบทันที)`);
+                        if (confirmUse) {
+                            setFormData(prev => ({ ...prev, lineUserId: latest.lineUserId }));
+                            setShowManualLineInput(true);
+                            alert(`✅ นำรหัส ${latest.lineUserId} มาใส่ในช่องเรียบร้อยแล้ว กรุณากดปุ่ม "บันทึกการเปลี่ยนแปลง" ด้านล่างของหน้าเพื่อบันทึกครับ`);
+                        }
+                        return;
+                    }
+                }
+                alert("ยังไม่พบข้อความที่ส่งเข้ามาใน LINE Official Account ล่าสุด\n\nคำแนะนำ:\n1. ตรวจสอบว่าแอดมินตั้งค่า Webhook ใน LINE Developers และเปิด Use Webhook แล้วหรือยัง\n2. ลองส่งข้อความคำว่า 'id' หรือ '#ผูกLINE " + currentUser.id + "' เข้าไปในแชทบอท LINE ของโรงเรียนก่อน แล้วกดปุ่มนี้อีกครั้ง");
+            }
+        } catch (e: any) {
+            console.error("Error finding recent LINE ID:", e);
+            alert("ไม่สามารถค้นหาข้อความได้ในขณะนี้: " + e.message);
+        } finally {
+            setIsSearchingRecentLine(false);
         }
     };
 
@@ -487,6 +526,17 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                             </button>
 
                             <button 
+                                type="button" 
+                                onClick={handleFindRecentLineId}
+                                disabled={isSearchingRecentLine}
+                                className="px-4 py-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs hover:bg-indigo-100 transition-colors flex items-center justify-center gap-1.5"
+                                title="หากพิมพ์ข้อความใน LINE แล้วแต่ยังไม่ขึ้น ให้กดปุ่มนี้เพื่อดึง LINE User ID ทันที"
+                            >
+                                <Search size={14} className={isSearchingRecentLine ? 'animate-spin' : ''}/>
+                                {isSearchingRecentLine ? 'กำลังตรวจ...' : 'ตรวจหา LINE ID ล่าสุด'}
+                            </button>
+
+                            <button 
                                 type="button"
                                 onClick={() => setShowManualLineInput(!showManualLineInput)}
                                 className="px-4 py-3 bg-white text-slate-600 border border-emerald-300 rounded-xl font-medium text-xs hover:bg-emerald-50 transition-colors"
@@ -507,7 +557,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                                         className="flex-1 px-3 py-1.5 border rounded-lg font-mono text-xs outline-none focus:ring-2 focus:ring-emerald-500"
                                     />
                                 </div>
-                                <p className="text-[10px] text-slate-400">* ท่านสามารถดู User ID ได้โดยการส่งคำว่า "id" ไปใน LINE Official Account ของโรงเรียน</p>
+                                <div className="text-[10px] text-slate-500 space-y-1 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                    <p className="font-bold text-slate-700">💡 วิธีนำ LINE User ID มาใส่ในช่องนี้:</p>
+                                    <p>1. เปิดแชทกับ LINE Official Account ของโรงเรียน แล้วพิมพ์คำว่า <b>id</b> หรือ <b>สวัสดี</b> ส่งไปในแชท</p>
+                                    <p>2. กดปุ่ม <b>"ตรวจหา LINE ID ล่าสุด"</b> ด้านบน ระบบจะค้นหารหัส <span className="font-mono text-emerald-700 font-bold">U...</span> จากแชทที่เพิ่งส่งมาใส่ในช่องนี้ให้อัตโนมัติทันที</p>
+                                    <p>3. เลื่อนลงไปด้านล่างสุดของหน้าแล้วกดปุ่ม <b>"บันทึกการเปลี่ยนแปลง"</b></p>
+                                </div>
                             </div>
                         )}
                     </div>
