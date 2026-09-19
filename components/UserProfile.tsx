@@ -29,6 +29,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
     const [isSearchingRecentLine, setIsSearchingRecentLine] = useState(false);
     const [isSearchingRecentTelegram, setIsSearchingRecentTelegram] = useState(false);
     const [isConnectingTelegram, setIsConnectingTelegram] = useState(false);
+    const [isConnectingLine, setIsConnectingLine] = useState(false);
     const [isCopiedLine, setIsCopiedLine] = useState(false);
     const [showManualLineInput, setShowManualLineInput] = useState(false);
     const [showManualTelegramInput, setShowManualTelegramInput] = useState(false);
@@ -355,6 +356,60 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         } else {
             alert(`คัดลอกคำสั่ง: "${linkCommand}" เรียบร้อยแล้ว!\n\nกรุณาเปิด LINE Official Account ของโรงเรียน แล้วส่งข้อความนี้เพื่อเชื่อมต่อระบบครับ`);
         }
+
+        // Start active detection polling for 60 seconds (every 2s) like Telegram
+        setIsConnectingLine(true);
+        let pollCount = 0;
+        const lineCheckInterval = setInterval(async () => {
+            pollCount++;
+            if (pollCount > 30) { // 30 * 2s = 60s
+                clearInterval(lineCheckInterval);
+                setIsConnectingLine(false);
+                return;
+            }
+
+            try {
+                // 1. Check profiles table in DB
+                if (supabase) {
+                    const { data } = await supabase.from('profiles').select('line_user_id').eq('id', currentUser.id).maybeSingle();
+                    if (data && data.line_user_id) {
+                        setFormData(prev => ({ ...prev, lineUserId: data.line_user_id }));
+                        onUpdateUser({ ...currentUser, lineUserId: data.line_user_id });
+                        clearInterval(lineCheckInterval);
+                        setIsConnectingLine(false);
+                        alert(`🎉 เชื่อมต่อ LINE สำเร็จเรียบร้อยแล้ว!\nLINE User ID: ${data.line_user_id}`);
+                        return;
+                    }
+                }
+
+                // 2. Check recent webhook events from server
+                const res = await fetch(`/api/line/recent-events?schoolId=${currentUser.schoolId || ''}`);
+                if (res.ok) {
+                    const events = await res.json();
+                    if (Array.isArray(events) && events.length > 0) {
+                        const match = events.find(e => 
+                            (e.text && e.text.includes(currentUser.id)) ||
+                            (e.linkedUserName && e.status === 'linked_successfully')
+                        );
+                        if (match && match.lineUserId && match.lineUserId !== 'unknown') {
+                            setFormData(prev => ({ ...prev, lineUserId: match.lineUserId }));
+                            onUpdateUser({ ...currentUser, lineUserId: match.lineUserId });
+                            fetch('/api/line/link-user', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ citizenId: currentUser.id, lineUserId: match.lineUserId })
+                            }).catch(() => {});
+                            clearInterval(lineCheckInterval);
+                            setIsConnectingLine(false);
+                            alert(`🎉 ตรวจพบข้อความและเชื่อมต่อ LINE สำเร็จเรียบร้อยแล้ว!\nLINE User ID: ${match.lineUserId}`);
+                            return;
+                        }
+                    }
+                }
+            } catch (err) {
+                // silent
+            }
+        }, 2000);
     };
 
     useEffect(() => {
@@ -834,11 +889,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                                     <button
                                         type="button"
                                         onClick={handleConnectLine}
-                                        className="flex-1 sm:flex-none px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1 shadow-xs"
-                                        title="คัดลอกคำสั่งและเปิดแอป LINE ทันที"
+                                        disabled={isConnectingLine}
+                                        className="flex-1 sm:flex-none px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-xs"
+                                        title="เปิด LINE บอท และเริ่มตรวจจับบันทึก ID อัตโนมัติ"
                                     >
-                                        <Copy size={13}/>
-                                        คัดลอกคำสั่ง #ผูกLINE
+                                        {isConnectingLine ? <Loader className="animate-spin" size={13}/> : <Zap size={13}/>}
+                                        {isConnectingLine ? 'กำลังรอตรวจจับ LINE ID...' : 'เชื่อมต่อ LINE (เปิดแอปและผูกอัตโนมัติ)'}
                                     </button>
                                     <button
                                         type="button"
@@ -873,20 +929,20 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                             {/* STEP-BY-STEP INSTRUCTIONS */}
                             <div className="bg-emerald-50/50 p-2.5 rounded-lg border border-emerald-100 space-y-1.5">
                                 <div className="text-[11px] font-bold text-emerald-950 uppercase tracking-wider">
-                                    📌 ขั้นตอนการดึงและเชื่อมต่อ LINE User ID:
+                                    📌 ขั้นตอนการเชื่อมต่อและดึง LINE ID อัตโนมัติ:
                                 </div>
                                 <ol className="text-xs text-slate-600 space-y-1 font-medium">
                                     <li className="flex items-start gap-1.5">
                                         <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
-                                        <span>กดปุ่ม <b>"คัดลอกคำสั่ง #ผูกLINE"</b> หรือกด <b>"เปิด LINE"</b> ด้านบน</span>
+                                        <span>กดปุ่ม <b>"เชื่อมต่อ LINE (เปิดแอปและผูกอัตโนมัติ)"</b> ระบบจะคัดลอกคำสั่งพร้อมเปิดหน้าแชทบอท LINE ทันที และเริ่มตรวจจับอัตโนมัติ</span>
                                     </li>
                                     <li className="flex items-start gap-1.5">
                                         <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
-                                        <span>ในแชทกับบอทโรงเรียน ให้ส่งข้อความ <code className="bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-emerald-800 font-bold font-mono">#ผูกLINE {currentUser.id}</code> หรือส่งคำว่า <code className="bg-white px-1 py-0.5 rounded border border-emerald-200 text-emerald-800 font-bold font-mono">id</code> บอทจะตอบกลับรหัส <span className="font-mono text-emerald-700 font-bold">U...</span></span>
+                                        <span>ในหน้าแชท LINE กด <b>"วาง" (Paste)</b> แล้วกดส่งข้อความ <code className="bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-emerald-800 font-bold font-mono">#ผูกLINE {currentUser.id}</code> (หรือส่งเลข 13 หลัก หรือพิมพ์คำว่า <code className="bg-white px-1 py-0.5 rounded border border-emerald-200 text-emerald-800 font-bold font-mono">id</code>)</span>
                                     </li>
                                     <li className="flex items-start gap-1.5">
                                         <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
-                                        <span>กดปุ่ม <b>"ตรวจหา LINE ID ล่าสุด"</b> ด้านล่าง (ระบบจะดึงรหัสมาใส่และบันทึกให้อัตโนมัติ) หรือคัดลอกรหัส <span className="font-mono text-emerald-700 font-bold">U...</span> มาวางในช่องแล้วกด <b>"บันทึก LINE ID ทันที"</b></span>
+                                        <span><b>เสร็จสิ้น!</b> เมื่อส่งแล้ว หน้าเว็บจะตรวจพบและบันทึก LINE User ID ลงฐานข้อมูลให้อัตโนมัติทันที โดยไม่ต้องคัดลอกรหัสกลับมาวางเอง</span>
                                     </li>
                                 </ol>
                             </div>

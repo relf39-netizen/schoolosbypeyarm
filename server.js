@@ -2139,7 +2139,7 @@ async function startServer() {
   });
 
   // --- LINE Webhook & 1-Click Auto Link Handler ---
-  app.all(['/api/line/webhook', '/api/line/webhook/:schoolId', '/api/line/webhook/:schoolId/*'], async (req, res) => {
+  app.all(['/api/line/webhook', '/api/line/webhook/:schoolId', '/api/line/webhook/:schoolId/{*all}'], async (req, res) => {
     // If health check / browser visit via GET
     if (req.method === 'GET') {
       return res.status(200).json({
@@ -2394,8 +2394,10 @@ async function startServer() {
             cleanText.includes('ขอid') ||
             cleanText.includes('ขอไอดี') ||
             cleanText.includes('ผูกid') ||
+            cleanText.includes('ผูก') ||
             cleanText.includes('userid') ||
             cleanText.includes('lineid') ||
+            cleanText.includes('uid') ||
             cleanText === 'id' ||
             cleanText === 'ไอดี'
           ) {
