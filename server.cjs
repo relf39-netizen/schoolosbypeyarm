@@ -1777,7 +1777,7 @@ async function startServer() {
   });
 
   // --- LINE Webhook & 1-Click Auto Link Handler ---
-  app.all(['/api/line/webhook', '/api/line/webhook/:schoolId'], async (req, res) => {
+  app.all(['/api/line/webhook', '/api/line/webhook/:schoolId', '/api/line/webhook/:schoolId/*'], async (req, res) => {
     // If health check / browser visit via GET
     if (req.method === 'GET') {
       return res.status(200).json({
@@ -1837,7 +1837,7 @@ async function startServer() {
             schoolToken = schoolTokensMap.get(String(paramSchoolId));
           }
           if (!schoolToken) {
-            const [cfg] = await query('SELECT line_channel_access_token FROM school_configs WHERE line_channel_access_token IS NOT NULL AND line_channel_access_token != "" LIMIT 1');
+            const [cfg] = await query('SELECT line_channel_access_token FROM school_configs WHERE line_channel_access_token IS NOT NULL AND line_channel_access_token != "" ORDER BY updated_at DESC LIMIT 1');
             if (cfg && cfg.line_channel_access_token) {
               schoolToken = cfg.line_channel_access_token.trim();
             }
@@ -1875,37 +1875,74 @@ async function startServer() {
         }
 
         // Helper function to send reply message back to user (pure plain text, NO HTML tags)
+        // With automatic Push message fallback if replyToken fails or expires
         const replyMessage = async (textMessage, overrideToken = null) => {
           const tokenToUse = overrideToken || schoolToken;
-          if (!replyToken || !tokenToUse) {
-            console.warn('[LINE Webhook] Cannot reply: replyToken or schoolToken missing. tokenToUse exists?', !!tokenToUse);
+          if (!tokenToUse) {
+            console.warn('[LINE Webhook] Cannot reply: schoolToken missing.');
             eventLog.status = 'reply_skipped_no_token';
             return;
           }
-          try {
-            const replyRes = await fetch('https://api.line.me/v2/bot/message/reply', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${tokenToUse}`
-              },
-              body: JSON.stringify({
-                replyToken,
-                messages: [{ type: 'text', text: textMessage }]
-              })
-            });
 
-            if (!replyRes.ok) {
-              const errBody = await replyRes.text();
-              console.error('[LINE Webhook Reply Error]', replyRes.status, errBody);
-              eventLog.status = `reply_error_${replyRes.status}`;
-            } else {
-              console.log(`[LINE Webhook Reply Success] Replied to user ${lineUserId}`);
-              eventLog.status = 'replied';
+          let sentSuccessfully = false;
+
+          // 1. Try standard Reply API if replyToken exists
+          if (replyToken) {
+            try {
+              const replyRes = await fetch('https://api.line.me/v2/bot/message/reply', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${tokenToUse}`
+                },
+                body: JSON.stringify({
+                  replyToken,
+                  messages: [{ type: 'text', text: textMessage }]
+                })
+              });
+
+              if (replyRes.ok) {
+                console.log(`[LINE Webhook Reply Success] Replied to user ${lineUserId}`);
+                eventLog.status = 'replied';
+                sentSuccessfully = true;
+              } else {
+                const errBody = await replyRes.text();
+                console.error('[LINE Webhook Reply Error]', replyRes.status, errBody);
+              }
+            } catch (replyErr) {
+              console.error('[LINE Webhook Reply Exception]', replyErr);
             }
-          } catch (replyErr) {
-            console.error('[LINE Webhook Reply Exception]', replyErr);
-            eventLog.status = 'reply_exception';
+          }
+
+          // 2. Fallback to Push API if Reply API failed or replyToken was absent
+          if (!sentSuccessfully && lineUserId) {
+            try {
+              console.log(`[LINE Webhook] Attempting Push Message fallback to ${lineUserId}...`);
+              const pushRes = await fetch('https://api.line.me/v2/bot/message/push', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${tokenToUse}`
+                },
+                body: JSON.stringify({
+                  to: lineUserId,
+                  messages: [{ type: 'text', text: textMessage }]
+                })
+              });
+
+              if (pushRes.ok) {
+                console.log(`[LINE Webhook Push Fallback Success] Pushed to ${lineUserId}`);
+                eventLog.status = 'replied_via_push';
+                sentSuccessfully = true;
+              } else {
+                const pushErrBody = await pushRes.text();
+                console.error('[LINE Webhook Push Fallback Error]', pushRes.status, pushErrBody);
+                eventLog.status = `reply_error_${pushRes.status}`;
+              }
+            } catch (pushErr) {
+              console.error('[LINE Webhook Push Exception]', pushErr);
+              eventLog.status = 'reply_exception';
+            }
           }
         };
 

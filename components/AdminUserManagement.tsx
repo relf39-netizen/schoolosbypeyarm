@@ -250,6 +250,8 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const [recentLineEvents, setRecentLineEvents] = useState<any[]>([]);
     const [isLoadingLineEvents, setIsLoadingLineEvents] = useState(false);
     const [selectedTeacherForLink, setSelectedTeacherForLink] = useState<{ [key: string]: string }>({});
+    const [isCheckingWebhookStatus, setIsCheckingWebhookStatus] = useState(false);
+    const [webhookCheckResult, setWebhookCheckResult] = useState<{ universalOk: boolean; schoolOk: boolean; tested: boolean; errorMsg?: string } | null>(null);
 
     const [recentTelegramEvents, setRecentTelegramEvents] = useState<any[]>([]);
     const [isLoadingTelegramEvents, setIsLoadingTelegramEvents] = useState(false);
@@ -1386,6 +1388,56 @@ function setTelegramWebhook() {
         }
     };
 
+    const handleCheckWebhookEndpoints = async () => {
+        setIsCheckingWebhookStatus(true);
+        setWebhookCheckResult(null);
+        try {
+            const origin = typeof window !== 'undefined' ? window.location.origin : '';
+            const uUrl = `${origin}/api/line/webhook`;
+            const sUrl = `${origin}/api/line/webhook/${currentSchool?.id || ''}`;
+
+            let universalOk = false;
+            let schoolOk = false;
+
+            try {
+                const uRes = await fetch(uUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ events: [] })
+                });
+                universalOk = (uRes.status === 200);
+            } catch (err) {
+                console.warn("Universal webhook check error:", err);
+            }
+
+            try {
+                const sRes = await fetch(sUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ events: [] })
+                });
+                schoolOk = (sRes.status === 200);
+            } catch (err) {
+                console.warn("School webhook check error:", err);
+            }
+
+            setWebhookCheckResult({
+                universalOk,
+                schoolOk,
+                tested: true
+            });
+        } catch (e: any) {
+            setWebhookCheckResult({
+                universalOk: false,
+                schoolOk: false,
+                tested: true,
+                errorMsg: e.message
+            });
+        } finally {
+            setIsCheckingWebhookStatus(false);
+        }
+    };
+
     const handleTestTelegramNotification = async () => {
         if (!config.telegramBotToken || !config.telegramTargetId) {
             alert("กรุณาระบุทั้ง Telegram Bot Token และ Target ID (Chat ID หรือ Group ID) ก่อนกดทดสอบ");
@@ -2502,65 +2554,106 @@ function setTelegramWebhook() {
                                             </div>
                                         </div>
 
-                                        {/* Webhook URLs with 1-click copy */}
+                                        {/* Webhook URLs with 1-click copy & Live Server Test */}
                                         <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-200 text-emerald-950 space-y-3">
-                                            <div className="flex items-center justify-between border-b border-emerald-200/70 pb-2">
-                                                <span className="flex items-center gap-1.5 text-xs font-black text-emerald-900">
-                                                    <Zap size={14} className="text-emerald-600"/> Webhook URL สำหรับใส่ใน LINE Developers Console:
-                                                </span>
-                                                <span className="px-2.5 py-0.5 bg-emerald-200/80 text-emerald-900 rounded-full font-bold text-[9px]">
-                                                    รองรับทั้ง 2 แบบ
-                                                </span>
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-200/70 pb-2">
+                                                <div>
+                                                    <span className="flex items-center gap-1.5 text-xs font-black text-emerald-900">
+                                                        <Zap size={14} className="text-emerald-600"/> Webhook URL สำหรับใส่ใน LINE Developers Console:
+                                                    </span>
+                                                    <p className="text-[10px] text-emerald-700">นำ URL นี้ไปใส่ที่ LINE Developers &gt; Messaging API &gt; Webhook URL</p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleCheckWebhookEndpoints}
+                                                    disabled={isCheckingWebhookStatus}
+                                                    className="px-3 py-1.5 bg-emerald-700 text-white rounded-lg text-xs font-bold hover:bg-emerald-800 transition-all flex items-center gap-1.5 shadow-sm self-start sm:self-auto"
+                                                >
+                                                    {isCheckingWebhookStatus ? <Loader className="animate-spin" size={12}/> : <Activity size={12}/>}
+                                                    {isCheckingWebhookStatus ? 'กำลังตรวจสอบ...' : 'ตรวจสถานะ Webhook บนเซิร์ฟเวอร์'}
+                                                </button>
                                             </div>
 
+                                            {webhookCheckResult && webhookCheckResult.tested && (
+                                                <div className="p-3 bg-white rounded-xl border border-emerald-300 text-xs space-y-1.5 shadow-sm animate-fadeIn">
+                                                    <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                                                        <CheckCircle2 size={14} className="text-emerald-600"/> ผลการตรวจสอบสถานะจุดเชื่อมต่อ:
+                                                    </div>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                                                        <div className={`p-2 rounded-lg border ${webhookCheckResult.universalOk ? 'bg-emerald-50 border-emerald-200 text-emerald-800 font-bold' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
+                                                            <span>แบบที่ 1 (URL กลาง): </span>
+                                                            <span>{webhookCheckResult.universalOk ? '✅ ตอบรับ HTTP 200 OK (แนะนำอย่างยิ่ง)' : '❌ ยังไม่ตอบรับ'}</span>
+                                                        </div>
+                                                        <div className={`p-2 rounded-lg border ${webhookCheckResult.schoolOk ? 'bg-emerald-50 border-emerald-200 text-emerald-800 font-bold' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                                                            <span>แบบที่ 2 (ระบุโรงเรียน): </span>
+                                                            <span>{webhookCheckResult.schoolOk ? '✅ ตอบรับ HTTP 200 OK' : '⚠️ ไม่พบเส้นทาง (ให้ใช้แบบที่ 1 หรือ Restart Node.js ใน cPanel)'}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                <div className="bg-white p-3 rounded-xl border border-emerald-200 space-y-1.5 shadow-sm">
+                                                {/* Option 1: Universal URL (Most stable for cPanel) */}
+                                                <div className="bg-white p-3.5 rounded-xl border-2 border-emerald-500 space-y-2 shadow-sm relative">
+                                                    <span className="absolute -top-2.5 right-3 px-2 py-0.5 bg-emerald-600 text-white rounded-full font-bold text-[9px] shadow-xs">
+                                                        แนะนำที่สุด (เสถียร 100%)
+                                                    </span>
                                                     <div className="flex items-center justify-between">
-                                                        <span className="text-[11px] font-bold text-emerald-900">1. แบบระบุโรงเรียน (แนะนำที่สุด):</span>
+                                                        <span className="text-[11px] font-black text-emerald-900">1. แบบมาตรฐาน (Universal):</span>
                                                         <button
                                                             type="button"
                                                             onClick={() => {
-                                                                const wh = `${window.location.origin}/api/line/webhook/${currentSchool?.id || ''}`;
+                                                                const wh = `${window.location.origin}/api/line/webhook`;
                                                                 navigator.clipboard.writeText(wh);
-                                                                alert(`คัดลอก Webhook URL เรียบร้อยแล้ว:\n${wh}\n\nนำไปใส่ใน LINE Developers Console -> Messaging API -> Webhook URL แล้วกด Verify และเปิด Use webhook`);
+                                                                alert(`คัดลอก Webhook URL แบบมาตรฐานเรียบร้อยแล้ว:\n${wh}\n\nนำไปใส่ใน LINE Developers Console -> Messaging API -> Webhook URL แล้วกดปุ่ม Verify (จะขึ้น Success สีเขียวทันที)`);
                                                             }}
                                                             className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-bold text-[10px] hover:bg-emerald-700 shadow-sm flex items-center gap-1"
                                                         >
                                                             <Copy size={11}/> คัดลอก URL
                                                         </button>
                                                     </div>
-                                                    <p className="font-mono text-[10px] bg-slate-50 p-2 rounded-lg border border-slate-200 text-emerald-800 select-all break-all font-bold">
-                                                        {typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook/${currentSchool?.id || ''}` : `/api/line/webhook/${currentSchool?.id || ''}`}
+                                                    <p className="font-mono text-[11px] bg-slate-50 p-2 rounded-lg border border-slate-200 text-emerald-800 select-all break-all font-bold">
+                                                        {typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook` : `/api/line/webhook`}
+                                                    </p>
+                                                    <p className="text-[10px] text-slate-500">
+                                                        เหมาะที่สุดสำหรับโฮสติ้ง cPanel ทำงานได้ทันทีและกด Verify ผ่านแน่นอน
                                                     </p>
                                                 </div>
 
-                                                <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-1.5 shadow-sm">
+                                                {/* Option 2: School Specific URL */}
+                                                <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-2 shadow-sm">
                                                     <div className="flex items-center justify-between">
-                                                        <span className="text-[11px] font-bold text-slate-700">2. แบบกลาง (Universal):</span>
+                                                        <span className="text-[11px] font-bold text-slate-700">2. แบบระบุรหัสโรงเรียน:</span>
                                                         <button
                                                             type="button"
                                                             onClick={() => {
-                                                                const wh = `${window.location.origin}/api/line/webhook`;
+                                                                const wh = `${window.location.origin}/api/line/webhook/${currentSchool?.id || ''}`;
                                                                 navigator.clipboard.writeText(wh);
-                                                                alert(`คัดลอก Webhook URL แบบกลางเรียบร้อยแล้ว:\n${wh}`);
+                                                                alert(`คัดลอก Webhook URL แบบระบุโรงเรียนเรียบร้อยแล้ว:\n${wh}\n\n*หมายเหตุ: หากกด Verify แล้วขึ้น Error ให้ใช้แบบที่ 1 (แบบมาตรฐาน) แทน หรือกด Restart Node.js ใน cPanel`);
                                                             }}
                                                             className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg font-bold text-[10px] hover:bg-slate-200 flex items-center gap-1 border border-slate-200"
                                                         >
                                                             <Copy size={11}/> คัดลอก URL
                                                         </button>
                                                     </div>
-                                                    <p className="font-mono text-[10px] bg-slate-50 p-2 rounded-lg border border-slate-200 text-slate-600 select-all break-all">
-                                                        {typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook` : `/api/line/webhook`}
+                                                    <p className="font-mono text-[11px] bg-slate-50 p-2 rounded-lg border border-slate-200 text-slate-600 select-all break-all">
+                                                        {typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook/${currentSchool?.id || ''}` : `/api/line/webhook/${currentSchool?.id || ''}`}
+                                                    </p>
+                                                    <p className="text-[10px] text-slate-500">
+                                                        สำหรับระบบ Multi-tenant แยกห้อง (ต้องอัปโหลด server.js ล่าสุดและ Restart Node.js ใน cPanel)
                                                     </p>
                                                 </div>
                                             </div>
 
-                                            <div className="text-[11px] text-emerald-900 bg-white/80 p-3 rounded-xl border border-emerald-200 space-y-1">
+                                            <div className="text-[11px] text-slate-700 bg-white/90 p-3.5 rounded-xl border border-emerald-200 space-y-1.5">
                                                 <p className="font-bold flex items-center gap-1.5 text-emerald-800">
-                                                    <Info size={14} className="text-emerald-600 shrink-0"/> 2 ขั้นตอนสำคัญเพื่อให้ LINE Bot ตอบกลับ:
+                                                    <Info size={14} className="text-emerald-600 shrink-0"/> วิธีแก้ไขเมื่อพิมพ์คำว่า "ผูก" ใน LINE แล้วเงียบ / ไม่ตอบกลับ:
                                                 </p>
-                                                <p className="text-slate-600"><b>1. LINE Developers Console:</b> เมนู <i>Messaging API</i> &gt; วาง URL &gt; กด <b>Verify</b> (Success) &gt; เปิด <b>Use webhook</b></p>
-                                                <p className="text-slate-600"><b>2. LINE OA Manager (manager.line.biz):</b> <i>ตั้งค่า</i> &gt; <i>การตอบกลับ</i> &gt; เลือกโหมด <b>"แชท"</b> &gt; เปิด Webhook เป็น <b>"เปิด (ON)"</b></p>
+                                                <ul className="list-disc pl-4 space-y-1 text-slate-600">
+                                                    <li><b>ข้อ 1 (สำคัญที่สุด):</b> ในหน้า <b>LINE Developers Console</b> &gt; เมนู <b>Messaging API</b> ให้กดปุ่ม <b>Edit</b> แล้วเปลี่ยน URL เป็น <code>{typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook` : `/api/line/webhook`}</code> (แบบที่ 1 ตัดเลขโรงเรียนออก) จากนั้นกดปุ่ม <b>Verify</b> ให้ขึ้นสีเขียว <b>Success</b> และเปิด <b>Use webhook</b></li>
+                                                    <li><b>ข้อ 2:</b> ในหน้า <b>LINE Official Account Manager (manager.line.biz)</b> &gt; <i>ตั้งค่า (รูปฟันเฟืองมุมขวาบน)</i> &gt; <i>การตอบกลับ</i> &gt; เลือกโหมด <b>"แชท"</b> และเปิด Webhook เป็น <b>"เปิด (ON)"</b></li>
+                                                    <li><b>ข้อ 3:</b> ใน cPanel แท็บแรกของคุณครู เข้าเมนู <b>Setup Node.js App</b> แล้วกดปุ่ม <b>Restart</b> (ไอคอนลูกศรหมุนสีฟ้า) เพื่อให้โค้ดเซิร์ฟเวอร์ตัวล่าสุดทำงานสมบูรณ์</li>
+                                                </ul>
                                             </div>
                                         </div>
 
