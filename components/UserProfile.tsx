@@ -564,27 +564,44 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                         )}
 
                         {isConnectingTelegram && (
-                            <div className="relative z-10 p-3.5 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl text-xs text-indigo-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
-                                <div className="flex items-center gap-2.5">
-                                    <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm animate-spin">
-                                        <Loader size={16}/>
+                            <div className="relative z-10 p-3.5 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl text-xs text-indigo-950 flex flex-col gap-2.5 shadow-sm">
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm animate-spin">
+                                            <Loader size={16}/>
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-sm text-indigo-900">กำลังรอตรวจจับการเชื่อมต่อจาก Telegram...</p>
+                                            <p className="text-[11px] text-indigo-700">
+                                                หากมีปุ่ม <b>Start</b> ให้กดปุ่ม Start ได้เลย หรือถ้าเคยเปิดแชทไว้แล้ว ให้ส่งเลข 13 หลักเข้าแชทบอท
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p className="font-bold text-sm text-indigo-900">กำลังรอตรวจจับการกดปุ่ม Start ใน Telegram...</p>
-                                        <p className="text-[11px] text-indigo-700">
-                                            เมื่อกดปุ่ม Start ในแอป Telegram แล้ว ระบบจะดึง ID มาบันทึกให้อัตโนมัติทันที
-                                        </p>
+                                    <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={handleFindRecentTelegramId}
+                                            disabled={isSearchingRecentTelegram}
+                                            className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-bold text-xs hover:bg-indigo-700 shadow-sm flex items-center gap-1 active:scale-95"
+                                        >
+                                            {isSearchingRecentTelegram ? <Loader className="animate-spin" size={12}/> : <Search size={12}/>}
+                                            ตรวจหา ID ทันที
+                                        </button>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                                <div className="pt-2 border-t border-indigo-100 flex flex-wrap items-center justify-between gap-2 text-[11px] bg-white/70 p-2 rounded-lg">
+                                    <span className="text-slate-600">
+                                        ⚠️ <b>กรณีไม่มีปุ่ม Start ให้กด:</b> ให้คัดลอกเลขบัตรประชาชนนี้ไปส่งให้บอทในแชท:
+                                    </span>
                                     <button
                                         type="button"
-                                        onClick={handleFindRecentTelegramId}
-                                        disabled={isSearchingRecentTelegram}
-                                        className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-bold text-xs hover:bg-indigo-700 shadow-sm flex items-center gap-1 active:scale-95"
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(currentUser.id);
+                                            alert(`คัดลอกเลขประจำตัว: ${currentUser.id} เรียบร้อยแล้ว\nนำไปวางแล้วส่งให้บอทในแชท Telegram ได้เลยครับ!`);
+                                        }}
+                                        className="px-2.5 py-1 bg-indigo-100 text-indigo-800 font-mono font-bold rounded hover:bg-indigo-200 flex items-center gap-1 shrink-0"
                                     >
-                                        {isSearchingRecentTelegram ? <Loader className="animate-spin" size={12}/> : <Search size={12}/>}
-                                        ตรวจหา ID ทันที
+                                        📋 {currentUser.id} (กดคัดลอก)
                                     </button>
                                 </div>
                             </div>
