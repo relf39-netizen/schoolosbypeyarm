@@ -390,30 +390,41 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         // Clean bot username
         const cleanBotUser = botUsername.replace('@', '').trim();
         const webUrl = `https://t.me/${cleanBotUser}?start=${currentUser.id}`;
-        const nativeUrl = `tg://resolve?domain=${cleanBotUser}&start=${currentUser.id}`;
 
         // Auto copy 13-digit ID to clipboard as quick backup
         navigator.clipboard.writeText(currentUser.id).catch(() => {});
 
-        // Trigger sync-updates to ensure webhook is registered at Telegram API
+        // Open Telegram directly in a new window/tab
+        window.open(webUrl, '_blank');
+
+        // Trigger sync-updates to start poller / fetch updates
         fetch('/api/telegram/sync-updates', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ schoolId: currentUser.schoolId })
         }).catch(() => {});
 
-        // Start active detection polling for 45 seconds
+        // Start active detection polling for 60 seconds (every 2s)
         setIsConnectingTelegram(true);
         let pollCount = 0;
         const linkCheckInterval = setInterval(async () => {
             pollCount++;
-            if (pollCount > 18) { // 18 * 2.5s = 45s
+            if (pollCount > 30) { // 30 * 2s = 60s
                 clearInterval(linkCheckInterval);
                 setIsConnectingTelegram(false);
                 return;
             }
 
             try {
+                // Every 3 ticks (~6s), trigger sync-updates to ensure Telegram queue is flushed
+                if (pollCount % 3 === 0) {
+                    fetch('/api/telegram/sync-updates', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ schoolId: currentUser.schoolId })
+                    }).catch(() => {});
+                }
+
                 // Check profiles table in DB
                 if (supabase) {
                     const { data } = await supabase.from('profiles').select('telegram_chat_id').eq('id', currentUser.id).maybeSingle();
@@ -454,19 +465,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
             } catch (err) {
                 // silent
             }
-        }, 2500);
-
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        if (isMobile) {
-            // Attempt to directly open native Telegram app
-            window.location.href = nativeUrl;
-            // Fallback to browser if app is not installed
-            setTimeout(() => {
-                window.open(webUrl, '_blank');
-            }, 1200);
-        } else {
-            window.open(webUrl, '_blank');
-        }
+        }, 2000);
     };
 
     return (
@@ -564,6 +563,33 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                             </div>
                         )}
 
+                        {isConnectingTelegram && (
+                            <div className="relative z-10 p-3.5 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl text-xs text-indigo-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm animate-spin">
+                                        <Loader size={16}/>
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-sm text-indigo-900">กำลังรอตรวจจับการกดปุ่ม Start ใน Telegram...</p>
+                                        <p className="text-[11px] text-indigo-700">
+                                            เมื่อกดปุ่ม Start ในแอป Telegram แล้ว ระบบจะดึง ID มาบันทึกให้อัตโนมัติทันที
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                                    <button
+                                        type="button"
+                                        onClick={handleFindRecentTelegramId}
+                                        disabled={isSearchingRecentTelegram}
+                                        className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-bold text-xs hover:bg-indigo-700 shadow-sm flex items-center gap-1 active:scale-95"
+                                    >
+                                        {isSearchingRecentTelegram ? <Loader className="animate-spin" size={12}/> : <Search size={12}/>}
+                                        ตรวจหา ID ทันที
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 relative z-10">
                             <button 
                                 type="button" 
@@ -586,12 +612,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                             </button>
                         </div>
 
-                        <div className="flex justify-between items-center text-[10px] text-indigo-700 font-medium px-1">
-                            <span>💡 หากกด Start ในบอทแล้ว ID ยังไม่ขึ้น สามารถกดปุ่ม <b>"ตรวจหา Chat ID ล่าสุด"</b> ได้ทันที</span>
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center text-[10px] text-indigo-700 font-medium px-1 gap-1">
+                            <span>💡 หากกด Start ในบอทแล้ว ID ยังไม่ขึ้น หรือส่งข้อความ <b>{currentUser.id}</b> เข้าบอทแล้ว ให้กด <b>"ตรวจหา Chat ID ล่าสุด"</b></span>
                             <button
                                 type="button"
                                 onClick={() => setShowManualTelegramInput(!showManualTelegramInput)}
-                                className="underline hover:text-indigo-900 font-bold shrink-0 ml-2"
+                                className="underline hover:text-indigo-900 font-bold shrink-0"
                             >
                                 {showManualTelegramInput ? 'ซ่อนช่องกรอกเอง' : 'ต้องการกรอก Chat ID เอง'}
                             </button>

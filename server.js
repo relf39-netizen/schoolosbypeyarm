@@ -24,6 +24,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Trust proxy for reverse proxies (cPanel, Nginx, Apache Passenger, Cloud Run)
+  app.set('trust proxy', true);
+
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
 
@@ -1295,7 +1298,11 @@ async function startServer() {
 
   const setTelegramWebhook = async (token, baseUrl) => {
     if (!token || !baseUrl) return { ok: false, description: 'Missing token or baseUrl' };
-    const webhookUrl = `${baseUrl.replace(/\/$/, '')}/api/telegram/webhook/${token}`;
+    let cleanBaseUrl = baseUrl.trim().replace(/\/$/, '');
+    if (!cleanBaseUrl.startsWith('https://') && !cleanBaseUrl.includes('localhost') && !cleanBaseUrl.includes('127.0.0.1')) {
+      cleanBaseUrl = cleanBaseUrl.replace(/^http:\/\//i, 'https://');
+    }
+    const webhookUrl = `${cleanBaseUrl}/api/telegram/webhook/${token}`;
     try {
       console.log(`[Telegram] Setting webhook for bot to: ${webhookUrl}`);
       const response = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
@@ -1305,10 +1312,89 @@ async function startServer() {
       });
       const result = await response.json();
       console.log(`[Telegram] SetWebhook result:`, result);
+      if (result && result.ok) {
+        stopTelegramPoller(token);
+      }
       return result;
     } catch (error) {
       console.error('Error setting Telegram webhook:', error);
       return { ok: false, error: error.message };
+    }
+  };
+
+  const activeTelegramPollers = new Map(); // token -> boolean (isRunning)
+
+  const stopTelegramPoller = (token) => {
+    if (!token) return;
+    const cleanToken = token.trim();
+    if (activeTelegramPollers.has(cleanToken)) {
+      activeTelegramPollers.set(cleanToken, false);
+      activeTelegramPollers.delete(cleanToken);
+      console.log(`[Telegram] Stopped poller for bot token: ...${cleanToken.slice(-5)}`);
+    }
+  };
+
+  const startTelegramPoller = async (token, schoolId) => {
+    if (!token) return;
+    const cleanToken = token.trim();
+    if (!cleanToken) return;
+    if (activeTelegramPollers.get(cleanToken)) return;
+
+    activeTelegramPollers.set(cleanToken, true);
+    console.log(`[Telegram] Starting auto-poller for bot token: ...${cleanToken.slice(-5)} (School: ${schoolId || 'all'})`);
+
+    // In background, delete any stale webhook so getUpdates receives messages
+    try {
+      const delRes = await fetch(`https://api.telegram.org/bot${cleanToken}/deleteWebhook?drop_pending_updates=false`);
+      const delJson = await delRes.json();
+      console.log(`[Telegram] Prepared bot for polling (deleteWebhook):`, delJson.description || delJson.ok);
+    } catch (e) {
+      console.warn(`[Telegram] deleteWebhook error:`, e.message);
+    }
+
+    let offset = 0;
+    // Launch polling loop
+    (async () => {
+      while (activeTelegramPollers.get(cleanToken)) {
+        try {
+          const fetchUrl = `https://api.telegram.org/bot${cleanToken}/getUpdates?offset=${offset}&timeout=20&limit=50`;
+          const res = await fetch(fetchUrl);
+          const data = await res.json();
+          if (data.ok && Array.isArray(data.result)) {
+            for (const update of data.result) {
+              offset = update.update_id + 1;
+              try {
+                await handleTelegramUpdate(cleanToken, update);
+              } catch (updateErr) {
+                console.error('[Telegram] Error handling update:', updateErr);
+              }
+            }
+          } else if (data.error_code === 409) {
+            // Webhook conflict detected (e.g. if user set a webhook)
+            console.log(`[Telegram] Webhook active for ...${cleanToken.slice(-5)}, polling paused 15s`);
+            await new Promise(r => setTimeout(r, 15000));
+          } else {
+            await new Promise(r => setTimeout(r, 3000));
+          }
+        } catch (err) {
+          // Network timeout or connection reset is normal in long polling
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+      console.log(`[Telegram] Poller loop exited for token: ...${cleanToken.slice(-5)}`);
+    })();
+  };
+
+  const initAllTelegramPollers = async () => {
+    try {
+      const configs = await query('SELECT telegram_bot_token, school_id FROM school_configs WHERE telegram_bot_token IS NOT NULL AND telegram_bot_token != ""');
+      for (const cfg of (configs || [])) {
+        if (cfg.telegram_bot_token) {
+          startTelegramPoller(cfg.telegram_bot_token, cfg.school_id);
+        }
+      }
+    } catch (e) {
+      console.warn('[Telegram] Could not initialize pollers on startup:', e.message);
     }
   };
 
@@ -1548,7 +1634,92 @@ async function startServer() {
     }
   });
 
-  // Sync Telegram updates and auto-fix webhook
+  // Start Telegram Poller endpoint
+  app.post('/api/telegram/start-polling', async (req, res) => {
+    try {
+      const { schoolId, botToken } = req.body || {};
+      let tokens = [];
+      if (botToken) {
+        tokens.push({ token: botToken.trim(), schoolId });
+      } else if (schoolId) {
+        const rows = await query('SELECT telegram_bot_token, school_id FROM school_configs WHERE school_id = ? AND telegram_bot_token IS NOT NULL', [schoolId]);
+        tokens = rows.map(r => ({ token: (r.telegram_bot_token || '').trim(), schoolId: r.school_id }));
+      } else {
+        const rows = await query('SELECT telegram_bot_token, school_id FROM school_configs WHERE telegram_bot_token IS NOT NULL');
+        tokens = rows.map(r => ({ token: (r.telegram_bot_token || '').trim(), schoolId: r.school_id }));
+      }
+
+      for (const item of tokens) {
+        if (item.token) {
+          await startTelegramPoller(item.token, item.schoolId);
+        }
+      }
+
+      res.json({ success: true, message: `เริ่มระบบ Polling อัตโนมัติสำหรับ ${tokens.length} บอทเรียบร้อยแล้ว` });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Stop Telegram Poller endpoint
+  app.post('/api/telegram/stop-polling', async (req, res) => {
+    try {
+      const { botToken } = req.body || {};
+      if (botToken) {
+        stopTelegramPoller(botToken);
+      } else {
+        for (const token of activeTelegramPollers.keys()) {
+          stopTelegramPoller(token);
+        }
+      }
+      res.json({ success: true, message: 'หยุดการ Polling เรียบร้อยแล้ว' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get status of Telegram bot (Polling vs Webhook)
+  app.get('/api/telegram/status', async (req, res) => {
+    try {
+      const { token, schoolId } = req.query;
+      let botToken = token;
+      if (!botToken && schoolId) {
+        const rows = await query('SELECT telegram_bot_token FROM school_configs WHERE school_id = ? AND telegram_bot_token IS NOT NULL', [schoolId]);
+        if (rows.length) botToken = rows[0].telegram_bot_token;
+      }
+      if (!botToken) {
+        const rows = await query('SELECT telegram_bot_token FROM school_configs WHERE telegram_bot_token IS NOT NULL LIMIT 1');
+        if (rows.length) botToken = rows[0].telegram_bot_token;
+      }
+
+      if (!botToken) {
+        return res.json({ configured: false, message: 'ยังไม่ได้ตั้งค่า Telegram Bot Token' });
+      }
+
+      const cleanToken = botToken.trim();
+      const isPolling = !!activeTelegramPollers.get(cleanToken);
+
+      let webhookInfo = null;
+      try {
+        const infoRes = await fetch(`https://api.telegram.org/bot${cleanToken}/getWebhookInfo`);
+        webhookInfo = await infoRes.json();
+      } catch (e) {
+        webhookInfo = { ok: false, error: e.message };
+      }
+
+      res.json({
+        configured: true,
+        token_suffix: cleanToken.slice(-5),
+        isPolling,
+        webhookInfo: webhookInfo?.result || webhookInfo,
+        mode: isPolling ? 'polling' : (webhookInfo?.result?.url ? 'webhook' : 'idle')
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Sync Telegram updates and auto-detect
   app.post('/api/telegram/sync-updates', async (req, res) => {
     try {
       const { schoolId } = req.body || {};
@@ -1564,15 +1735,24 @@ async function startServer() {
         const token = (cfg.telegram_bot_token || '').trim();
         if (!token) continue;
 
-        // Auto-fix webhook if app_base_url is available
-        const baseUrl = cfg.app_base_url || `${req.protocol}://${req.get('host')}`;
-        const webhookRes = await setTelegramWebhook(token, baseUrl);
+        // 1. Ensure background poller is running
+        if (!activeTelegramPollers.get(token)) {
+          startTelegramPoller(token, cfg.school_id);
+        }
 
-        // Also attempt getUpdates in case webhook wasn't active
+        // 2. Also directly fetch updates right now for immediate feedback
         let updates = [];
         try {
-          const fetchRes = await fetch(`https://api.telegram.org/bot${token}/getUpdates?limit=20`);
-          const json = await fetchRes.json();
+          let fetchRes = await fetch(`https://api.telegram.org/bot${token}/getUpdates?limit=50`);
+          let json = await fetchRes.json();
+          if (json.error_code === 409) {
+            // Webhook conflict: delete webhook to free queued updates
+            console.log(`[Telegram] Resolving webhook conflict for sync-updates on ...${token.slice(-5)}`);
+            await fetch(`https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=false`);
+            fetchRes = await fetch(`https://api.telegram.org/bot${token}/getUpdates?limit=50`);
+            json = await fetchRes.json();
+          }
+
           if (json.ok && Array.isArray(json.result)) {
             updates = json.result;
             for (const upd of updates) {
@@ -1580,14 +1760,14 @@ async function startServer() {
             }
           }
         } catch (e) {
-          // getUpdates fails with conflict when webhook is active - which is normal
+          console.warn('[Telegram] sync-updates fetch error:', e.message);
         }
 
         results.push({
           school_id: cfg.school_id,
           token_suffix: token.slice(-5),
-          webhook: webhookRes,
-          updates_fetched: updates.length
+          updates_fetched: updates.length,
+          isPolling: !!activeTelegramPollers.get(token)
         });
       }
 
@@ -2881,11 +3061,11 @@ async function startServer() {
       
       console.log(`[${new Date().toISOString()}] Successfully saved to ${tableName}`);
       
-      // Trigger Telegram Webhook Setup if school_configs was updated
+      // Trigger Telegram Poller Setup if school_configs was updated
       if (tableName === 'school_configs') {
         const config = Array.isArray(data) ? data[0] : data;
-        if (config.telegram_bot_token && config.app_base_url) {
-          setTelegramWebhook(config.telegram_bot_token, config.app_base_url);
+        if (config && config.telegram_bot_token) {
+          startTelegramPoller(config.telegram_bot_token, config.school_id);
         }
       }
       
@@ -2987,9 +3167,9 @@ async function startServer() {
         });
       }
 
-      // Trigger Telegram Webhook Setup if school_configs was updated
-      if (tableName === 'school_configs' && data.telegram_bot_token && data.app_base_url) {
-        setTelegramWebhook(data.telegram_bot_token, data.app_base_url);
+      // Trigger Telegram Poller Setup if school_configs was updated
+      if (tableName === 'school_configs' && data.telegram_bot_token) {
+        startTelegramPoller(data.telegram_bot_token, req.query?.school_id);
       }
 
       res.json(Array.isArray(data) ? data : [data]);
@@ -3221,6 +3401,8 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    // Auto-start Telegram Poller for all configured schools
+    initAllTelegramPollers();
   });
 }
 

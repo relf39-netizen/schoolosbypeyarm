@@ -1283,8 +1283,16 @@ function setTelegramWebhook() {
                 notify_telegram_leave: config.notifyTelegramLeave !== false,
                 notify_telegram_director_calendar: config.notifyTelegramDirectorCalendar !== false
             });
-            if (!error) alert("บันทึกการตั้งค่าสำเร็จ");
-            else throw error;
+            if (!error) {
+                if (config.telegramBotToken) {
+                    fetch('/api/telegram/start-polling', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ schoolId: currentSchool.id, botToken: config.telegramBotToken })
+                    }).catch(() => {});
+                }
+                alert("บันทึกการตั้งค่าสำเร็จ");
+            } else throw error;
         } catch(err: any) {
             alert("บันทึกล้มเหลว: " + err.message + "\n(กรุณาตรวจสอบว่าท่านได้รันคำสั่ง SQL เพิ่มคอลัมน์แล้วหรือยัง)");
         } finally {
@@ -1345,6 +1353,32 @@ function setTelegramWebhook() {
                 fetchRecentTelegramEvents();
             } else {
                 alert("❌ " + res.message);
+            }
+        } catch (e: any) {
+            alert("❌ ขัดข้อง: " + e.message);
+        } finally {
+            setIsSettingTelegramWebhook(false);
+        }
+    };
+
+    const handleStartTelegramPolling = async () => {
+        if (!config.telegramBotToken) {
+            alert("กรุณาระบุ Telegram Bot Token ก่อน");
+            return;
+        }
+        setIsSettingTelegramWebhook(true);
+        try {
+            const res = await fetch('/api/telegram/start-polling', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ schoolId: currentSchool?.id || '', botToken: config.telegramBotToken })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                alert(`✅ ${data.message}\n\nระบบบอทเริ่มรับข้อความและคำสั่ง /start ตรวจจับ ID อัตโนมัติแล้วครับ`);
+                fetchRecentTelegramEvents();
+            } else {
+                alert("❌ ขัดข้อง: " + (data.error || ''));
             }
         } catch (e: any) {
             alert("❌ ขัดข้อง: " + e.message);
@@ -2130,12 +2164,22 @@ function setTelegramWebhook() {
                                                 </button>
                                                 <button 
                                                     type="button"
-                                                    onClick={handleAutoSetTelegramWebhook}
+                                                    onClick={handleStartTelegramPolling}
                                                     disabled={isSettingTelegramWebhook}
-                                                    className="py-2.5 px-4 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-sm active:scale-95"
+                                                    className="py-2.5 px-3 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-emerald-700 transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                                                    title="เปิดโหมด Polling อัตโนมัติ ทำงานได้ทันทีบนทุกโฮสต์โดยไม่ต้องตั้งค่า Webhook"
                                                 >
                                                     {isSettingTelegramWebhook ? <Loader className="animate-spin" size={14}/> : <Zap size={14}/>} 
-                                                    ตั้งค่า Webhook ทันที
+                                                    เปิดโหมด Polling (แนะนำ)
+                                                </button>
+                                                <button 
+                                                    type="button"
+                                                    onClick={handleAutoSetTelegramWebhook}
+                                                    disabled={isSettingTelegramWebhook}
+                                                    className="py-2.5 px-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-indigo-700 transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                                                >
+                                                    {isSettingTelegramWebhook ? <Loader className="animate-spin" size={14}/> : <Globe size={14}/>} 
+                                                    ตั้งค่า Webhook
                                                 </button>
                                             </div>
 
