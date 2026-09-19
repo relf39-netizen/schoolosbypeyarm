@@ -94,7 +94,7 @@ export const testTelegramConnection = async (botToken: string, chatId: string): 
 /**
  * Automatically sets the Telegram Webhook
  */
-export const autoSetTelegramWebhook = async (botToken: string): Promise<{ success: boolean; message: string }> => {
+export const autoSetTelegramWebhook = async (botToken: string, appBaseUrl?: string): Promise<{ success: boolean; message: string }> => {
     if (!botToken) {
         return { success: false, message: "กรุณาระบุ Bot Token" };
     }
@@ -106,7 +106,8 @@ export const autoSetTelegramWebhook = async (botToken: string): Promise<{ succes
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                botToken: botToken.trim()
+                botToken: botToken.trim(),
+                appBaseUrl: appBaseUrl ? appBaseUrl.trim() : (typeof window !== 'undefined' ? window.location.origin : '')
             })
         });
 

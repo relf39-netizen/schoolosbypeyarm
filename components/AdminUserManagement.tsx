@@ -251,6 +251,10 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const [isLoadingLineEvents, setIsLoadingLineEvents] = useState(false);
     const [selectedTeacherForLink, setSelectedTeacherForLink] = useState<{ [key: string]: string }>({});
 
+    const [recentTelegramEvents, setRecentTelegramEvents] = useState<any[]>([]);
+    const [isLoadingTelegramEvents, setIsLoadingTelegramEvents] = useState(false);
+    const [selectedTeacherForTelegramLink, setSelectedTeacherForTelegramLink] = useState<{ [key: string]: string }>({});
+
     const [config, setConfig] = useState<SystemConfig>({ 
         driveFolderId: '', 
         scriptUrl: '', 
@@ -1335,9 +1339,10 @@ function setTelegramWebhook() {
         }
         setIsSettingTelegramWebhook(true);
         try {
-            const res = await autoSetTelegramWebhook(config.telegramBotToken);
+            const res = await autoSetTelegramWebhook(config.telegramBotToken, config.appBaseUrl || window.location.origin);
             if (res.success) {
                 alert("✅ " + res.message);
+                fetchRecentTelegramEvents();
             } else {
                 alert("❌ " + res.message);
             }
@@ -1345,6 +1350,50 @@ function setTelegramWebhook() {
             alert("❌ ขัดข้อง: " + e.message);
         } finally {
             setIsSettingTelegramWebhook(false);
+        }
+    };
+
+    const fetchRecentTelegramEvents = async () => {
+        setIsLoadingTelegramEvents(true);
+        try {
+            await fetch('/api/telegram/sync-updates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ schoolId: currentSchool?.id || '' })
+            }).catch(() => {});
+
+            const res = await fetch(`/api/telegram/recent-events?schoolId=${currentSchool?.id || ''}`);
+            if (res.ok) {
+                const data = await res.json();
+                setRecentTelegramEvents(Array.isArray(data) ? data : []);
+            }
+        } catch (e: any) {
+            console.error("Failed to fetch recent Telegram events:", e);
+        } finally {
+            setIsLoadingTelegramEvents(false);
+        }
+    };
+
+    const handleLinkTelegramUserDirectly = async (citizenId: string, chatId: string) => {
+        if (!citizenId || !chatId) {
+            alert("กรุณาเลือกบุคลากรที่ต้องการผูกบัญชี");
+            return;
+        }
+        try {
+            const res = await fetch('/api/telegram/link-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ citizenId, chatId, schoolId: currentSchool?.id })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                alert(`✅ ผูกบัญชี Telegram Chat ID: ${chatId} กับบุคลากรเรียบร้อยแล้ว!`);
+                fetchRecentTelegramEvents();
+            } else {
+                alert(`❌ ผูกบัญชีไม่สำเร็จ: ${data.message || 'เกิดข้อผิดพลาด'}`);
+            }
+        } catch (e: any) {
+            alert(`❌ ผูกบัญชีไม่สำเร็จ: ${e.message}`);
         }
     };
 
@@ -2090,7 +2139,7 @@ function setTelegramWebhook() {
                                                 </button>
                                             </div>
 
-                                            <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 text-[10px] text-slate-600 space-y-1.5">
+                                             <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 text-[10px] text-slate-600 space-y-1.5">
                                                 <div className="flex justify-between items-center">
                                                     <span className="font-bold text-indigo-900">🔗 Telegram Webhook URL:</span>
                                                     <button
@@ -2111,6 +2160,105 @@ function setTelegramWebhook() {
                                                 <p className="text-[9px] text-indigo-700">
                                                     * เมื่อตั้งค่า Webhook แล้ว ครูสามารถพิมพ์เลขประจำตัว 13 หลักส่งให้บอทใน Telegram เพื่อผูกบัญชีอัตโนมัติได้ทันที
                                                 </p>
+                                            </div>
+
+                                            {/* Recent Telegram Inbound Messages Tool */}
+                                            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <h6 className="font-black text-slate-800 text-[11px] flex items-center gap-1.5">
+                                                            <Smartphone size={13} className="text-indigo-600"/> ข้อความ Telegram ล่าสุด &amp; ช่วยคัดลอก Chat ID
+                                                        </h6>
+                                                        <p className="text-[9px] text-slate-500">ตรวจสอบว่าข้อความ/การกด Start เข้ามาถึงระบบหรือไม่ และคัดลอกหรือผูก Chat ID ได้ทันที</p>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={fetchRecentTelegramEvents}
+                                                        disabled={isLoadingTelegramEvents}
+                                                        className="px-2.5 py-1 bg-white border border-slate-200 text-slate-700 rounded-lg text-[9px] font-bold hover:bg-slate-100 flex items-center gap-1 shadow-sm"
+                                                    >
+                                                        <RefreshCw size={11} className={isLoadingTelegramEvents ? 'animate-spin' : ''}/>
+                                                        {isLoadingTelegramEvents ? 'กำลังดึง...' : 'ดึงข้อความล่าสุด'}
+                                                    </button>
+                                                </div>
+
+                                                {recentTelegramEvents.length > 0 ? (
+                                                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                                        {recentTelegramEvents.map((evt) => (
+                                                            <div key={evt.id} className="p-2.5 bg-white rounded-lg border border-slate-200 text-[10px] space-y-1.5 shadow-sm">
+                                                                <div className="flex items-center justify-between">
+                                                                    <div className="flex items-center gap-1 font-mono text-[9px] text-slate-500">
+                                                                        <span>{new Date(evt.timestamp).toLocaleTimeString('th-TH')}</span>
+                                                                        <span className="font-bold text-slate-800">[{evt.text}]</span>
+                                                                        {evt.senderName && <span className="text-slate-400">({evt.senderName})</span>}
+                                                                    </div>
+                                                                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
+                                                                        evt.status === 'linked' ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'
+                                                                    }`}>
+                                                                        {evt.linkedUserName ? `ผูกแล้ว: ${evt.linkedUserName}` : 'ยังไม่ผูกบัญชี'}
+                                                                    </span>
+                                                                </div>
+
+                                                                <div className="flex items-center justify-between gap-2 bg-slate-50 p-1.5 rounded border border-slate-100">
+                                                                    <span className="font-mono font-bold text-indigo-700 select-all truncate text-[9px]">
+                                                                        Chat ID: {evt.chatId}
+                                                                    </span>
+                                                                    <div className="flex items-center gap-1 shrink-0">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                navigator.clipboard.writeText(evt.chatId);
+                                                                                alert(`คัดลอก Telegram Chat ID: ${evt.chatId} เรียบร้อยแล้ว`);
+                                                                            }}
+                                                                            className="px-2 py-0.5 bg-indigo-600 text-white rounded text-[8px] font-bold hover:bg-indigo-700 flex items-center gap-1"
+                                                                        >
+                                                                            <Copy size={9}/> คัดลอก ID
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setConfig(prev => ({ ...prev, telegramTargetId: evt.chatId }));
+                                                                                alert(`นำ Chat ID: ${evt.chatId} ใส่ในช่อง Target ID แอดมินเรียบร้อยแล้ว อย่าลืมกดบันทึกการตั้งค่าครับ`);
+                                                                            }}
+                                                                            className="px-2 py-0.5 bg-slate-700 text-white rounded text-[8px] font-bold hover:bg-slate-800 flex items-center gap-1"
+                                                                        >
+                                                                            ใส่ช่องแอดมิน
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Quick link dropdown */}
+                                                                <div className="flex items-center gap-1.5 pt-1 border-t border-slate-100">
+                                                                    <select
+                                                                        value={selectedTeacherForTelegramLink[evt.chatId] || ''}
+                                                                        onChange={(e) => setSelectedTeacherForTelegramLink(prev => ({ ...prev, [evt.chatId]: e.target.value }))}
+                                                                        className="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[9px] text-slate-700 outline-none"
+                                                                    >
+                                                                        <option value="">-- เลือกครูเพื่อผูกบัญชีทันที --</option>
+                                                                        {teachers.map(t => (
+                                                                            <option key={t.id} value={t.id}>
+                                                                                {t.name} ({t.id}) {t.telegramChatId ? '✓ มี ID แล้ว' : ''}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleLinkTelegramUserDirectly(selectedTeacherForTelegramLink[evt.chatId], evt.chatId)}
+                                                                        disabled={!selectedTeacherForTelegramLink[evt.chatId]}
+                                                                        className="px-2 py-1 bg-emerald-600 disabled:bg-slate-300 text-white rounded text-[9px] font-bold hover:bg-emerald-700 shrink-0"
+                                                                    >
+                                                                        ผูกบัญชี
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-center py-4 bg-white rounded-lg border border-dashed border-slate-200 text-[10px] text-slate-400 space-y-1">
+                                                        <p>ยังไม่มีข้อความส่งเข้ามาในระบบ</p>
+                                                        <p className="text-[8px] text-slate-400">กดปุ่ม "ตั้งค่า Webhook ทันที" ด้านบนก่อน แล้วลองส่งข้อความหรือกด Start ในบอท Telegram</p>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>

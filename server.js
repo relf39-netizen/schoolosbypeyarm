@@ -1314,6 +1314,192 @@ async function startServer() {
 
   const processedTelegramUpdates = new Map();
   const processedUserTelegramLinks = new Map();
+  // In-memory buffer of recent Telegram webhook events (last 50 events)
+  const recentTelegramEvents = [];
+
+  // Core handler for Telegram Updates (used by webhook & sync-updates)
+  const handleTelegramUpdate = async (token, update) => {
+    if (!update || !update.message) return null;
+
+    // Deduplicate by update_id
+    if (update.update_id) {
+      const lastTs = processedTelegramUpdates.get(update.update_id);
+      if (lastTs && Date.now() - lastTs < 300000) {
+        console.log(`[Telegram] Skipping duplicate update_id [${update.update_id}]`);
+        return null;
+      }
+      processedTelegramUpdates.set(update.update_id, Date.now());
+      if (processedTelegramUpdates.size > 1000) {
+        const now = Date.now();
+        for (const [id, ts] of processedTelegramUpdates.entries()) {
+          if (now - ts > 300000) processedTelegramUpdates.delete(id);
+        }
+      }
+    }
+
+    const { text, chat, from } = update.message;
+    if (!chat || !chat.id) return null;
+
+    const chatId = chat.id.toString();
+    const rawText = (text || '').trim();
+    const username = from?.username || null;
+    const senderName = [from?.first_name, from?.last_name].filter(Boolean).join(' ') || from?.username || 'ผู้ใช้ Telegram';
+
+    // Find school_id for this bot token
+    let schoolId = null;
+    try {
+      const cfgs = await query('SELECT school_id FROM school_configs WHERE TRIM(telegram_bot_token) = TRIM(?)', [token]);
+      if (cfgs && cfgs.length > 0) schoolId = cfgs[0].school_id;
+    } catch (e) {
+      console.warn('[Telegram] Error querying school_configs for token:', e.message);
+    }
+
+    let linkedUser = null;
+
+    // Helper function to link a user by citizenId
+    const linkUserByCitizenId = async (citizenId) => {
+      let user = null;
+      let tenantPool = null;
+
+      // 1. Search in tenant DB if schoolId is known
+      if (schoolId) {
+        try {
+          tenantPool = await getPoolForSchool(schoolId);
+          if (tenantPool) {
+            const tRows = await query('SELECT id, name, telegram_chat_id, school_id FROM profiles WHERE TRIM(id) = TRIM(?)', [citizenId], tenantPool);
+            if (tRows && tRows.length > 0) user = tRows[0];
+          }
+        } catch (e) {
+          console.warn('[Telegram] Error querying tenant pool:', e.message);
+        }
+      }
+
+      // 2. Search in central DB
+      if (!user) {
+        try {
+          const cRows = await query('SELECT id, name, telegram_chat_id, school_id FROM profiles WHERE TRIM(id) = TRIM(?)', [citizenId]);
+          if (cRows && cRows.length > 0) user = cRows[0];
+        } catch (e) {
+          console.warn('[Telegram] Error querying central pool:', e.message);
+        }
+      }
+
+      // 3. Search other tenant pools if still not found
+      if (!user) {
+        try {
+          const configs = await query('SELECT school_id FROM school_configs');
+          for (const cfgItem of (configs || [])) {
+            if (cfgItem.school_id && cfgItem.school_id !== schoolId) {
+              const scPool = await getPoolForSchool(cfgItem.school_id);
+              const sRows = await query('SELECT id, name, telegram_chat_id, school_id FROM profiles WHERE TRIM(id) = TRIM(?)', [citizenId], scPool);
+              if (sRows && sRows.length > 0) {
+                user = sRows[0];
+                tenantPool = scPool;
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[Telegram] Error searching other tenant pools:', e.message);
+        }
+      }
+
+      if (user) {
+        // Update in central DB
+        try {
+          await query('UPDATE profiles SET telegram_chat_id = ? WHERE TRIM(id) = TRIM(?)', [chatId, citizenId]);
+        } catch (e) {
+          console.warn('[Telegram] Error updating central profile:', e.message);
+        }
+
+        // Update in tenant DB if exists
+        const effectiveSchoolId = schoolId || user.school_id;
+        if (effectiveSchoolId) {
+          try {
+            const tPool = await getPoolForSchool(effectiveSchoolId);
+            if (tPool) {
+              await query('UPDATE profiles SET telegram_chat_id = ? WHERE TRIM(id) = TRIM(?)', [chatId, citizenId], tPool);
+            }
+          } catch (e) {
+            console.warn('[Telegram] Error updating tenant profile:', e.message);
+          }
+        }
+
+        console.log(`[Telegram] Successfully linked Chat ID ${chatId} to user ${user.name} (${citizenId})`);
+        await sendTelegramMessage(token, chatId, `✅ <b>เชื่อมต่อระบบสำเร็จ!</b>\n\nยินดีต้อนรับ คุณ<b>${user.name}</b>\nระบบได้ผูก Telegram Chat ID: <code>${chatId}</code> เข้ากับบัญชีบุคลากรของท่านเรียบร้อยแล้ว\n\nท่านจะได้รับการแจ้งเตือนหนังสือราชการ วาระผู้บริหาร และการลาผ่านช่องทางนี้อัตโนมัติครับ 🟢`);
+        return user;
+      } else {
+        console.warn(`[Telegram] User ID "${citizenId}" not found in database`);
+        await sendTelegramMessage(token, chatId, `❌ <b>ไม่พบข้อมูลผู้ใช้งานในระบบ</b>\n\nไม่พบรหัสผู้ใช้งานหรือเลขประจำตัวประชาชน "${citizenId}" ในฐานข้อมูลของโรงเรียน\n\n<b>วิธีแก้ไข:</b>\n1. ตรวจสอบว่าเลขบัตรประชาชน 13 หลักถูกต้อง\n2. หรือไปที่เมนู <b>"ข้อมูลส่วนตัว"</b> ในระบบ แล้วกดปุ่ม <b>"ตรวจหา Telegram ID ล่าสุด"</b> หรือระบุเลข <code>${chatId}</code> โดยตรงได้เลยครับ`);
+        return null;
+      }
+    };
+
+    // Check for linking commands:
+    // 1. /start [payload] (or /start@BotName [payload])
+    const startMatch = rawText.match(/^\/start(?:@\w+)?(?:\s+([^\s]+))?$/i);
+    // 2. #ผูก [id], ผูก [id], LINK [id], or direct 13-digit number
+    const directMatch = rawText.match(/^(?:#ผูกTelegram|#ผูกLINE|#ผูก|ผูกLINE|ผูกTelegram|ผูก|LINK|CONNECT)[:\s]*([^\s]+)$/i) ||
+                        rawText.match(/^([0-9]{13})$/);
+
+    let citizenIdToLink = null;
+    if (startMatch && startMatch[1]) {
+      citizenIdToLink = startMatch[1].trim();
+    } else if (directMatch && directMatch[1]) {
+      citizenIdToLink = directMatch[1].trim();
+    }
+
+    if (citizenIdToLink) {
+      const userLinkKey = `${token}_${citizenIdToLink}_${chatId}`;
+      const lastLinkTs = processedUserTelegramLinks.get(userLinkKey);
+      if (!lastLinkTs || Date.now() - lastLinkTs >= 10000) {
+        processedUserTelegramLinks.set(userLinkKey, Date.now());
+        linkedUser = await linkUserByCitizenId(citizenIdToLink);
+      }
+    } else if (/^(\/id|\/myid|id|myid|รหัส|userid)$/i.test(rawText)) {
+      // Check for user requesting their Chat ID: /id, id, myid, รหัส
+      await sendTelegramMessage(token, chatId, `🆔 <b>Telegram Chat ID ของท่านคือ:</b>\n<code>${chatId}</code>\n\n📌 <b>วิธีผูกบัญชี:</b>\n1. ในหน้าเว็บเมนู <b>"ข้อมูลส่วนตัว"</b> กดปุ่ม <b>"ตรวจหา Telegram ID ล่าสุด"</b> ได้ทันที\n2. หรือพิมพ์เลขบัตรประชาชน 13 หลักส่งมาที่นี่ เพื่อผูกอัตโนมัติครับ`);
+    } else if (rawText.startsWith('/start') || rawText.toLowerCase() === 'hi' || rawText.toLowerCase() === 'hello' || rawText === 'สวัสดี') {
+      // Handle standard /start without parameters or greeting
+      await sendTelegramMessage(
+        token, 
+        chatId, 
+        `👋 <b>ยินดีต้อนรับสู่ระบบแจ้งเตือนโรงเรียน (SchoolOS)</b>\n\n` +
+        `📌 <b>Telegram Chat ID ของท่านคือ:</b> <code>${chatId}</code>\n\n` +
+        `<b>วิธีผูกบัญชีเพื่อรับแจ้งเตือน:</b>\n` +
+        `• <b>วิธีที่ 1:</b> พิมพ์เลขบัตรประชาชน 13 หลักของท่านส่งมาในแชทนี้ได้ทันที\n` +
+        `• <b>วิธีที่ 2:</b> ในหน้าเว็บ "ข้อมูลส่วนตัว" กดปุ่ม <b>"ตรวจหา Telegram ID ล่าสุด"</b> ระบบจะดึง Chat ID นี้ไปใส่ให้อัตโนมัติครับ\n\n` +
+        `<i>หากเป็นแอดมินหรือกลุ่มแจ้งเตือน สามารถนำ ID นี้ไปใส่ในช่อง 'Target ID แอดมิน / กลุ่ม Telegram' ในหน้าการตั้งค่าได้เลยครับ</i>`
+      );
+    } else if (rawText) {
+      // Fallback response for other messages
+      await sendTelegramMessage(
+        token, 
+        chatId, 
+        `💡 <b>Telegram Chat ID ของท่านคือ:</b> <code>${chatId}</code>\n\n` +
+        `• พิมพ์เลขบัตรประชาชน 13 หลัก เพื่อผูกบัญชีอัตโนมัติ\n` +
+        `• หรือไปที่เมนู <b>"ข้อมูลส่วนตัว"</b> ในระบบ แล้วกดปุ่ม <b>"ตรวจหา Telegram ID ล่าสุด"</b> ครับ`
+      );
+    }
+
+    // Record into recent Telegram events buffer
+    const eventLog = {
+      id: `tg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      chatId,
+      username,
+      senderName,
+      text: rawText || '(ข้อความ)',
+      schoolId: schoolId || null,
+      timestamp: new Date().toISOString(),
+      linkedUserName: linkedUser ? linkedUser.name : null,
+      linkedUserId: linkedUser ? linkedUser.id : (citizenIdToLink || null),
+      status: linkedUser ? 'linked' : 'received'
+    };
+    recentTelegramEvents.unshift(eventLog);
+    if (recentTelegramEvents.length > 50) recentTelegramEvents.pop();
+
+    return eventLog;
+  };
 
   // Telegram Webhook Endpoint
   app.post('/api/telegram/webhook/:token', async (req, res) => {
@@ -1323,145 +1509,23 @@ async function startServer() {
     try {
       const { token } = req.params;
       const update = req.body;
-
-      if (!update || !update.message || !update.message.text) return;
-
-      // 1. Deduplicate by update_id
-      if (update.update_id) {
-        const lastTs = processedTelegramUpdates.get(update.update_id);
-        if (lastTs && Date.now() - lastTs < 300000) {
-          console.log(`[Telegram] Skipping duplicate update_id [${update.update_id}]`);
-          return;
-        }
-        processedTelegramUpdates.set(update.update_id, Date.now());
-        if (processedTelegramUpdates.size > 1000) {
-          const now = Date.now();
-          for (const [id, ts] of processedTelegramUpdates.entries()) {
-            if (now - ts > 300000) processedTelegramUpdates.delete(id);
-          }
-        }
-      }
-
-      const { text, chat } = update.message;
-      const chatId = chat.id.toString();
-      const rawText = (text || '').trim();
-
-      // Find school_id for this bot token
-      const [cfg] = await query('SELECT school_id FROM school_configs WHERE telegram_bot_token = ?', [token]);
-      const schoolId = cfg ? cfg.school_id : null;
-
-      // Helper function to link a user by citizenId
-      const linkUserByCitizenId = async (citizenId) => {
-        let user = null;
-        let tenantPool = null;
-        if (schoolId) {
-          try {
-            tenantPool = await getPoolForSchool(schoolId);
-            const [tUser] = await new Promise((resolve, reject) => {
-              tenantPool.query('SELECT id, name, telegram_chat_id FROM profiles WHERE id = ?', [citizenId], (err, rows) => {
-                if (err) reject(err); else resolve(rows);
-              });
-            });
-            if (tUser) user = tUser;
-          } catch (e) {
-            console.warn('[Telegram] Error querying tenant pool:', e.message);
-          }
-        }
-
-        if (!user) {
-          const [cUser] = await query('SELECT id, name, telegram_chat_id, school_id FROM profiles WHERE id = ?', [citizenId]);
-          if (cUser) user = cUser;
-        }
-
-        if (user) {
-          // Update central DB
-          await query('UPDATE profiles SET telegram_chat_id = ? WHERE id = ?', [chatId, citizenId]);
-
-          // Update tenant DB if exists
-          if (tenantPool) {
-            try {
-              await new Promise((resolve, reject) => {
-                tenantPool.query('UPDATE profiles SET telegram_chat_id = ? WHERE id = ?', [chatId, citizenId], (err, res) => {
-                  if (err) reject(err); else resolve(res);
-                });
-              });
-            } catch (e) {
-              console.warn('[Telegram] Error updating tenant profile:', e.message);
-            }
-          } else if (user.school_id) {
-            try {
-              const tPool = await getPoolForSchool(user.school_id);
-              if (tPool) {
-                await new Promise((resolve, reject) => {
-                  tPool.query('UPDATE profiles SET telegram_chat_id = ? WHERE id = ?', [chatId, citizenId], (err, res) => {
-                    if (err) reject(err); else resolve(res);
-                  });
-                });
-              }
-            } catch (e) {
-              console.warn('[Telegram] Error updating user school tenant:', e.message);
-            }
-          }
-
-          console.log(`[Telegram] Successfully linked Chat ID ${chatId} to user ${user.name} (${citizenId})`);
-          await sendTelegramMessage(token, chatId, `✅ <b>เชื่อมต่อสำเร็จ!</b>\n\nยินดีต้อนรับ คุณ<b>${user.name}</b>\nบัญชีของท่านได้รับการผูกกับระบบโรงเรียน (SchoolOS) เรียบร้อยแล้ว\n\nท่านจะได้รับการแจ้งเตือนหนังสือราชการและการลาส่วนบุคคลผ่านช่องทางนี้ครับ 🟢`);
-          return true;
-        } else {
-          console.warn(`[Telegram] User ID ${citizenId} not found in database`);
-          await sendTelegramMessage(token, chatId, `❌ <b>ไม่พบข้อมูลผู้ใช้งาน</b>\n\nไม่พบเลขประจำตัวประชาชน "${citizenId}" ในฐานข้อมูลของโรงเรียน\n\n<b>วิธีแก้ไข:</b>\n1. ตรวจสอบว่าเลขบัตรประชาชน 13 หลักถูกต้อง\n2. หรือไปที่เมนู <b>"ข้อมูลส่วนตัว"</b> ในระบบ แล้วกรอก Telegram Chat ID: <code>${chatId}</code> โดยตรงได้เลยครับ`);
-          return false;
-        }
-      };
-
-      // Check for 13-digit linking command: /start [13-digits], #ผูก [13-digits], or direct 13-digit number
-      const linkMatch = rawText.match(/^\/start\s+([0-9]{13})$/) || 
-                         rawText.match(/(?:#ผูกLINE|#ผูก|ผูกLINE|ผูก|LINK|CONNECT)[:\s]*([0-9]{13})/i) || 
-                         rawText.match(/^([0-9]{13})$/);
-
-      if (linkMatch && linkMatch[1]) {
-        const citizenId = linkMatch[1].trim();
-        const userLinkKey = `${token}_${citizenId}_${chatId}`;
-        const lastLinkTs = processedUserTelegramLinks.get(userLinkKey);
-        if (lastLinkTs && Date.now() - lastLinkTs < 30000) {
-          console.log(`[Telegram] User link ${userLinkKey} processed within 30s. Skipping duplicate.`);
-          return;
-        }
-        processedUserTelegramLinks.set(userLinkKey, Date.now());
-        await linkUserByCitizenId(citizenId);
-        return;
-      }
-
-      // Check for user requesting their Chat ID: /id, id, myid, รหัส
-      if (/^(\/id|\/myid|id|myid|รหัส|userid)$/i.test(rawText)) {
-        await sendTelegramMessage(token, chatId, `🆔 <b>Telegram Chat ID ของท่านคือ:</b>\n<code>${chatId}</code>\n\n📌 <b>วิธีผูกบัญชี:</b>\n1. คัดลอกเลขนี้ไปวางในเมนู <b>"ข้อมูลส่วนตัว"</b> ในระบบ\n2. หรือพิมพ์เลขบัตรประชาชน 13 หลักส่งมาที่นี่ เพื่อผูกอัตโนมัติได้ทันทีครับ`);
-        return;
-      }
-
-      // Handle standard /start without parameters or unknown command
-      if (rawText.startsWith('/start') || rawText.toLowerCase() === 'hi' || rawText.toLowerCase() === 'hello' || rawText === 'สวัสดี') {
-        await sendTelegramMessage(
-          token, 
-          chatId, 
-          `👋 <b>ยินดีต้อนรับสู่ระบบแจ้งเตือนโรงเรียน (SchoolOS)</b>\n\n` +
-          `📌 <b>Telegram Chat ID ของท่านคือ:</b> <code>${chatId}</code>\n\n` +
-          `<b>วิธีผูกบัญชีเพื่อรับแจ้งเตือน:</b>\n` +
-          `• <b>วิธีที่ 1:</b> พิมพ์เลขบัตรประชาชน 13 หลักของท่านส่งมาในแชทนี้ได้ทันที\n` +
-          `• <b>วิธีที่ 2:</b> คัดลอก Chat ID ด้านบน ไปวางในระบบที่เมนู <b>"ข้อมูลส่วนตัว"</b> แล้วกดบันทึก\n\n` +
-          `<i>หากเป็นแอดมินหรือกลุ่มแจ้งเตือน สามารถนำ ID นี้ไปใส่ในช่อง 'Target ID แอดมิน / กลุ่ม Telegram' ในหน้าการตั้งค่าได้เลยครับ</i>`
-        );
-        return;
-      }
-
-      // Fallback response for other messages
-      await sendTelegramMessage(
-        token, 
-        chatId, 
-        `💡 <b>คำแนะนำการใช้งาน:</b>\n` +
-        `• พิมพ์เลขบัตรประชาชน 13 หลัก เพื่อผูกบัญชีอัตโนมัติ\n` +
-        `• พิมพ์ <code>id</code> เพื่อดู Telegram Chat ID ของท่าน (ปัจจุบันคือ: <code>${chatId}</code>)`
-      );
+      await handleTelegramUpdate(token, update);
     } catch (err) {
       console.error('[Telegram] Error processing webhook:', err);
+    }
+  });
+
+  // Endpoint to get recent Telegram events for easy linking
+  app.get('/api/telegram/recent-events', (req, res) => {
+    try {
+      const { schoolId } = req.query;
+      let events = recentTelegramEvents;
+      if (schoolId) {
+        events = events.filter(e => !e.schoolId || String(e.schoolId) === String(schoolId));
+      }
+      res.json(events);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
     }
   });
 
@@ -1479,6 +1543,210 @@ async function startServer() {
       }
       
       res.json({ success: true, results });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Sync Telegram updates and auto-fix webhook
+  app.post('/api/telegram/sync-updates', async (req, res) => {
+    try {
+      const { schoolId } = req.body || {};
+      let configs = [];
+      if (schoolId) {
+        configs = await query('SELECT telegram_bot_token, app_base_url, school_id FROM school_configs WHERE school_id = ? AND telegram_bot_token IS NOT NULL', [schoolId]);
+      } else {
+        configs = await query('SELECT telegram_bot_token, app_base_url, school_id FROM school_configs WHERE telegram_bot_token IS NOT NULL');
+      }
+
+      const results = [];
+      for (const cfg of configs) {
+        const token = (cfg.telegram_bot_token || '').trim();
+        if (!token) continue;
+
+        // Auto-fix webhook if app_base_url is available
+        const baseUrl = cfg.app_base_url || `${req.protocol}://${req.get('host')}`;
+        const webhookRes = await setTelegramWebhook(token, baseUrl);
+
+        // Also attempt getUpdates in case webhook wasn't active
+        let updates = [];
+        try {
+          const fetchRes = await fetch(`https://api.telegram.org/bot${token}/getUpdates?limit=20`);
+          const json = await fetchRes.json();
+          if (json.ok && Array.isArray(json.result)) {
+            updates = json.result;
+            for (const upd of updates) {
+              await handleTelegramUpdate(token, upd);
+            }
+          }
+        } catch (e) {
+          // getUpdates fails with conflict when webhook is active - which is normal
+        }
+
+        results.push({
+          school_id: cfg.school_id,
+          token_suffix: token.slice(-5),
+          webhook: webhookRes,
+          updates_fetched: updates.length
+        });
+      }
+
+      res.json({ success: true, results, recent_events_count: recentTelegramEvents.length });
+    } catch (err) {
+      console.error('[Telegram] Error syncing updates:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Direct manual linking endpoint for Telegram
+  app.post('/api/telegram/link-user', async (req, res) => {
+    try {
+      const { citizenId, chatId, schoolId } = req.body || {};
+      if (!citizenId || !chatId) {
+        return res.status(400).json({ success: false, message: 'citizenId and chatId are required' });
+      }
+
+      const cleanChatId = String(chatId).trim();
+      const cleanCitizenId = String(citizenId).trim();
+
+      // 1. Update central DB
+      await query('UPDATE profiles SET telegram_chat_id = ? WHERE TRIM(id) = TRIM(?)', [cleanChatId, cleanCitizenId]);
+
+      // 2. Update tenant DB if exists
+      let targetSchoolId = schoolId;
+      if (!targetSchoolId) {
+        const rows = await query('SELECT school_id FROM profiles WHERE TRIM(id) = TRIM(?)', [cleanCitizenId]);
+        if (rows && rows.length > 0) targetSchoolId = rows[0].school_id;
+      }
+
+      if (targetSchoolId) {
+        try {
+          const tPool = await getPoolForSchool(targetSchoolId);
+          if (tPool) {
+            await query('UPDATE profiles SET telegram_chat_id = ? WHERE TRIM(id) = TRIM(?)', [cleanChatId, cleanCitizenId], tPool);
+          }
+        } catch (e) {
+          console.warn('[Telegram] Error updating tenant DB:', e.message);
+        }
+      }
+
+      // 3. Send confirmation message
+      try {
+        let tokenRows = [];
+        if (targetSchoolId) {
+          tokenRows = await query('SELECT telegram_bot_token FROM school_configs WHERE school_id = ?', [targetSchoolId]);
+        }
+        if (!tokenRows.length) {
+          tokenRows = await query('SELECT telegram_bot_token FROM school_configs WHERE telegram_bot_token IS NOT NULL LIMIT 1');
+        }
+        if (tokenRows.length && tokenRows[0].telegram_bot_token) {
+          await sendTelegramMessage(
+            tokenRows[0].telegram_bot_token,
+            cleanChatId,
+            `✅ <b>ผูกบัญชี Telegram สำเร็จ!</b>\n\nระบบผูกบัญชีของคุณเข้ากับ Chat ID: <code>${cleanChatId}</code> เรียบร้อยแล้ว พร้อมรับการแจ้งเตือนทันทีครับ 🟢`
+          );
+        }
+      } catch (msgErr) {
+        console.warn('[Telegram] Confirmation message failed:', msgErr.message);
+      }
+
+      res.json({ success: true, message: 'ผูกบัญชี Telegram เรียบร้อยแล้ว' });
+    } catch (err) {
+      console.error('[Telegram] Error linking user:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Endpoint to test Telegram Bot connection (Push Test)
+  app.post('/api/telegram/test', async (req, res) => {
+    try {
+      const { botToken, chatId } = req.body || {};
+      if (!botToken || !chatId) {
+        return res.status(400).json({ success: false, message: 'กรุณาระบุทั้ง Telegram Bot Token และ Chat ID' });
+      }
+
+      const cleanToken = String(botToken).trim();
+      const cleanChatId = String(chatId).trim();
+
+      const result = await sendTelegramMessage(
+        cleanToken,
+        cleanChatId,
+        `🔔 <b>ทดสอบการเชื่อมต่อระบบแจ้งเตือน Telegram (SchoolOS)</b>\n\n` +
+        `✅ การเชื่อมต่อระบบสำเร็จแล้ว!\n` +
+        `🕒 เวลาที่ทดสอบ: ${new Date().toLocaleString('th-TH')}\n` +
+        `📌 บัญชีหรือกลุ่มนี้พร้อมรับการแจ้งเตือนงาน หนังสือราชการ และการลาเรียบร้อยแล้วครับ`
+      );
+
+      if (result && result.ok) {
+        return res.json({ success: true, message: 'ส่งข้อความทดสอบเข้า Telegram สำเร็จแล้ว!' });
+      } else {
+        const desc = result?.description || 'ไม่สามารถส่งข้อความได้ กรุณาตรวจสอบว่าผู้ใช้ได้กด Start ในบอทหรือดึงบอทเข้ากลุ่มแล้วหรือยัง';
+        return res.status(400).json({ success: false, message: `ส่งข้อความล้มเหลว: ${desc}` });
+      }
+    } catch (err) {
+      console.error('[Telegram] Error in /api/telegram/test:', err);
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // Endpoint to set Telegram Webhook
+  app.post('/api/telegram/set-webhook', async (req, res) => {
+    try {
+      const { botToken, appBaseUrl } = req.body || {};
+      if (!botToken) {
+        return res.status(400).json({ success: false, message: 'กรุณาระบุ Telegram Bot Token' });
+      }
+
+      const cleanToken = String(botToken).trim();
+      
+      // Determine base URL: prefer explicitly provided, then school_configs DB, then request origin
+      let baseUrl = appBaseUrl ? String(appBaseUrl).trim() : null;
+      if (!baseUrl) {
+        try {
+          const cfgs = await query('SELECT app_base_url FROM school_configs WHERE TRIM(telegram_bot_token) = TRIM(?) AND app_base_url IS NOT NULL', [cleanToken]);
+          if (cfgs && cfgs.length > 0 && cfgs[0].app_base_url) {
+            baseUrl = cfgs[0].app_base_url.trim();
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      if (!baseUrl) {
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+        const host = req.headers['x-forwarded-host'] || req.get('host');
+        baseUrl = `${protocol}://${host}`;
+      }
+
+      const result = await setTelegramWebhook(cleanToken, baseUrl);
+      if (result && result.ok) {
+        const webhookUrl = `${baseUrl.replace(/\/$/, '')}/api/telegram/webhook/${cleanToken}`;
+        return res.json({ 
+          success: true, 
+          message: `ตั้งค่า Webhook สำเร็จเรียบร้อยแล้ว!\n\nWebhook URL:\n${webhookUrl}`,
+          details: result
+        });
+      } else {
+        return res.status(400).json({ 
+          success: false, 
+          message: `ตั้งค่า Webhook ไม่สำเร็จ: ${result?.description || 'เกิดข้อผิดพลาดในการเรียก Telegram API'}`,
+          details: result
+        });
+      }
+    } catch (err) {
+      console.error('[Telegram] Error in /api/telegram/set-webhook:', err);
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // Endpoint to check Telegram Webhook status
+  app.get('/api/telegram/webhook-info', async (req, res) => {
+    try {
+      const { token } = req.query;
+      if (!token) return res.status(400).json({ error: 'Token required' });
+      const tgRes = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
+      const data = await tgRes.json();
+      res.json(data);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -1965,13 +2233,18 @@ async function startServer() {
         return res.status(400).json({ success: false, message: 'กรุณาระบุ Bot Token' });
       }
 
-      const host = req.get('host');
-      const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-      const targetUrl = webhookUrl || `${protocol}://${host}/api/telegram/webhook/${botToken}`;
+      const cleanToken = botToken.trim();
+      const host = req.get('x-forwarded-host') || req.get('host');
+      let protocol = req.get('x-forwarded-proto') || req.protocol;
+      // Telegram requires HTTPS for external domains
+      if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+        protocol = 'https';
+      }
+      const targetUrl = webhookUrl ? webhookUrl.trim() : `${protocol}://${host}/api/telegram/webhook/${cleanToken}`;
 
       console.log(`[Telegram SetWebhook] Setting webhook to: ${targetUrl}`);
 
-      const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+      const tgRes = await fetch(`https://api.telegram.org/bot${cleanToken}/setWebhook`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1988,6 +2261,101 @@ async function startServer() {
       return res.json({ success: true, message: 'ตั้งค่า Telegram Webhook สำเร็จเรียบร้อย!', webhookUrl: targetUrl });
     } catch (err) {
       console.error('[Telegram SetWebhook Exception]', err);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // --- Telegram Sync & Webhook Auto-Recovery Route ---
+  app.post('/api/telegram/sync-updates', async (req, res) => {
+    try {
+      const { schoolId, botToken } = req.body;
+      let token = botToken ? botToken.trim() : null;
+
+      if (!token && schoolId) {
+        const cfgs = await query('SELECT telegram_bot_token FROM school_configs WHERE school_id = ?', [schoolId]);
+        if (cfgs && cfgs.length > 0 && cfgs[0].telegram_bot_token) {
+          token = cfgs[0].telegram_bot_token.trim();
+        }
+      }
+
+      if (!token) {
+        return res.status(400).json({ success: false, message: 'กรุณาระบุ Bot Token หรือ School ID' });
+      }
+
+      const host = req.get('x-forwarded-host') || req.get('host');
+      let protocol = req.get('x-forwarded-proto') || req.protocol;
+      if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+        protocol = 'https';
+      }
+      const expectedWebhookUrl = `${protocol}://${host}/api/telegram/webhook/${token}`;
+
+      // Check current webhook status
+      let whInfo = null;
+      let autoWebhookFixed = false;
+      try {
+        const whRes = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
+        const whData = await whRes.json().catch(() => ({}));
+        if (whData.ok) {
+          whInfo = whData.result;
+        }
+      } catch (e) {
+        console.warn('[Telegram Sync] Error fetching webhook info:', e.message);
+      }
+
+      // If webhook is not set or points to wrong host, attempt to auto-set
+      if (!whInfo || !whInfo.url || (protocol === 'https' && !whInfo.url.includes(host))) {
+        try {
+          console.log(`[Telegram Sync] Webhook not active or URL mismatched. Auto-setting to: ${expectedWebhookUrl}`);
+          const setRes = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url: expectedWebhookUrl,
+              allowed_updates: ['message', 'callback_query']
+            })
+          });
+          const setData = await setRes.json().catch(() => ({}));
+          if (setData.ok) {
+            autoWebhookFixed = true;
+            whInfo = { url: expectedWebhookUrl, has_custom_certificate: false };
+          }
+        } catch (e) {
+          console.warn('[Telegram Sync] Auto set webhook error:', e.message);
+        }
+      }
+
+      // If webhook is NOT active, fallback to getUpdates to fetch any pending /start messages
+      let updatesProcessed = 0;
+      if (!whInfo || !whInfo.url) {
+        try {
+          const upRes = await fetch(`https://api.telegram.org/bot${token}/getUpdates?limit=25`);
+          const upData = await upRes.json().catch(() => ({}));
+          if (upData.ok && Array.isArray(upData.result)) {
+            for (const upd of upData.result) {
+              await handleTelegramUpdate(token, upd);
+              updatesProcessed++;
+            }
+          }
+        } catch (e) {
+          console.warn('[Telegram Sync] Fallback getUpdates error:', e.message);
+        }
+      }
+
+      // Return recent events
+      let events = recentTelegramEvents;
+      if (schoolId) {
+        events = events.filter(e => !e.schoolId || String(e.schoolId) === String(schoolId));
+      }
+
+      return res.json({
+        success: true,
+        webhookInfo: whInfo,
+        autoWebhookFixed,
+        updatesProcessed,
+        recentEvents: events
+      });
+    } catch (err) {
+      console.error('[Telegram Sync Exception]', err);
       return res.status(500).json({ success: false, message: err.message });
     }
   });

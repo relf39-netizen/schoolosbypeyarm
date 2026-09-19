@@ -27,6 +27,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isRefreshingLine, setIsRefreshingLine] = useState(false);
     const [isSearchingRecentLine, setIsSearchingRecentLine] = useState(false);
+    const [isSearchingRecentTelegram, setIsSearchingRecentTelegram] = useState(false);
+    const [isConnectingTelegram, setIsConnectingTelegram] = useState(false);
     const [isCopiedLine, setIsCopiedLine] = useState(false);
     const [showManualLineInput, setShowManualLineInput] = useState(false);
     const [showManualTelegramInput, setShowManualTelegramInput] = useState(false);
@@ -57,10 +59,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                         const updated = { ...currentUser };
                         if (data.telegram_chat_id && data.telegram_chat_id !== currentUser.telegramChatId) {
                             updated.telegramChatId = data.telegram_chat_id;
+                            setFormData(prev => ({ ...prev, telegramChatId: data.telegram_chat_id }));
                             shouldUpdate = true;
                         }
                         if (data.line_user_id && data.line_user_id !== currentUser.lineUserId) {
                             updated.lineUserId = data.line_user_id;
+                            setFormData(prev => ({ ...prev, lineUserId: data.line_user_id }));
                             shouldUpdate = true;
                         }
                         if (shouldUpdate) {
@@ -68,7 +72,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                         }
                     }
                 }
-            }, 4000);
+            }, 3000);
         }
         return () => {
             if (interval) clearInterval(interval);
@@ -77,26 +81,107 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
 
     const handleRefreshTelegram = async () => {
         setIsRefreshing(true);
-        if (supabase) {
-            try {
+        try {
+            // Trigger sync-updates in case webhook needs auto-recovery or updates need fetching
+            await fetch('/api/telegram/sync-updates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ schoolId: currentUser.schoolId })
+            }).catch(() => {});
+
+            if (supabase) {
                 const { data, error } = await supabase.from('profiles').select('telegram_chat_id').eq('id', currentUser.id).maybeSingle();
                 if (error) throw error;
-                if (data) {
-                    onUpdateUser({ ...currentUser, telegramChatId: data.telegram_chat_id || '' });
-                    if (data.telegram_chat_id) {
-                        alert("อัปเดตข้อมูลการเชื่อมต่อเรียบร้อยแล้ว");
-                    } else {
-                        alert("ยังไม่พบข้อมูลการเชื่อมต่อ กรุณากดปุ่มเชื่อมต่อและกดเริ่ม (Start) ในบอท Telegram ครับ");
+                if (data && data.telegram_chat_id) {
+                    setFormData(prev => ({ ...prev, telegramChatId: data.telegram_chat_id }));
+                    onUpdateUser({ ...currentUser, telegramChatId: data.telegram_chat_id });
+                    alert(`✅ ตรวจพบการเชื่อมต่อ Telegram เรียบร้อยแล้ว!\nChat ID: ${data.telegram_chat_id}`);
+                    return;
+                }
+            }
+            alert("ยังไม่พบข้อมูลการเชื่อมต่อ กรุณากดปุ่ม 'เชื่อมต่อ Telegram ทันที' แล้วกดปุ่ม Start (เริ่ม) ในบอท หรือใช้ปุ่ม 'ตรวจหา Telegram ID ล่าสุด' ครับ");
+        } catch (err: any) {
+            console.error("Refresh telegram error:", err);
+            alert("ไม่สามารถอัปเดตข้อมูลได้ในขณะนี้: " + (err.message || ''));
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
+
+    const handleFindRecentTelegramId = async () => {
+        setIsSearchingRecentTelegram(true);
+        try {
+            // 1. Sync updates and check webhook
+            await fetch('/api/telegram/sync-updates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ schoolId: currentUser.schoolId })
+            }).catch(() => {});
+
+            // 2. Fetch recent events
+            const res = await fetch(`/api/telegram/recent-events?schoolId=${currentUser.schoolId || ''}`);
+            if (res.ok) {
+                const events = await res.json();
+                if (Array.isArray(events) && events.length > 0) {
+                    // Try to find an event with user's ID
+                    const match = events.find(e => 
+                        (e.linkedUserId && String(e.linkedUserId) === String(currentUser.id)) ||
+                        (e.text && e.text.includes(currentUser.id))
+                    );
+
+                    if (match && match.chatId) {
+                        setFormData(prev => ({ ...prev, telegramChatId: match.chatId }));
+                        setShowManualTelegramInput(true);
+                        onUpdateUser({ ...currentUser, telegramChatId: match.chatId });
+                        // Persist to backend
+                        await fetch('/api/telegram/link-user', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ citizenId: currentUser.id, chatId: match.chatId, schoolId: currentUser.schoolId })
+                        }).catch(() => {});
+                        alert(`🎯 ตรวจพบ Telegram Chat ID ของท่านแล้ว!\n\nChat ID: ${match.chatId}\nผู้ส่ง: ${match.senderName || match.username || 'ผู้ใช้'}\nข้อความ: "${match.text}"\n\nระบบบันทึกและผูกบัญชีเข้าสู่ระบบเรียบร้อยแล้วครับ!`);
+                        return;
+                    }
+
+                    // Otherwise pick the most recent event
+                    const latest = events[0];
+                    if (latest && latest.chatId) {
+                        const confirmUse = window.confirm(`พบข้อความล่าสุดจาก Telegram:\n"${latest.text}"\nผู้ส่ง: ${latest.senderName || latest.username || 'ผู้ใช้'}\nChat ID: ${latest.chatId}\nเวลา: ${new Date(latest.timestamp).toLocaleTimeString('th-TH')}\n\nนี่คือบัญชี Telegram ของท่านใช่หรือไม่? (กด ตกลง เพื่อบันทึกและผูก Chat ID นี้เข้าสู่ระบบทันที)`);
+                        if (confirmUse) {
+                            setFormData(prev => ({ ...prev, telegramChatId: latest.chatId }));
+                            setShowManualTelegramInput(true);
+                            onUpdateUser({ ...currentUser, telegramChatId: latest.chatId });
+                            // Persist to backend
+                            await fetch('/api/telegram/link-user', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ citizenId: currentUser.id, chatId: latest.chatId, schoolId: currentUser.schoolId })
+                            }).catch(() => {});
+                            alert(`✅ บันทึกและผูก Telegram Chat ID: ${latest.chatId} เข้าสู่ระบบเรียบร้อยแล้วครับ!`);
+                        }
+                        return;
                     }
                 }
-            } catch (err) {
-                console.error("Refresh telegram error:", err);
-                alert("ไม่สามารถอัปเดตข้อมูลได้ในขณะนี้");
-            } finally {
-                setIsRefreshing(false);
             }
-        } else {
-            setIsRefreshing(false);
+
+            // 3. Check DB
+            if (supabase) {
+                const { data } = await supabase.from('profiles').select('telegram_chat_id').eq('id', currentUser.id).maybeSingle();
+                if (data && data.telegram_chat_id) {
+                    setFormData(prev => ({ ...prev, telegramChatId: data.telegram_chat_id }));
+                    setShowManualTelegramInput(true);
+                    onUpdateUser({ ...currentUser, telegramChatId: data.telegram_chat_id });
+                    alert(`✅ ตรวจพบ Telegram Chat ID ในฐานข้อมูลแล้ว: ${data.telegram_chat_id}`);
+                    return;
+                }
+            }
+
+            alert(`ยังไม่พบข้อความที่ส่งเข้ามาใน Telegram ล่าสุด\n\nคำแนะนำ:\n1. กดปุ่ม "เชื่อมต่อ Telegram ทันที (อัตโนมัติ)" แล้วกดปุ่ม Start (เริ่ม) ในบอท\n2. หรือพิมพ์เลขบัตรประชาชน 13 หลัก (${currentUser.id}) ส่งให้บอท\n3. หรือพิมพ์คำว่า id ส่งให้บอท แล้วนำเลข Chat ID มากดใส่ในช่องได้เลยครับ`);
+        } catch (e: any) {
+            console.error("Error finding recent Telegram ID:", e);
+            alert("ไม่สามารถค้นหาข้อความได้ในขณะนี้: " + (e.message || ''));
+        } finally {
+            setIsSearchingRecentTelegram(false);
         }
     };
 
@@ -301,10 +386,75 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
             alert("⚠️ ยังไม่ได้ตั้งค่า 'Telegram Bot Username' ของโรงเรียนนี้ กรุณาติดต่อผู้ดูแลระบบโรงเรียนของท่านเพื่อตั้งค่าในเมนูแอดมินครับ");
             return;
         }
-        // Deep Link: https://t.me/BotName?start=Parameter
+
+        // Clean bot username
         const cleanBotUser = botUsername.replace('@', '').trim();
         const webUrl = `https://t.me/${cleanBotUser}?start=${currentUser.id}`;
         const nativeUrl = `tg://resolve?domain=${cleanBotUser}&start=${currentUser.id}`;
+
+        // Auto copy 13-digit ID to clipboard as quick backup
+        navigator.clipboard.writeText(currentUser.id).catch(() => {});
+
+        // Trigger sync-updates to ensure webhook is registered at Telegram API
+        fetch('/api/telegram/sync-updates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schoolId: currentUser.schoolId })
+        }).catch(() => {});
+
+        // Start active detection polling for 45 seconds
+        setIsConnectingTelegram(true);
+        let pollCount = 0;
+        const linkCheckInterval = setInterval(async () => {
+            pollCount++;
+            if (pollCount > 18) { // 18 * 2.5s = 45s
+                clearInterval(linkCheckInterval);
+                setIsConnectingTelegram(false);
+                return;
+            }
+
+            try {
+                // Check profiles table in DB
+                if (supabase) {
+                    const { data } = await supabase.from('profiles').select('telegram_chat_id').eq('id', currentUser.id).maybeSingle();
+                    if (data && data.telegram_chat_id) {
+                        setFormData(prev => ({ ...prev, telegramChatId: data.telegram_chat_id }));
+                        onUpdateUser({ ...currentUser, telegramChatId: data.telegram_chat_id });
+                        clearInterval(linkCheckInterval);
+                        setIsConnectingTelegram(false);
+                        alert(`🎉 เชื่อมต่อ Telegram สำเร็จเรียบร้อยแล้ว!\nTelegram Chat ID: ${data.telegram_chat_id}`);
+                        return;
+                    }
+                }
+
+                // Check recent events from server
+                const res = await fetch(`/api/telegram/recent-events?schoolId=${currentUser.schoolId || ''}`);
+                if (res.ok) {
+                    const events = await res.json();
+                    if (Array.isArray(events)) {
+                        const match = events.find(e => 
+                            (e.linkedUserId && String(e.linkedUserId) === String(currentUser.id)) ||
+                            (e.text && e.text.includes(currentUser.id))
+                        );
+                        if (match && match.chatId) {
+                            setFormData(prev => ({ ...prev, telegramChatId: match.chatId }));
+                            onUpdateUser({ ...currentUser, telegramChatId: match.chatId });
+                            fetch('/api/telegram/link-user', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ citizenId: currentUser.id, chatId: match.chatId, schoolId: currentUser.schoolId })
+                            }).catch(() => {});
+                            clearInterval(linkCheckInterval);
+                            setIsConnectingTelegram(false);
+                            alert(`🎉 เชื่อมต่อ Telegram สำเร็จเรียบร้อยแล้ว!\nTelegram Chat ID: ${match.chatId}`);
+                            return;
+                        }
+                    }
+                }
+            } catch (err) {
+                // silent
+            }
+        }, 2500);
 
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         if (isMobile) {
@@ -414,22 +564,36 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                             </div>
                         )}
 
-                        <div className="flex flex-col sm:flex-row gap-2 relative z-10">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 relative z-10">
                             <button 
                                 type="button" 
                                 onClick={handleConnectTelegram}
-                                disabled={isLoadingConfig}
-                                className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
+                                disabled={isLoadingConfig || isConnectingTelegram}
+                                className="sm:col-span-2 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
                             >
-                                {isLoadingConfig ? <Loader className="animate-spin" size={16}/> : <Zap size={16}/>} 
-                                {currentUser.telegramChatId ? 'เชื่อมต่อ Telegram อีกครั้ง' : 'เชื่อมต่อ Telegram ทันที (อัตโนมัติ)'}
+                                {isLoadingConfig || isConnectingTelegram ? <Loader className="animate-spin" size={16}/> : <Zap size={16}/>} 
+                                {isConnectingTelegram ? 'กำลังรอตรวจจับการกด Start...' : (currentUser.telegramChatId ? 'เชื่อมต่อ Telegram อีกครั้ง' : 'เชื่อมต่อ Telegram ทันที (อัตโนมัติ)')}
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setShowManualTelegramInput(!showManualTelegramInput)}
-                                className="px-4 py-3 bg-white text-indigo-600 border border-indigo-200 rounded-xl font-bold text-xs hover:bg-indigo-50 transition-all"
+                                onClick={handleFindRecentTelegramId}
+                                disabled={isSearchingRecentTelegram}
+                                className="py-3 bg-white text-indigo-700 border-2 border-indigo-200 rounded-xl font-bold text-xs hover:bg-indigo-50 transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                title="ค้นหาข้อความจาก Telegram ล่าสุดเพื่อดึง Chat ID"
                             >
-                                {showManualTelegramInput ? 'ซ่อนช่องระบุเอง' : 'ระบุ Chat ID เอง'}
+                                {isSearchingRecentTelegram ? <Loader className="animate-spin" size={14}/> : <Search size={14}/>}
+                                ตรวจหา Chat ID ล่าสุด
+                            </button>
+                        </div>
+
+                        <div className="flex justify-between items-center text-[10px] text-indigo-700 font-medium px-1">
+                            <span>💡 หากกด Start ในบอทแล้ว ID ยังไม่ขึ้น สามารถกดปุ่ม <b>"ตรวจหา Chat ID ล่าสุด"</b> ได้ทันที</span>
+                            <button
+                                type="button"
+                                onClick={() => setShowManualTelegramInput(!showManualTelegramInput)}
+                                className="underline hover:text-indigo-900 font-bold shrink-0 ml-2"
+                            >
+                                {showManualTelegramInput ? 'ซ่อนช่องกรอกเอง' : 'ต้องการกรอก Chat ID เอง'}
                             </button>
                         </div>
 
