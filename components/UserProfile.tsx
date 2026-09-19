@@ -34,6 +34,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
     const [showManualTelegramInput, setShowManualTelegramInput] = useState(false);
     const [isCopiedUserinfoBot, setIsCopiedUserinfoBot] = useState(false);
     const [isSavingTelegramId, setIsSavingTelegramId] = useState(false);
+    const [isSavingLineId, setIsSavingLineId] = useState(false);
+    const [isCopiedIdWord, setIsCopiedIdWord] = useState(false);
 
     // Sync formData when currentUser prop changes (e.g. from realtime update)
     useEffect(() => {
@@ -245,39 +247,90 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         }
     };
 
+    const handleSaveLineUserId = async (idToSave?: string) => {
+        const val = (idToSave !== undefined ? idToSave : (formData.lineUserId || '')).trim();
+        setIsSavingLineId(true);
+        try {
+            if (supabase) {
+                const { error } = await supabase.from('profiles').update({
+                    line_user_id: val
+                }).eq('id', currentUser.id);
+                if (error) throw new Error(error.message);
+            }
+            // Notify backend API
+            fetch('/api/line/link-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ citizenId: currentUser.id, lineUserId: val })
+            }).catch(() => {});
+
+            const updated: Teacher = {
+                ...currentUser,
+                lineUserId: val
+            };
+            setFormData(prev => ({ ...prev, lineUserId: val }));
+            onUpdateUser(updated);
+            alert(val ? `✅ บันทึก LINE User ID: ${val} เรียบร้อยแล้วครับ!\n\nระบบจะส่งการแจ้งเตือนไปยัง LINE ของท่านทันที 🟢` : "ล้างข้อมูล LINE User ID เรียบร้อยแล้ว");
+        } catch (e: any) {
+            alert(`❌ บันทึกไม่สำเร็จ: ${e.message}`);
+        } finally {
+            setIsSavingLineId(false);
+        }
+    };
+
+    const handleCopyIdWord = () => {
+        navigator.clipboard.writeText('id').catch(() => {});
+        setIsCopiedIdWord(true);
+        setTimeout(() => setIsCopiedIdWord(false), 4000);
+    };
+
     const handleFindRecentLineId = async () => {
         setIsSearchingRecentLine(true);
         try {
-            const res = await fetch(`/api/line/recent-events?schoolId=${currentUser.schoolId || ''}`);
-            if (res.ok) {
-                const events = await res.json();
-                if (Array.isArray(events) && events.length > 0) {
-                    // Try to find an event with user's 13-digit ID
-                    const match = events.find(e => e.text && e.text.includes(currentUser.id));
-                    if (match && match.lineUserId) {
-                        setFormData(prev => ({ ...prev, lineUserId: match.lineUserId }));
-                        setShowManualLineInput(true);
-                        alert(`🎯 ตรวจพบ LINE User ID ของท่านแล้ว!\n\nUser ID: ${match.lineUserId}\nข้อความที่ส่ง: "${match.text}"\n\nระบบนำมากรอกในช่องให้เรียบร้อยแล้ว กรุณากดปุ่ม "บันทึกการเปลี่ยนแปลง" ด้านล่างของหน้าเพื่อยืนยันครับ`);
-                        return;
-                    }
+            // 1. Check DB first (in case webhook or another process already updated it)
+            if (supabase) {
+                const { data } = await supabase.from('profiles').select('line_user_id').eq('id', currentUser.id).maybeSingle();
+                if (data && data.line_user_id) {
+                    setFormData(prev => ({ ...prev, lineUserId: data.line_user_id }));
+                    onUpdateUser({ ...currentUser, lineUserId: data.line_user_id });
+                    alert(`✅ ตรวจพบ LINE User ID ในฐานข้อมูลเรียบร้อยแล้ว!\n\nUser ID: ${data.line_user_id}`);
+                    return;
+                }
+            }
 
-                    // Otherwise pick the most recent event
-                    const latest = events[0];
-                    if (latest && latest.lineUserId && latest.lineUserId !== 'unknown') {
-                        const confirmUse = window.confirm(`พบข้อความล่าสุดจาก LINE:\n"${latest.text || latest.type}"\nรหัส LINE User ID: ${latest.lineUserId}\nเวลา: ${new Date(latest.timestamp).toLocaleTimeString('th-TH')}\n\nนี่คือบัญชี LINE ของท่านใช่หรือไม่? (กด ตกลง เพื่อนำรหัสนี้มาใส่ในระบบทันที)`);
-                        if (confirmUse) {
-                            setFormData(prev => ({ ...prev, lineUserId: latest.lineUserId }));
-                            setShowManualLineInput(true);
-                            alert(`✅ นำรหัส ${latest.lineUserId} มาใส่ในช่องเรียบร้อยแล้ว กรุณากดปุ่ม "บันทึกการเปลี่ยนแปลง" ด้านล่างของหน้าเพื่อบันทึกครับ`);
+            // 2. Safely check recent webhook events from backend
+            try {
+                const res = await fetch(`/api/line/recent-events?schoolId=${currentUser.schoolId || ''}`);
+                const contentType = res.headers.get('content-type') || '';
+                if (res.ok && contentType.includes('application/json')) {
+                    const events = await res.json();
+                    if (Array.isArray(events) && events.length > 0) {
+                        // Check if an event mentions user's 13-digit ID
+                        const match = events.find(e => e.text && e.text.includes(currentUser.id));
+                        if (match && match.lineUserId && match.lineUserId !== 'unknown') {
+                            await handleSaveLineUserId(match.lineUserId);
+                            return;
                         }
-                        return;
+
+                        // Otherwise check latest event
+                        const latest = events[0];
+                        if (latest && latest.lineUserId && latest.lineUserId !== 'unknown') {
+                            const confirmUse = window.confirm(`พบข้อความล่าสุดจาก LINE:\n"${latest.text || latest.type}"\nรหัส LINE User ID: ${latest.lineUserId}\nเวลา: ${new Date(latest.timestamp).toLocaleTimeString('th-TH')}\n\nนี่คือบัญชี LINE ของท่านใช่หรือไม่?\n(กด ตกลง เพื่อบันทึกรหัสนี้เข้าระบบทันที)`);
+                            if (confirmUse) {
+                                await handleSaveLineUserId(latest.lineUserId);
+                                return;
+                            }
+                        }
                     }
                 }
-                alert("ยังไม่พบข้อความที่ส่งเข้ามาใน LINE Official Account ล่าสุด\n\nคำแนะนำ:\n1. ตรวจสอบว่าแอดมินตั้งค่า Webhook ใน LINE Developers และเปิด Use Webhook แล้วหรือยัง\n2. ลองส่งข้อความคำว่า 'id' หรือ '#ผูกLINE " + currentUser.id + "' เข้าไปในแชทบอท LINE ของโรงเรียนก่อน แล้วกดปุ่มนี้อีกครั้ง");
+            } catch (fetchErr) {
+                console.warn("LINE recent events fetch non-critical error:", fetchErr);
             }
+
+            alert(`💡 วิธีรับ LINE User ID ของท่านที่ง่ายที่สุด:\n\n1. กดปุ่ม "เปิดแอป LINE" ด้านบน\n2. ส่งคำว่า "id" หรือพิมพ์ "#ผูกLINE ${currentUser.id}" เข้าไปในแชทบอท\n3. บอทจะตอบกลับรหัส U... ให้นำมาวางในช่อง "LINE User ID" แล้วกดปุ่ม "บันทึก LINE ID ทันที" ได้เลยครับ\n\n📌 หมายเหตุ: หากส่งข้อความแล้วบอทไม่ตอบ แสดงว่าแอดมินยังไม่ได้เปิดสวิตช์ "Use Webhook" ใน LINE Developers Console ครับ`);
         } catch (e: any) {
             console.error("Error finding recent LINE ID:", e);
-            alert("ไม่สามารถค้นหาข้อความได้ในขณะนี้: " + e.message);
+            alert("ไม่สามารถค้นหาข้อความได้ในขณะนี้: " + (e.message || ''));
         } finally {
             setIsSearchingRecentLine(false);
         }
@@ -546,86 +599,86 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                             )}
                         </div>
 
-                        {/* PROMINENT @userinfobot CARD - FOOLPROOF & INSTANT */}
-                        <div className="relative z-10 bg-gradient-to-br from-indigo-50/90 via-white to-blue-50/90 border-2 border-indigo-200 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+                        {/* PROMINENT @userinfobot CARD - HARMONIZED & ELEGANT */}
+                        <div className="relative z-10 bg-gradient-to-br from-indigo-50/80 via-white to-blue-50/80 border border-indigo-200 rounded-xl p-3.5 sm:p-4 shadow-sm space-y-3">
                             <div>
-                                <h5 className="text-base sm:text-lg font-black text-indigo-950 flex items-center gap-2">
-                                    <Zap className="text-amber-500 fill-amber-500" size={20}/>
-                                    วิธีเชื่อมต่อและรับ Chat ID ที่ง่ายที่สุด (แนะนำ 100%)
+                                <h5 className="text-sm sm:text-base font-bold text-indigo-950 flex items-center gap-1.5">
+                                    <Zap className="text-amber-500 fill-amber-500" size={16}/>
+                                    วิธีรับ Chat ID ที่ง่ายที่สุด (ผ่านบอท @userinfobot)
                                 </h5>
-                                <p className="text-xs text-slate-600 mt-0.5">
-                                    ดูเลข ID ของตัวเองได้ทันทีใน 10 วินาที ผ่านบอทของ Telegram กลาง
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    ดูเลข ID ของตัวเองได้ทันทีใน 5 วินาที ผ่านบอทกลางของ Telegram
                                 </p>
                             </div>
 
-                            {/* BIG PROMINENT @userinfobot BOX */}
-                            <div className="p-3.5 sm:p-4 bg-white rounded-xl border-2 border-indigo-300 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+                            {/* HARMONIZED @userinfobot BOX */}
+                            <div className="p-3 bg-white rounded-lg border border-indigo-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-2.5 text-center sm:text-left">
                                 <div 
                                     onClick={handleCopyUserinfoBot}
-                                    className="cursor-pointer group flex items-center gap-3"
+                                    className="cursor-pointer group flex items-center gap-2.5"
                                     title="คลิกเพื่อคัดลอก @userinfobot"
                                 >
-                                    <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-transform">
-                                        <MessageSquare size={24}/>
+                                    <div className="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                                        <MessageSquare size={18}/>
                                     </div>
                                     <div>
-                                        <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                                            ค้นหาบอทชื่อนี้ใน Telegram (กดเพื่อคัดลอก)
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                            ค้นหาบอทชื่อนี้ใน Telegram
                                         </div>
-                                        <div className="text-2xl sm:text-3xl font-black text-indigo-900 font-mono tracking-wider group-hover:text-indigo-600 transition-colors">
+                                        <div className="text-base sm:text-lg font-bold text-indigo-900 font-mono tracking-wide group-hover:text-indigo-600 transition-colors">
                                             @userinfobot
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full sm:w-auto">
+                                <div className="flex flex-wrap sm:flex-nowrap gap-1.5 w-full sm:w-auto">
                                     <button
                                         type="button"
                                         onClick={handleCopyUserinfoBot}
-                                        className="flex-1 sm:flex-none px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                                        className="flex-1 sm:flex-none px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1 shadow-xs"
                                     >
-                                        {isCopiedUserinfoBot ? <Check size={16} className="text-emerald-300"/> : <Copy size={16}/>}
+                                        {isCopiedUserinfoBot ? <Check size={14} className="text-emerald-300"/> : <Copy size={14}/>}
                                         {isCopiedUserinfoBot ? 'คัดลอกแล้ว!' : 'คัดลอก @userinfobot'}
                                     </button>
                                     <button
                                         type="button"
                                         onClick={handleOpenUserinfoBot}
-                                        className="flex-1 sm:flex-none px-4 py-2.5 bg-white border-2 border-indigo-600 hover:bg-indigo-50 active:scale-95 text-indigo-700 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                                        className="flex-1 sm:flex-none px-3 py-1.5 bg-white border border-indigo-300 hover:bg-indigo-50 active:scale-95 text-indigo-700 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1 shadow-xs"
                                     >
-                                        <ExternalLink size={16}/>
-                                        เปิด Telegram ทันที
+                                        <ExternalLink size={14}/>
+                                        เปิด Telegram
                                     </button>
                                 </div>
                             </div>
 
-                            {/* STEP-BY-STEP INSTRUCTIONS WITH LARGE READABLE TEXT */}
-                            <div className="bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-100 space-y-2">
-                                <div className="text-xs font-black text-indigo-950 uppercase tracking-wider">
+                            {/* STEP-BY-STEP INSTRUCTIONS */}
+                            <div className="bg-indigo-50/50 p-2.5 rounded-lg border border-indigo-100 space-y-1.5">
+                                <div className="text-[11px] font-bold text-indigo-950 uppercase tracking-wider">
                                     📌 ขั้นตอนการขอรับ Chat ID (ทำเพียงครั้งเดียว):
                                 </div>
-                                <ol className="text-xs sm:text-sm text-slate-700 space-y-2 font-medium">
-                                    <li className="flex items-start gap-2">
-                                        <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-black flex items-center justify-center shrink-0 mt-0.5">1</span>
-                                        <span>กดปุ่ม <b>"คัดลอก @userinfobot"</b> หรือกด <b>"เปิด Telegram ทันที"</b> ด้านบน</span>
+                                <ol className="text-xs text-slate-600 space-y-1 font-medium">
+                                    <li className="flex items-start gap-1.5">
+                                        <span className="w-4 h-4 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
+                                        <span>กดปุ่ม <b>"คัดลอก @userinfobot"</b> หรือกด <b>"เปิด Telegram"</b> ด้านบน</span>
                                     </li>
-                                    <li className="flex items-start gap-2">
-                                        <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-black flex items-center justify-center shrink-0 mt-0.5">2</span>
-                                        <span>ในแอป Telegram ให้กดปุ่ม <b>Start (เริ่ม)</b> บอทจะตอบกลับตัวเลข เช่น: <code className="bg-white px-1.5 py-0.5 rounded border border-indigo-200 text-indigo-700 font-bold font-mono">Id: 123456789</code></span>
+                                    <li className="flex items-start gap-1.5">
+                                        <span className="w-4 h-4 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
+                                        <span>ในแอป Telegram ให้กดปุ่ม <b>Start</b> บอทจะตอบกลับตัวเลข เช่น: <code className="bg-white px-1.5 py-0.5 rounded border border-indigo-200 text-indigo-700 font-bold font-mono">Id: 123456789</code></span>
                                     </li>
-                                    <li className="flex items-start gap-2">
-                                        <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-black flex items-center justify-center shrink-0 mt-0.5">3</span>
-                                        <span>คัดลอกเฉพาะตัวเลข <b>Id</b> มาวางในช่องด้านล่างนี้ แล้วกดปุ่ม <b>"บันทึก Chat ID ทันที"</b></span>
+                                    <li className="flex items-start gap-1.5">
+                                        <span className="w-4 h-4 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
+                                        <span>คัดลอกเฉพาะตัวเลข <b>Id</b> มาวางในช่องด้านล่าง แล้วกด <b>"บันทึก Chat ID ทันที"</b></span>
                                     </li>
                                 </ol>
                             </div>
 
                             {/* CHAT ID INPUT & INSTANT SAVE BUTTON */}
-                            <div className="bg-white p-3.5 sm:p-4 rounded-xl border-2 border-indigo-200 shadow-sm space-y-2">
+                            <div className="bg-white p-3 rounded-lg border border-indigo-200 shadow-xs space-y-1.5">
                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
-                                    <label className="text-xs sm:text-sm font-black text-slate-700 flex items-center gap-1.5">
+                                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                                         <span>Telegram Chat ID ของท่าน (ตัวเลข):</span>
                                     </label>
-                                    <span className="text-xs font-bold">
+                                    <span className="text-[11px] font-bold">
                                         {formData.telegramChatId ? (
                                             <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                                                 🟢 บันทึกแล้ว: {formData.telegramChatId}
@@ -641,16 +694,16 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                                     <div className="relative flex-1">
                                         <input 
                                             type="text"
-                                            placeholder="วางตัวเลข Chat ID ที่นี่ เช่น 123456789"
+                                            placeholder="วางตัวเลข Chat ID เช่น 123456789"
                                             value={formData.telegramChatId || ''} 
                                             onChange={e => setFormData({ ...formData, telegramChatId: e.target.value.trim() })}
-                                            className="w-full px-4 py-2.5 border-2 border-slate-200 focus:border-indigo-600 rounded-xl bg-slate-50 focus:bg-white font-mono text-base font-black text-indigo-900 outline-none transition-all shadow-inner"
+                                            className="w-full px-3 py-1.5 border border-slate-200 focus:border-indigo-500 rounded-lg bg-slate-50 focus:bg-white font-mono text-sm font-bold text-indigo-900 outline-none transition-all"
                                         />
                                         {formData.telegramChatId && (
                                             <button
                                                 type="button"
                                                 onClick={() => setFormData({ ...formData, telegramChatId: '' })}
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500 font-bold text-sm"
+                                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500 font-bold text-xs"
                                                 title="ล้างค่า"
                                             >
                                                 ✕
@@ -661,9 +714,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                                         type="button"
                                         onClick={() => handleSaveTelegramChatId()}
                                         disabled={isSavingTelegramId}
-                                        className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 shrink-0"
+                                        className="py-1.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs transition-all shadow-xs active:scale-95 flex items-center justify-center gap-1.5 shrink-0"
                                     >
-                                        {isSavingTelegramId ? <Loader className="animate-spin" size={16}/> : <Save size={16}/>}
+                                        {isSavingTelegramId ? <Loader className="animate-spin" size={14}/> : <Save size={14}/>}
                                         บันทึก Chat ID ทันที
                                     </button>
                                 </div>
@@ -671,13 +724,13 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                         </div>
 
                         {/* SECONDARY / BACKUP: SCHOOL BOT AUTOMATIC LINK */}
-                        <div className="relative z-10 pt-2 border-t border-indigo-100">
+                        <div className="relative z-10 pt-1 border-t border-indigo-100">
                             <button
                                 type="button"
                                 onClick={() => setShowManualTelegramInput(!showManualTelegramInput)}
-                                className="text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center justify-between w-full p-2 hover:bg-indigo-50/50 rounded-lg transition-colors"
+                                className="text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center justify-between w-full p-1.5 hover:bg-indigo-50/50 rounded-lg transition-colors"
                             >
-                                <span>⚙️ ตัวเลือกเพิ่มเติม: เชื่อมต่อผ่านบอทโรงเรียนอัตโนมัติ ({botUsername || 'บอทโรงเรียน'})</span>
+                                <span>⚙️ ตัวเลือกเสริม: เชื่อมต่อผ่านบอทโรงเรียนอัตโนมัติ ({botUsername || 'บอทโรงเรียน'})</span>
                                 <span className="text-[11px] underline font-medium">{showManualTelegramInput ? 'ซ่อน' : 'แสดง'}</span>
                             </button>
 
@@ -688,7 +741,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                                             type="button" 
                                             onClick={handleConnectTelegram}
                                             disabled={isLoadingConfig || isConnectingTelegram}
-                                            className="sm:col-span-2 py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-all active:scale-95 flex items-center justify-center gap-2 text-xs"
+                                            className="sm:col-span-2 py-2 bg-indigo-600 text-white rounded-lg font-bold shadow-xs hover:bg-indigo-700 transition-all active:scale-95 flex items-center justify-center gap-1.5 text-xs"
                                         >
                                             {isLoadingConfig || isConnectingTelegram ? <Loader className="animate-spin" size={14}/> : <Zap size={14}/>} 
                                             {isConnectingTelegram ? 'กำลังรอตรวจจับ...' : 'เชื่อมต่อผ่านบอทโรงเรียน (อัตโนมัติ)'}
@@ -697,7 +750,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                                             type="button"
                                             onClick={handleFindRecentTelegramId}
                                             disabled={isSearchingRecentTelegram}
-                                            className="py-2.5 bg-white text-indigo-700 border border-indigo-300 rounded-xl font-bold text-xs hover:bg-indigo-50 transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                                            className="py-2 bg-white text-indigo-700 border border-indigo-300 rounded-lg font-bold text-xs hover:bg-indigo-50 transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
                                         >
                                             {isSearchingRecentTelegram ? <Loader className="animate-spin" size={14}/> : <Search size={14}/>}
                                             ตรวจหา ID ล่าสุด
@@ -721,127 +774,196 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                     </div>
 
                     {/* LINE Official Account Section */}
-                    <div className="md:col-span-2 bg-emerald-50 p-6 rounded-2xl border border-emerald-200 space-y-4 relative overflow-hidden">
+                    <div className="md:col-span-2 bg-emerald-50/60 p-4 sm:p-5 rounded-2xl border border-emerald-200 space-y-4 relative overflow-hidden">
                         <div className="flex justify-between items-start relative z-10">
                             <div>
-                                <h4 className="font-bold text-emerald-900 flex items-center gap-2 mb-1">
+                                <h4 className="font-bold text-emerald-950 flex items-center gap-2 mb-0.5 text-sm sm:text-base">
                                     <MessageSquare size={18} className="text-emerald-600"/> ระบบแจ้งเตือน LINE Official Account
                                 </h4>
-                                <p className="text-[11px] text-emerald-700">รับการแจ้งเตือนหนังสือราชการและการลาส่วนบุคคลผ่าน LINE อัตโนมัติ</p>
+                                <p className="text-xs text-emerald-700">รับการแจ้งเตือนหนังสือราชการและการลาส่วนบุคคลผ่าน LINE อัตโนมัติ</p>
                             </div>
                             <div className="flex items-center gap-2">
                                 {currentUser.lineUserId ? (
-                                    <div className="bg-emerald-600 text-white px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-sm">
+                                    <div className="bg-emerald-600 text-white px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-xs">
                                         <CheckCircle size={12}/> เชื่อมต่อแล้ว
                                     </div>
                                 ) : (
-                                    <div className="bg-slate-200 text-slate-500 px-3 py-1 rounded-full text-[10px] font-bold">ยังไม่ผูกบัญชี</div>
+                                    <div className="bg-slate-200 text-slate-600 px-2.5 py-1 rounded-full text-[10px] font-bold">ยังไม่ผูกบัญชี</div>
                                 )}
                                 <button 
                                     type="button"
                                     onClick={handleRefreshLine}
                                     disabled={isRefreshingLine}
-                                    className="text-emerald-700 hover:text-emerald-900 flex items-center gap-1 text-[10px] font-bold bg-white/70 px-2 py-1 rounded-lg border border-emerald-200"
+                                    className="text-emerald-700 hover:text-emerald-900 flex items-center gap-1 text-[10px] font-bold bg-white px-2 py-1 rounded-lg border border-emerald-200 shadow-xs"
                                 >
-                                    <Zap size={12} className={isRefreshingLine ? 'animate-spin' : ''}/>
-                                    {isRefreshingLine ? 'กำลังตรวจ...' : 'รีเฟรชสถานะ'}
+                                    <Zap size={11} className={isRefreshingLine ? 'animate-spin' : ''}/>
+                                    {isRefreshingLine ? 'กำลังตรวจ...' : 'รีเฟรช'}
                                 </button>
                             </div>
                         </div>
 
-                        {!currentUser.lineUserId ? (
-                            <div className="p-4 bg-white/90 rounded-xl border border-dashed border-emerald-300 text-center space-y-3 relative z-10">
-                                <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-                                    <MessageSquare size={20}/>
-                                </div>
-                                <div className="space-y-1">
-                                    <p className="text-xs font-bold text-slate-700">เชื่อมต่อง่ายๆ เพียง 1 คลิก</p>
-                                    <p className="text-[11px] text-slate-500">
-                                        กดปุ่มด้านล่าง ระบบจะคัดลอกคำสั่ง <span className="font-mono font-bold text-emerald-700 bg-emerald-100 px-1 rounded">#ผูกLINE {currentUser.id}</span> ให้อัตโนมัติ แล้วเปิด LINE ให้ท่านกดส่งข้อความได้ทันที
-                                    </p>
-                                </div>
-                                
-                                {isCopiedLine && (
-                                    <div className="bg-emerald-100 text-emerald-800 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center justify-center gap-1">
-                                        <CheckCircle size={14}/> คัดลอกคำสั่งแล้ว! กำลังเปิด LINE โปรดวางแล้วกดส่งในแชทบอทครับ
-                                    </div>
-                                )}
+                        {/* PROMINENT & HARMONIZED LINE CONNECT CARD */}
+                        <div className="relative z-10 bg-gradient-to-br from-emerald-50/90 via-white to-teal-50/90 border border-emerald-200 rounded-xl p-3.5 sm:p-4 shadow-sm space-y-3">
+                            <div>
+                                <h5 className="text-sm sm:text-base font-bold text-emerald-950 flex items-center gap-1.5">
+                                    <Zap className="text-emerald-600 fill-emerald-600" size={16}/>
+                                    วิธีเชื่อมต่อและดึง LINE User ID (แนะนำ)
+                                </h5>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    ส่งข้อความหรือคำสั่งไปยัง LINE บอทของโรงเรียนเพื่อรับรหัส <span className="font-mono font-bold text-emerald-700">U...</span> สำหรับเชื่อมต่อ
+                                </p>
                             </div>
-                        ) : (
-                            <div className="space-y-1 relative z-10">
-                                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">My LINE User ID</label>
-                                <div className="flex gap-2">
-                                    <input 
-                                        type="text"
-                                        value={formData.lineUserId || ''} 
-                                        onChange={e => setFormData({ ...formData, lineUserId: e.target.value.trim() })}
-                                        className="w-full px-3 py-2 border rounded-lg bg-white font-mono text-sm font-bold text-emerald-700 shadow-sm outline-none focus:border-emerald-500"
-                                    />
-                                    {formData.lineUserId && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setFormData({ ...formData, lineUserId: '' })}
-                                            className="px-2.5 py-1 text-slate-400 hover:text-rose-500 border border-slate-200 rounded-lg text-xs"
-                                            title="ล้างค่า"
+
+                            {/* LINE ACTION BUTTONS BAR */}
+                            <div className="p-3 bg-white rounded-lg border border-emerald-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-2.5 text-center sm:text-left">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                                        <MessageSquare size={18}/>
+                                    </div>
+                                    <div>
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                            LINE บอทโรงเรียน
+                                        </div>
+                                        <div className="text-sm sm:text-base font-bold text-emerald-900 font-mono tracking-wide">
+                                            {lineBotId ? (lineBotId.startsWith('@') ? lineBotId : `@${lineBotId}`) : 'LINE Official Account'}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-wrap sm:flex-nowrap gap-1.5 w-full sm:w-auto">
+                                    <button
+                                        type="button"
+                                        onClick={handleConnectLine}
+                                        className="flex-1 sm:flex-none px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1 shadow-xs"
+                                        title="คัดลอกคำสั่งและเปิดแอป LINE ทันที"
+                                    >
+                                        <Copy size={13}/>
+                                        คัดลอกคำสั่ง #ผูกLINE
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleCopyIdWord}
+                                        className="px-2.5 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-50 active:scale-95 text-emerald-800 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1 shadow-xs"
+                                        title="คัดลอกคำว่า id เพื่อนำไปส่งในแชทบอท"
+                                    >
+                                        {isCopiedIdWord ? <Check size={13} className="text-emerald-600"/> : <Copy size={13}/>}
+                                        {isCopiedIdWord ? 'คัดลอกแล้ว' : 'คัดลอกคำว่า id'}
+                                    </button>
+                                    {lineBotId && (
+                                        <a
+                                            href={`https://line.me/R/ti/p/@${lineBotId.replace('@', '').trim()}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-3 py-1.5 bg-white border border-emerald-400 hover:bg-emerald-50 active:scale-95 text-emerald-700 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1 shadow-xs"
                                         >
-                                            ✕
-                                        </button>
+                                            <ExternalLink size={13}/>
+                                            เปิด LINE
+                                        </a>
                                     )}
                                 </div>
                             </div>
-                        )}
 
-                        <div className="flex flex-col sm:flex-row gap-2 relative z-10">
-                            <button 
-                                type="button" 
-                                onClick={handleConnectLine}
-                                disabled={isLoadingConfig}
-                                className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
-                            >
-                                {isLoadingConfig ? <Loader className="animate-spin" size={16}/> : <Zap size={16}/>} 
-                                {currentUser.lineUserId ? '🟢 อัปเดต/เชื่อมต่อ LINE ใหม่' : '🟢 กดเพื่อเชื่อมต่อ LINE ทันที (คลิกเดียว)'}
-                            </button>
-
-                            <button 
-                                type="button" 
-                                onClick={handleFindRecentLineId}
-                                disabled={isSearchingRecentLine}
-                                className="px-4 py-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs hover:bg-indigo-100 transition-colors flex items-center justify-center gap-1.5"
-                                title="หากพิมพ์ข้อความใน LINE แล้วแต่ยังไม่ขึ้น ให้กดปุ่มนี้เพื่อดึง LINE User ID ทันที"
-                            >
-                                <Search size={14} className={isSearchingRecentLine ? 'animate-spin' : ''}/>
-                                {isSearchingRecentLine ? 'กำลังตรวจ...' : 'ตรวจหา LINE ID ล่าสุด'}
-                            </button>
-
-                            <button 
-                                type="button"
-                                onClick={() => setShowManualLineInput(!showManualLineInput)}
-                                className="px-4 py-3 bg-white text-slate-600 border border-emerald-300 rounded-xl font-medium text-xs hover:bg-emerald-50 transition-colors"
-                            >
-                                {showManualLineInput ? 'ซ่อนการระบุเอง' : 'ระบุ ID เอง'}
-                            </button>
-                        </div>
-
-                        {showManualLineInput && (
-                            <div className="p-3 bg-white rounded-xl border border-emerald-200 space-y-2 relative z-10">
-                                <label className="block text-xs font-bold text-slate-700">กรอก LINE User ID (ขึ้นต้นด้วย U...)</label>
-                                <div className="flex gap-2">
-                                    <input 
-                                        type="text" 
-                                        placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                                        value={formData.lineUserId}
-                                        onChange={e => setFormData({ ...formData, lineUserId: e.target.value.trim() })}
-                                        className="flex-1 px-3 py-1.5 border rounded-lg font-mono text-xs outline-none focus:ring-2 focus:ring-emerald-500"
-                                    />
+                            {isCopiedLine && (
+                                <div className="bg-emerald-100 text-emerald-900 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 border border-emerald-200">
+                                    <CheckCircle size={14} className="text-emerald-700 shrink-0"/>
+                                    <span>คัดลอกคำสั่ง <code className="bg-white/80 px-1 py-0.5 rounded font-mono">#ผูกLINE {currentUser.id}</code> เรียบร้อยแล้ว! โปรดวางและส่งในแชทบอท LINE ของโรงเรียน</span>
                                 </div>
-                                <div className="text-[10px] text-slate-500 space-y-1 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                    <p className="font-bold text-slate-700">💡 วิธีนำ LINE User ID มาใส่ในช่องนี้:</p>
-                                    <p>1. เปิดแชทกับ LINE Official Account ของโรงเรียน แล้วพิมพ์คำว่า <b>id</b> หรือ <b>สวัสดี</b> ส่งไปในแชท</p>
-                                    <p>2. กดปุ่ม <b>"ตรวจหา LINE ID ล่าสุด"</b> ด้านบน ระบบจะค้นหารหัส <span className="font-mono text-emerald-700 font-bold">U...</span> จากแชทที่เพิ่งส่งมาใส่ในช่องนี้ให้อัตโนมัติทันที</p>
-                                    <p>3. เลื่อนลงไปด้านล่างสุดของหน้าแล้วกดปุ่ม <b>"บันทึกการเปลี่ยนแปลง"</b></p>
+                            )}
+
+                            {/* STEP-BY-STEP INSTRUCTIONS */}
+                            <div className="bg-emerald-50/50 p-2.5 rounded-lg border border-emerald-100 space-y-1.5">
+                                <div className="text-[11px] font-bold text-emerald-950 uppercase tracking-wider">
+                                    📌 ขั้นตอนการดึงและเชื่อมต่อ LINE User ID:
+                                </div>
+                                <ol className="text-xs text-slate-600 space-y-1 font-medium">
+                                    <li className="flex items-start gap-1.5">
+                                        <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
+                                        <span>กดปุ่ม <b>"คัดลอกคำสั่ง #ผูกLINE"</b> หรือกด <b>"เปิด LINE"</b> ด้านบน</span>
+                                    </li>
+                                    <li className="flex items-start gap-1.5">
+                                        <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
+                                        <span>ในแชทกับบอทโรงเรียน ให้ส่งข้อความ <code className="bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-emerald-800 font-bold font-mono">#ผูกLINE {currentUser.id}</code> หรือส่งคำว่า <code className="bg-white px-1 py-0.5 rounded border border-emerald-200 text-emerald-800 font-bold font-mono">id</code> บอทจะตอบกลับรหัส <span className="font-mono text-emerald-700 font-bold">U...</span></span>
+                                    </li>
+                                    <li className="flex items-start gap-1.5">
+                                        <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
+                                        <span>กดปุ่ม <b>"ตรวจหา LINE ID ล่าสุด"</b> ด้านล่าง (ระบบจะดึงรหัสมาใส่และบันทึกให้อัตโนมัติ) หรือคัดลอกรหัส <span className="font-mono text-emerald-700 font-bold">U...</span> มาวางในช่องแล้วกด <b>"บันทึก LINE ID ทันที"</b></span>
+                                    </li>
+                                </ol>
+                            </div>
+
+                            {/* LINE USER ID INPUT & INSTANT ACTIONS */}
+                            <div className="bg-white p-3 rounded-lg border border-emerald-200 shadow-xs space-y-1.5">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
+                                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                        <span>LINE User ID ของท่าน (ขึ้นต้นด้วย U...):</span>
+                                    </label>
+                                    <span className="text-[11px] font-bold">
+                                        {formData.lineUserId ? (
+                                            <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                                🟢 บันทึกแล้ว: {formData.lineUserId}
+                                            </span>
+                                        ) : (
+                                            <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                                ⚠️ ยังไม่ได้ระบุ LINE User ID
+                                            </span>
+                                        )}
+                                    </span>
+                                </div>
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                    <div className="relative flex-1">
+                                        <input 
+                                            type="text"
+                                            placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (33 ตัวอักษร)"
+                                            value={formData.lineUserId || ''} 
+                                            onChange={e => setFormData({ ...formData, lineUserId: e.target.value.trim() })}
+                                            className="w-full px-3 py-1.5 border border-slate-200 focus:border-emerald-500 rounded-lg bg-slate-50 focus:bg-white font-mono text-sm font-bold text-emerald-800 outline-none transition-all"
+                                        />
+                                        {formData.lineUserId && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setFormData({ ...formData, lineUserId: '' })}
+                                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500 font-bold text-xs"
+                                                title="ล้างค่า"
+                                            >
+                                                ✕
+                                            </button>
+                                        )}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSaveLineUserId()}
+                                        disabled={isSavingLineId}
+                                        className="py-1.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs transition-all shadow-xs active:scale-95 flex items-center justify-center gap-1.5 shrink-0"
+                                    >
+                                        {isSavingLineId ? <Loader className="animate-spin" size={14}/> : <Save size={14}/>}
+                                        บันทึก LINE ID ทันที
+                                    </button>
+                                    <button 
+                                        type="button" 
+                                        onClick={handleFindRecentLineId}
+                                        disabled={isSearchingRecentLine}
+                                        className="py-1.5 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 rounded-lg font-bold text-xs transition-all active:scale-95 flex items-center justify-center gap-1 shrink-0"
+                                        title="หากส่งข้อความใน LINE แล้ว ให้กดปุ่มนี้เพื่อดึงรหัสมาใส่และบันทึกอัตโนมัติ"
+                                    >
+                                        {isSearchingRecentLine ? <Loader className="animate-spin" size={14}/> : <Search size={14}/>}
+                                        ตรวจหา LINE ID ล่าสุด
+                                    </button>
                                 </div>
                             </div>
-                        )}
+
+                            {/* HELPFUL NOTE / TROUBLESHOOTING */}
+                            <div className="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-200/60 space-y-1">
+                                <div className="font-bold text-slate-700 flex items-center gap-1">
+                                    💡 ทำไม LINE User ID ถึงไม่ใช่ชื่อหรือเบอร์โทร?
+                                </div>
+                                <p>
+                                    ระบบแจ้งเตือนของ LINE Messaging API จะต้องใช้รหัสเทคนิคัล (ขึ้นต้นด้วยตัว <b>U</b> ตามด้วยตัวอักษรและตัวเลข 32 ตัว) ซึ่งไม่ใช่ชื่อไอดีที่ตั้งในโปรไฟล์ทั่วไป การส่งข้อความไปหาบอทของโรงเรียนคือวิธีที่สะดวกและถูกต้องที่สุดในการรับรหัสนี้ครับ
+                                </p>
+                                <p className="text-[10px] text-amber-700 bg-amber-50 p-1.5 rounded border border-amber-200 font-medium">
+                                    ⚙️ <b>สำหรับผู้ดูแลระบบ:</b> หากครูส่งข้อความแล้วบอทไม่ตอบกลับ ให้ตรวจสอบว่าใน <b>LINE Developers Console</b> ได้ใส่ Webhook URL: <code className="bg-white px-1 py-0.2 rounded font-mono">https://test.schoolos-app.com/api/line/webhook</code> และเปิดสวิตช์ <b>"Use Webhook"</b> แล้วหรือยัง
+                                </p>
+                            </div>
+                        </div>
                     </div>
 
                     <div>
