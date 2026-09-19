@@ -1300,6 +1300,8 @@ function setTelegramWebhook() {
         }
     };
 
+    const [isSimulatingLine, setIsSimulatingLine] = useState(false);
+
     const handleTestLineNotification = async () => {
         if (!config.lineChannelAccessToken || !config.lineTargetId) {
             alert("กรุณาระบุ LINE Channel Access Token และ Target ID ก่อนกดทดสอบ");
@@ -1307,7 +1309,7 @@ function setTelegramWebhook() {
         }
         setIsTestingLine(true);
         try {
-            const res = await testLineConnection(config.lineChannelAccessToken, config.lineTargetId);
+            const res = await testLineConnection(config.lineChannelAccessToken, config.lineTargetId, currentSchool?.id);
             if (res.success) {
                 alert("✅ " + res.message);
             } else {
@@ -1317,6 +1319,32 @@ function setTelegramWebhook() {
             alert("❌ ขัดข้อง: " + e.message);
         } finally {
             setIsTestingLine(false);
+        }
+    };
+
+    const handleSimulateLineMessage = async () => {
+        setIsSimulatingLine(true);
+        try {
+            const res = await fetch('/api/line/simulate-inbound', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: 'ขอ ID',
+                    userId: 'U99999999999999999999999999999999',
+                    schoolId: currentSchool?.id
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                alert(`✅ [ทดสอบจำลอง Webhook สำเร็จ]\n\nสถานะ: ${data.message}\nตัวอย่างข้อความที่บอทจะตอบ: "${data.replyPreview}"\n\nจุดเชื่อมต่อ Webhook ของเซิร์ฟเวอร์เปิดรับข้อความได้ปกติ 100%`);
+                fetchRecentLineEvents();
+            } else {
+                alert(`❌ เกิดข้อผิดพลาด: ${data.error || data.message}`);
+            }
+        } catch (e: any) {
+            alert(`❌ ไม่สามารถทดสอบได้: ${e.message}`);
+        } finally {
+            setIsSimulatingLine(false);
         }
     };
 
@@ -2497,14 +2525,26 @@ function setTelegramWebhook() {
                                                 )}
                                             </div>
 
-                                            <button 
-                                                type="button"
-                                                onClick={handleTestLineNotification}
-                                                disabled={isTestingLine}
-                                                className="w-full py-2 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase hover:bg-emerald-100 transition-all flex items-center justify-center gap-2 border border-emerald-100 active:scale-95"
-                                            >
-                                                {isTestingLine ? <Loader className="animate-spin" size={14}/> : <Send size={14}/>} ทดสอบส่งข้อความ LINE (Push Test)
-                                            </button>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                <button 
+                                                    type="button"
+                                                    onClick={handleTestLineNotification}
+                                                    disabled={isTestingLine}
+                                                    className="py-2 px-3 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase hover:bg-emerald-100 transition-all flex items-center justify-center gap-1.5 border border-emerald-200 active:scale-95"
+                                                    title="ส่งข้อความทดสอบจากระบบไปยัง Target ID ของท่าน"
+                                                >
+                                                    {isTestingLine ? <Loader className="animate-spin" size={14}/> : <Send size={14}/>} ทดสอบ Push ข้อความเข้า LINE
+                                                </button>
+                                                <button 
+                                                    type="button"
+                                                    onClick={handleSimulateLineMessage}
+                                                    disabled={isSimulatingLine}
+                                                    className="py-2 px-3 bg-indigo-50 text-indigo-700 rounded-lg text-[10px] font-black uppercase hover:bg-indigo-100 transition-all flex items-center justify-center gap-1.5 border border-indigo-200 active:scale-95"
+                                                    title="จำลองข้อความที่ส่งจากแชท LINE เพื่อทดสอบความพร้อมของ Webhook และการตอบกลับของระบบ"
+                                                >
+                                                    {isSimulatingLine ? <Loader className="animate-spin" size={14}/> : <RefreshCw size={14}/>} ทดสอบจำลอง Webhook เข้ามา
+                                                </button>
+                                            </div>
                                             <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-[10px] text-slate-500 space-y-1">
                                                 <div className="flex items-center gap-1.5 font-bold text-slate-700">
                                                     <Info size={13} className="text-emerald-600 shrink-0"/> วิธีขอ Token &amp; Target ID:

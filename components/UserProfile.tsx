@@ -959,9 +959,17 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                                 <p>
                                     ระบบแจ้งเตือนของ LINE Messaging API จะต้องใช้รหัสเทคนิคัล (ขึ้นต้นด้วยตัว <b>U</b> ตามด้วยตัวอักษรและตัวเลข 32 ตัว) ซึ่งไม่ใช่ชื่อไอดีที่ตั้งในโปรไฟล์ทั่วไป การส่งข้อความไปหาบอทของโรงเรียนคือวิธีที่สะดวกและถูกต้องที่สุดในการรับรหัสนี้ครับ
                                 </p>
-                                <p className="text-[10px] text-amber-700 bg-amber-50 p-1.5 rounded border border-amber-200 font-medium">
-                                    ⚙️ <b>สำหรับผู้ดูแลระบบ:</b> หากครูส่งข้อความแล้วบอทไม่ตอบกลับ ให้ตรวจสอบว่าใน <b>LINE Developers Console</b> ได้ใส่ Webhook URL: <code className="bg-white px-1 py-0.2 rounded font-mono">https://test.schoolos-app.com/api/line/webhook</code> และเปิดสวิตช์ <b>"Use Webhook"</b> แล้วหรือยัง
-                                </p>
+                                <div className="text-[10px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200 font-medium space-y-1">
+                                    <div className="font-bold text-amber-900 flex items-center gap-1">
+                                        ⚙️ กรณีส่งข้อความไปแล้วบอทไม่ตอบกลับ (ต้องตั้งค่าใน LINE 2 จุด):
+                                    </div>
+                                    <p>
+                                        <b>จุดที่ 1 (LINE Developers Console):</b> ตั้ง Webhook URL เป็น <code className="bg-white px-1 py-0.5 rounded font-mono text-emerald-800 font-bold">{typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook` : '/api/line/webhook'}</code> แล้วกด <b>Verify</b> และเปิดสวิตช์ <b>"Use Webhook"</b> ให้เป็นสีเขียว
+                                    </p>
+                                    <p>
+                                        <b>จุดที่ 2 (LINE Official Account Manager - manager.line.biz):</b> ไปที่ <i>ตั้งค่า</i> &gt; <i>การตั้งค่าตอบกลับ</i> &gt; ในส่วนการตั้งค่าโดยละเอียด ให้เปิด <b>"Webhook"</b> เป็น <b>"เปิด (ON)"</b> (หากปิดอยู่ LINE จะไม่ส่งข้อความเข้ามาที่บอท)
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>

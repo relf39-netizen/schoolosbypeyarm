@@ -2058,6 +2058,8 @@ async function startServer() {
 
   // In-memory buffer of recent LINE webhook events (last 50 events)
   const recentLineEvents = [];
+  let lastKnownLineChannelAccessToken = (process.env.LINE_CHANNEL_ACCESS_TOKEN || '').trim();
+  const schoolTokensMap = new Map();
 
   app.get('/api/line/recent-events', (req, res) => {
     try {
@@ -2072,11 +2074,76 @@ async function startServer() {
     }
   });
 
+  // Health check and simulation endpoint for LINE Webhook
+  app.post('/api/line/simulate-inbound', async (req, res) => {
+    try {
+      const { text = 'id', userId = 'U1234567890abcdef1234567890abcdef', schoolId } = req.body || {};
+      const simulatedEvent = {
+        id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
+        lineUserId: userId,
+        text: String(text).trim(),
+        type: 'message',
+        timestamp: new Date().toISOString(),
+        schoolId: schoolId || null,
+        status: 'simulated',
+        linkedUserName: null
+      };
+
+      // Check if text is linking a citizen ID
+      const match = String(text).match(/(?:#ผูกLINE|#ผูกไลน์|#ผูก|ผูกLINE|ผูกไลน์|ผูกID|ผูก\s*ID|ผูก|LINK|CONNECT)[\s:]*([0-9]{13})/i) || 
+                    String(text).match(/^([0-9]{13})$/) ||
+                    String(text).match(/([0-9]{13})/);
+
+      let replyPreview = '';
+      if (match && match[1]) {
+        const citizenId = match[1].trim();
+        let teacher = null;
+        try {
+          const [cUser] = await query('SELECT id, school_id, name FROM profiles WHERE id = ?', [citizenId]);
+          if (cUser) teacher = cUser;
+        } catch (e) {}
+
+        if (teacher) {
+          try {
+            await query('UPDATE profiles SET line_user_id = ? WHERE id = ?', [userId, citizenId]);
+          } catch (e) {}
+          simulatedEvent.linkedUserName = teacher.name;
+          simulatedEvent.status = 'linked_successfully';
+          replyPreview = `✅ [จำลองสำเร็จ] เชื่อมต่อกับคุณ ${teacher.name} เรียบร้อยแล้ว`;
+        } else {
+          simulatedEvent.status = 'user_not_found';
+          replyPreview = `❌ [จำลอง] ไม่พบเลขประจำตัวประชาชน ${citizenId} ในระบบ`;
+        }
+      } else {
+        simulatedEvent.status = 'replied';
+        replyPreview = `🆔 LINE User ID: ${userId}`;
+      }
+
+      recentLineEvents.unshift(simulatedEvent);
+      if (recentLineEvents.length > 50) recentLineEvents.pop();
+
+      return res.json({
+        success: true,
+        message: 'จำลองการรับข้อความสำเร็จ',
+        event: simulatedEvent,
+        replyPreview,
+        tokenAvailable: !!(lastKnownLineChannelAccessToken || (schoolId && schoolTokensMap.has(String(schoolId))))
+      });
+    } catch (simErr) {
+      return res.status(500).json({ success: false, error: simErr.message });
+    }
+  });
+
   // --- LINE Webhook & 1-Click Auto Link Handler ---
   app.all(['/api/line/webhook', '/api/line/webhook/:schoolId'], async (req, res) => {
     // If health check / browser visit via GET
     if (req.method === 'GET') {
-      return res.status(200).json({ status: 'ok', message: 'LINE Webhook endpoint is active and ready.' });
+      return res.status(200).json({
+        status: 'ok',
+        message: 'LINE Webhook endpoint is active and ready.',
+        hasCachedToken: !!lastKnownLineChannelAccessToken,
+        knownSchoolsWithTokens: Array.from(schoolTokensMap.keys())
+      });
     }
 
     // Return HTTP 200 immediately to acknowledge LINE platform
@@ -2085,11 +2152,15 @@ async function startServer() {
     try {
       const { schoolId: paramSchoolId } = req.params;
       const events = req.body?.events || [];
+      console.log(`[LINE Webhook] Hit received: Method=${req.method}, Path=${req.path}, Events=${events.length}`);
+
       if (!Array.isArray(events) || events.length === 0) return;
 
       for (const event of events) {
         const lineUserId = event?.source?.userId;
         const replyToken = event?.replyToken;
+
+        console.log(`[LINE Webhook] Processing event: type=${event?.type}, userId=${lineUserId}, replyToken=${replyToken ? 'exists' : 'missing'}`);
 
         // Skip LINE dummy test tokens during webhook verify
         if (replyToken === '00000000000000000000000000000000' || replyToken === 'ffffffffffffffffffffffffffffffff') {
@@ -2111,7 +2182,7 @@ async function startServer() {
         recentLineEvents.unshift(eventLog);
         if (recentLineEvents.length > 50) recentLineEvents.pop();
 
-        // Fetch school configs to find Channel Access Token
+        // Fetch school configs to find Channel Access Token with progressive fallbacks
         let schoolToken = null;
         try {
           if (paramSchoolId) {
@@ -2119,6 +2190,9 @@ async function startServer() {
             if (cfg && cfg.line_channel_access_token) {
               schoolToken = cfg.line_channel_access_token.trim();
             }
+          }
+          if (!schoolToken && paramSchoolId && schoolTokensMap.has(String(paramSchoolId))) {
+            schoolToken = schoolTokensMap.get(String(paramSchoolId));
           }
           if (!schoolToken) {
             const [cfg] = await query('SELECT line_channel_access_token FROM school_configs WHERE line_channel_access_token IS NOT NULL AND line_channel_access_token != "" LIMIT 1');
@@ -2148,8 +2222,14 @@ async function startServer() {
               console.warn('[LINE Webhook] Error checking tenant pools for token:', tErr.message);
             }
           }
+          if (!schoolToken && lastKnownLineChannelAccessToken) {
+            schoolToken = lastKnownLineChannelAccessToken;
+          }
         } catch (e) {
           console.warn('[LINE Webhook] Failed to fetch channel access token:', e.message);
+          if (lastKnownLineChannelAccessToken) {
+            schoolToken = lastKnownLineChannelAccessToken;
+          }
         }
 
         // Helper function to send reply message back to user (pure plain text, NO HTML tags)
@@ -2187,12 +2267,13 @@ async function startServer() {
           }
         };
 
-        // Handle text messages (e.g. #ผูกLINE 3300600837116, #ผูก 3300600837116, or 13-digit ID)
+        // Handle text messages (e.g. #ผูกLINE 3300600837116, #ผูก 3300600837116, ขอ ID, id, etc.)
         if (event.type === 'message' && event.message?.type === 'text') {
           const rawText = (event.message.text || '').trim();
+          const cleanText = rawText.replace(/[\s\-_:]+/g, '').toLowerCase();
           console.log(`[LINE Webhook] Received message from ${lineUserId}: "${rawText}"`);
 
-          const match = rawText.match(/(?:#ผูกLINE|#ผูกไลน์|#ผูก|ผูกLINE|ผูกไลน์|ผูก|LINK|CONNECT)[\s:]*([0-9]{13})/i) || 
+          const match = rawText.match(/(?:#ผูกLINE|#ผูกไลน์|#ผูก|ผูกLINE|ผูกไลน์|ผูกID|ผูก\s*ID|ผูก|LINK|CONNECT)[\s:]*([0-9]{13})/i) || 
                         rawText.match(/^([0-9]{13})$/) ||
                         rawText.match(/([0-9]{13})/);
 
@@ -2267,8 +2348,17 @@ async function startServer() {
             } else {
               await replyMessage(`❌ ไม่พบข้อมูลผู้ใช้งาน\n\nไม่พบเลขประจำตัวประชาชน "${citizenId}" ในฐานข้อมูลของระบบ\n\n📌 LINE User ID ของท่านคือ:\n${lineUserId}\n\nคำแนะนำ:\n1. ตรวจสอบเลขประจำตัวประชาชน 13 หลัก\n2. หรือเข้าสู่ระบบ School-OS แล้วไปที่เมนู "ข้อมูลส่วนตัว" เพื่อกรอก LINE User ID ด้านบนโดยตรงได้เลยครับ`);
             }
-          } else if (/^(id|userid|myid|รหัส)$/i.test(rawText)) {
-            await replyMessage(`🆔 LINE User ID ของท่านคือ:\n${lineUserId}\n\n📌 วิธีเชื่อมต่อ:\n1. คัดลอกรหัส User ID ด้านบนไปวางในระบบที่เมนู "ข้อมูลส่วนตัว" หรือ\n2. พิมพ์: #ผูกLINE ตามด้วยเลขบัตรประชาชน 13 หลัก (เช่น #ผูกLINE 3300600837116) ส่งมาที่นี่เพื่อผูกอัตโนมัติได้ทันทีครับ`);
+          } else if (
+            /^(id|userid|myid|lineid|uid|รหัส|ไอดี|ขอid|ขอไอดี|ขอรหัส|ผูกid|ผูก|เชื่อม|help)$/i.test(cleanText) ||
+            cleanText.includes('ขอid') ||
+            cleanText.includes('ขอไอดี') ||
+            cleanText.includes('ผูกid') ||
+            cleanText.includes('userid') ||
+            cleanText.includes('lineid') ||
+            cleanText === 'id' ||
+            cleanText === 'ไอดี'
+          ) {
+            await replyMessage(`🆔 LINE User ID ของท่านคือ:\n${lineUserId}\n\n📋 วิธีนำไปใช้งาน:\n1. คัดลอกรหัส User ID ด้านบนไปวางที่เมนู "ข้อมูลส่วนตัว" ในระบบ แล้วกดบันทึก\n\n💡 หรือส่งคำสั่งผูกอัตโนมัติได้ทันที:\nพิมพ์ #ผูกLINE ตามด้วยเลขบัตรประชาชน 13 หลัก เช่น:\n#ผูกLINE 3300600837116`);
           } else {
             await replyMessage(`👋 สวัสดีครับ ยินดีต้อนรับสู่ระบบแจ้งเตือนโรงเรียน (School-OS)\n\n📌 LINE User ID ของท่านคือ:\n${lineUserId}\n\nหากต้องการเชื่อมต่อเพื่อรับแจ้งเตือน กรุณาพิมพ์:\n#ผูกLINE [เลขบัตรประชาชน 13 หลัก]\n\nเช่น:\n#ผูกLINE 3300600837116\n\n(หรือนำ LINE User ID ด้านบนไปกรอกในระบบที่เมนู "ข้อมูลส่วนตัว" ได้เช่นกันครับ)`);
           }
@@ -2322,13 +2412,25 @@ async function startServer() {
 
   app.post('/api/line/test', async (req, res) => {
     try {
-      const { channelAccessToken, targetId } = req.body;
+      const { channelAccessToken, targetId, schoolId } = req.body;
       if (!channelAccessToken || !targetId) {
         return res.status(400).json({ success: false, message: 'กรุณาระบุ Channel Access Token และ Target ID' });
       }
 
+      const token = channelAccessToken.trim();
+      lastKnownLineChannelAccessToken = token;
+      if (schoolId) {
+        schoolTokensMap.set(String(schoolId), token);
+        // Also ensure it is saved in school_configs if possible
+        try {
+          await query('UPDATE school_configs SET line_channel_access_token = ? WHERE school_id = ?', [token, schoolId]);
+        } catch (dbErr) {
+          console.warn('[LINE Test DB Update warn]', dbErr.message);
+        }
+      }
+
       const testPayload = {
-        to: targetId,
+        to: targetId.trim(),
         messages: [
           {
             type: 'text',
@@ -2341,7 +2443,7 @@ async function startServer() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${channelAccessToken}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(testPayload)
       });
@@ -3061,11 +3163,18 @@ async function startServer() {
       
       console.log(`[${new Date().toISOString()}] Successfully saved to ${tableName}`);
       
-      // Trigger Telegram Poller Setup if school_configs was updated
+      // Trigger Telegram Poller Setup & cache LINE token if school_configs was updated
       if (tableName === 'school_configs') {
         const config = Array.isArray(data) ? data[0] : data;
         if (config && config.telegram_bot_token) {
           startTelegramPoller(config.telegram_bot_token, config.school_id);
+        }
+        if (config && config.line_channel_access_token) {
+          const lToken = config.line_channel_access_token.trim();
+          lastKnownLineChannelAccessToken = lToken;
+          if (config.school_id) {
+            schoolTokensMap.set(String(config.school_id), lToken);
+          }
         }
       }
       
@@ -3167,9 +3276,18 @@ async function startServer() {
         });
       }
 
-      // Trigger Telegram Poller Setup if school_configs was updated
-      if (tableName === 'school_configs' && data.telegram_bot_token) {
-        startTelegramPoller(data.telegram_bot_token, req.query?.school_id);
+      // Trigger Telegram Poller Setup & cache LINE token if school_configs was updated
+      if (tableName === 'school_configs') {
+        if (data.telegram_bot_token) {
+          startTelegramPoller(data.telegram_bot_token, req.query?.school_id);
+        }
+        if (data.line_channel_access_token) {
+          const lToken = data.line_channel_access_token.trim();
+          lastKnownLineChannelAccessToken = lToken;
+          if (req.query?.school_id || data.school_id) {
+            schoolTokensMap.set(String(req.query?.school_id || data.school_id), lToken);
+          }
+        }
       }
 
       res.json(Array.isArray(data) ? data : [data]);

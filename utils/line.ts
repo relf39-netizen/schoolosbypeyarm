@@ -59,7 +59,7 @@ export const sendLineMessage = async ({
 /**
  * Tests the LINE Official Account connection by sending a test push message
  */
-export const testLineConnection = async (channelAccessToken: string, targetId: string): Promise<{ success: boolean; message: string }> => {
+export const testLineConnection = async (channelAccessToken: string, targetId: string, schoolId?: string): Promise<{ success: boolean; message: string }> => {
     if (!channelAccessToken || !targetId) {
         return { success: false, message: "กรุณาระบุทั้ง Channel Access Token และ Target ID" };
     }
@@ -72,7 +72,8 @@ export const testLineConnection = async (channelAccessToken: string, targetId: s
             },
             body: JSON.stringify({
                 channelAccessToken: channelAccessToken.trim(),
-                targetId: targetId.trim()
+                targetId: targetId.trim(),
+                schoolId: schoolId ? schoolId.trim() : undefined
             })
         });
 
