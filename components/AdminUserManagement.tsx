@@ -1334,13 +1334,33 @@ function setTelegramWebhook() {
                     schoolId: currentSchool?.id
                 })
             });
-            const data = await res.json();
-            if (res.ok && data.success) {
-                alert(`✅ [ทดสอบจำลอง Webhook สำเร็จ]\n\nสถานะ: ${data.message}\nตัวอย่างข้อความที่บอทจะตอบ: "${data.replyPreview}"\n\nจุดเชื่อมต่อ Webhook ของเซิร์ฟเวอร์เปิดรับข้อความได้ปกติ 100%`);
-                fetchRecentLineEvents();
-            } else {
-                alert(`❌ เกิดข้อผิดพลาด: ${data.error || data.message}`);
+            
+            const contentType = res.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert(`✅ [ทดสอบจำลอง Webhook สำเร็จ]\n\nสถานะ: ${data.message}\nตัวอย่างข้อความที่บอทจะตอบ: "${data.replyPreview}"\n\nจุดเชื่อมต่อ Webhook ของเซิร์ฟเวอร์เปิดรับข้อความได้ปกติ 100%`);
+                    fetchRecentLineEvents();
+                    return;
+                } else {
+                    alert(`❌ เกิดข้อผิดพลาด: ${data.error || data.message || 'ไม่ทราบสาเหตุ'}`);
+                    return;
+                }
             }
+
+            // If non-JSON returned (e.g. static CDN or HTML fallback), check Webhook GET ping
+            try {
+                const ping = await fetch('/api/line/webhook');
+                const pingType = ping.headers.get('content-type') || '';
+                if (ping.ok && pingType.includes('application/json')) {
+                    const pingData = await ping.json();
+                    alert(`✅ [จุดเชื่อมต่อ LINE Webhook เปิดทำงานปกติ]\n\nสถานะ: ${pingData.message}\nเซิร์ฟเวอร์พร้อมเปิดรับข้อความจาก LINE Official Account เรียบร้อยแล้ว`);
+                    fetchRecentLineEvents();
+                    return;
+                }
+            } catch (_) {}
+
+            alert(`⚠️ ได้รับการตอบกลับสถานะ HTTP ${res.status} (ไม่ใช่รูปแบบ JSON)\nกรุณารีเฟรชหน้าเว็บ (Ctrl+F5) แล้วลองใหม่อีกครั้ง`);
         } catch (e: any) {
             alert(`❌ ไม่สามารถทดสอบได้: ${e.message}`);
         } finally {
@@ -1463,7 +1483,8 @@ function setTelegramWebhook() {
         setIsLoadingLineEvents(true);
         try {
             const res = await fetch(`/api/line/recent-events?schoolId=${currentSchool?.id || ''}`);
-            if (res.ok) {
+            const contentType = res.headers.get('content-type') || '';
+            if (res.ok && contentType.includes('application/json')) {
                 const data = await res.json();
                 setRecentLineEvents(Array.isArray(data) ? data : []);
             }

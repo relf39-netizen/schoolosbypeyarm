@@ -2074,10 +2074,14 @@ async function startServer() {
     }
   });
 
-  // Health check and simulation endpoint for LINE Webhook
-  app.post('/api/line/simulate-inbound', async (req, res) => {
+  // Health check and simulation endpoint for LINE Webhook (supports both GET and POST)
+  app.all(['/api/line/simulate-inbound', '/api/line/simulate-inbound/'], async (req, res) => {
     try {
-      const { text = 'id', userId = 'U1234567890abcdef1234567890abcdef', schoolId } = req.body || {};
+      res.setHeader('Content-Type', 'application/json');
+      const text = req.body?.text || req.query?.text || 'ขอ ID';
+      const userId = req.body?.userId || req.query?.userId || 'U1234567890abcdef1234567890abcdef';
+      const schoolId = req.body?.schoolId || req.query?.schoolId || null;
+
       const simulatedEvent = {
         id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
         lineUserId: userId,
