@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Teacher, SystemConfig } from '../types';
 import { ACADEMIC_POSITIONS } from '../constants';
-import { User, Lock, Save, UploadCloud, FileSignature, Briefcase, Eye, EyeOff, Loader, MessageCircle, Smartphone, CheckCircle, Zap, AlertCircle, Info, Copy, MessageSquare, Search } from 'lucide-react';
+import { User, Lock, Save, UploadCloud, FileSignature, Briefcase, Eye, EyeOff, Loader, MessageCircle, Smartphone, CheckCircle, Zap, AlertCircle, Info, Copy, MessageSquare, Search, Check, ExternalLink } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
 interface UserProfileProps {
@@ -32,6 +32,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
     const [isCopiedLine, setIsCopiedLine] = useState(false);
     const [showManualLineInput, setShowManualLineInput] = useState(false);
     const [showManualTelegramInput, setShowManualTelegramInput] = useState(false);
+    const [isCopiedUserinfoBot, setIsCopiedUserinfoBot] = useState(false);
+    const [isSavingTelegramId, setIsSavingTelegramId] = useState(false);
 
     // Sync formData when currentUser prop changes (e.g. from realtime update)
     useEffect(() => {
@@ -108,60 +110,94 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         }
     };
 
+    const handleCopyUserinfoBot = () => {
+        navigator.clipboard.writeText('@userinfobot').catch(() => {});
+        setIsCopiedUserinfoBot(true);
+        setTimeout(() => setIsCopiedUserinfoBot(false), 5000);
+        alert("✅ คัดลอก '@userinfobot' เรียบร้อยแล้ว!\n\nเปิดแอป Telegram แล้วนำไปวางในช่องค้นหา (Search) เพื่อดู Chat ID ได้ทันทีครับ");
+    };
+
+    const handleOpenUserinfoBot = () => {
+        navigator.clipboard.writeText('@userinfobot').catch(() => {});
+        setIsCopiedUserinfoBot(true);
+        setTimeout(() => setIsCopiedUserinfoBot(false), 5000);
+        window.open('https://t.me/userinfobot', '_blank');
+    };
+
+    const handleSaveTelegramChatId = async (idToSave?: string) => {
+        const val = (idToSave !== undefined ? idToSave : (formData.telegramChatId || '')).trim();
+        setIsSavingTelegramId(true);
+        try {
+            if (supabase) {
+                const { error } = await supabase.from('profiles').update({
+                    telegram_chat_id: val
+                }).eq('id', currentUser.id);
+                if (error) throw new Error(error.message);
+            }
+            // Notify backend API if available
+            fetch('/api/telegram/link-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ citizenId: currentUser.id, chatId: val, schoolId: currentUser.schoolId })
+            }).catch(() => {});
+
+            const updated: Teacher = {
+                ...currentUser,
+                telegramChatId: val
+            };
+            setFormData(prev => ({ ...prev, telegramChatId: val }));
+            onUpdateUser(updated);
+            alert(val ? `✅ บันทึก Telegram Chat ID: ${val} เรียบร้อยแล้วครับ!\n\nระบบจะส่งการแจ้งเตือนหนังสือราชการและวันลาไปยัง Telegram ของท่านทันที` : "ล้างข้อมูล Telegram Chat ID เรียบร้อยแล้ว");
+        } catch (e: any) {
+            alert(`❌ บันทึกไม่สำเร็จ: ${e.message}`);
+        } finally {
+            setIsSavingTelegramId(false);
+        }
+    };
+
     const handleFindRecentTelegramId = async () => {
         setIsSearchingRecentTelegram(true);
         try {
-            // 1. Sync updates and check webhook
+            // 1. Sync updates (safely)
             await fetch('/api/telegram/sync-updates', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ schoolId: currentUser.schoolId })
             }).catch(() => {});
 
-            // 2. Fetch recent events
-            const res = await fetch(`/api/telegram/recent-events?schoolId=${currentUser.schoolId || ''}`);
-            if (res.ok) {
-                const events = await res.json();
-                if (Array.isArray(events) && events.length > 0) {
-                    // Try to find an event with user's ID
-                    const match = events.find(e => 
-                        (e.linkedUserId && String(e.linkedUserId) === String(currentUser.id)) ||
-                        (e.text && e.text.includes(currentUser.id))
-                    );
+            // 2. Fetch recent events safely with content-type check
+            try {
+                const res = await fetch(`/api/telegram/recent-events?schoolId=${currentUser.schoolId || ''}`);
+                const contentType = res.headers.get('content-type') || '';
+                if (res.ok && contentType.includes('application/json')) {
+                    const events = await res.json();
+                    if (Array.isArray(events) && events.length > 0) {
+                        const match = events.find(e => 
+                            (e.linkedUserId && String(e.linkedUserId) === String(currentUser.id)) ||
+                            (e.text && e.text.includes(currentUser.id))
+                        );
 
-                    if (match && match.chatId) {
-                        setFormData(prev => ({ ...prev, telegramChatId: match.chatId }));
-                        setShowManualTelegramInput(true);
-                        onUpdateUser({ ...currentUser, telegramChatId: match.chatId });
-                        // Persist to backend
-                        await fetch('/api/telegram/link-user', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ citizenId: currentUser.id, chatId: match.chatId, schoolId: currentUser.schoolId })
-                        }).catch(() => {});
-                        alert(`🎯 ตรวจพบ Telegram Chat ID ของท่านแล้ว!\n\nChat ID: ${match.chatId}\nผู้ส่ง: ${match.senderName || match.username || 'ผู้ใช้'}\nข้อความ: "${match.text}"\n\nระบบบันทึกและผูกบัญชีเข้าสู่ระบบเรียบร้อยแล้วครับ!`);
-                        return;
-                    }
-
-                    // Otherwise pick the most recent event
-                    const latest = events[0];
-                    if (latest && latest.chatId) {
-                        const confirmUse = window.confirm(`พบข้อความล่าสุดจาก Telegram:\n"${latest.text}"\nผู้ส่ง: ${latest.senderName || latest.username || 'ผู้ใช้'}\nChat ID: ${latest.chatId}\nเวลา: ${new Date(latest.timestamp).toLocaleTimeString('th-TH')}\n\nนี่คือบัญชี Telegram ของท่านใช่หรือไม่? (กด ตกลง เพื่อบันทึกและผูก Chat ID นี้เข้าสู่ระบบทันที)`);
-                        if (confirmUse) {
-                            setFormData(prev => ({ ...prev, telegramChatId: latest.chatId }));
-                            setShowManualTelegramInput(true);
-                            onUpdateUser({ ...currentUser, telegramChatId: latest.chatId });
-                            // Persist to backend
-                            await fetch('/api/telegram/link-user', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ citizenId: currentUser.id, chatId: latest.chatId, schoolId: currentUser.schoolId })
-                            }).catch(() => {});
-                            alert(`✅ บันทึกและผูก Telegram Chat ID: ${latest.chatId} เข้าสู่ระบบเรียบร้อยแล้วครับ!`);
+                        if (match && match.chatId) {
+                            setFormData(prev => ({ ...prev, telegramChatId: match.chatId }));
+                            onUpdateUser({ ...currentUser, telegramChatId: match.chatId });
+                            await handleSaveTelegramChatId(match.chatId);
+                            return;
                         }
-                        return;
+
+                        const latest = events[0];
+                        if (latest && latest.chatId) {
+                            const confirmUse = window.confirm(`พบข้อความล่าสุดจาก Telegram:\n"${latest.text}"\nผู้ส่ง: ${latest.senderName || latest.username || 'ผู้ใช้'}\nChat ID: ${latest.chatId}\n\nนี่คือบัญชี Telegram ของท่านใช่หรือไม่? (กด ตกลง เพื่อบันทึก Chat ID นี้ทันที)`);
+                            if (confirmUse) {
+                                setFormData(prev => ({ ...prev, telegramChatId: latest.chatId }));
+                                onUpdateUser({ ...currentUser, telegramChatId: latest.chatId });
+                                await handleSaveTelegramChatId(latest.chatId);
+                            }
+                            return;
+                        }
                     }
                 }
+            } catch (fetchErr) {
+                console.warn("Recent events fetch non-critical error:", fetchErr);
             }
 
             // 3. Check DB
@@ -169,17 +205,16 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                 const { data } = await supabase.from('profiles').select('telegram_chat_id').eq('id', currentUser.id).maybeSingle();
                 if (data && data.telegram_chat_id) {
                     setFormData(prev => ({ ...prev, telegramChatId: data.telegram_chat_id }));
-                    setShowManualTelegramInput(true);
                     onUpdateUser({ ...currentUser, telegramChatId: data.telegram_chat_id });
                     alert(`✅ ตรวจพบ Telegram Chat ID ในฐานข้อมูลแล้ว: ${data.telegram_chat_id}`);
                     return;
                 }
             }
 
-            alert(`ยังไม่พบข้อความที่ส่งเข้ามาใน Telegram ล่าสุด\n\nคำแนะนำ:\n1. กดปุ่ม "เชื่อมต่อ Telegram ทันที (อัตโนมัติ)" แล้วกดปุ่ม Start (เริ่ม) ในบอท\n2. หรือพิมพ์เลขบัตรประชาชน 13 หลัก (${currentUser.id}) ส่งให้บอท\n3. หรือพิมพ์คำว่า id ส่งให้บอท แล้วนำเลข Chat ID มากดใส่ในช่องได้เลยครับ`);
+            alert(`💡 แนะนำวิธีที่สะดวกและเร็วที่สุด:\n\n1. กดที่ปุ่ม "@userinfobot" ด้านบนเพื่อคัดลอกชื่อบอท\n2. ไปค้นหาในแอป Telegram แล้วกดปุ่ม Start\n3. คัดลอกเลข Id ที่บอทแจ้ง มาวางในช่อง "Telegram Chat ID" แล้วกด "บันทึก Chat ID" ได้ทันทีครับ!`);
         } catch (e: any) {
             console.error("Error finding recent Telegram ID:", e);
-            alert("ไม่สามารถค้นหาข้อความได้ในขณะนี้: " + (e.message || ''));
+            alert(`💡 แนะนำวิธีที่สะดวกและเร็วที่สุด:\n\n1. กดที่ปุ่ม "@userinfobot" ด้านบนเพื่อคัดลอกชื่อบอท\n2. ไปค้นหาในแอป Telegram แล้วกดปุ่ม Start\n3. คัดลอกเลข Id ที่บอทแจ้ง มาวางในช่อง "Telegram Chat ID" แล้วกด "บันทึก Chat ID" ได้ทันทีครับ!`);
         } finally {
             setIsSearchingRecentTelegram(false);
         }
@@ -511,133 +546,168 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                             )}
                         </div>
 
-                        {!currentUser.telegramChatId && !showManualTelegramInput ? (
-                            <div className="p-4 bg-white/80 rounded-xl border border-dashed border-indigo-200 text-center space-y-3 relative z-10">
-                                <MessageCircle size={24} className="mx-auto text-indigo-300"/>
-                                <p className="text-xs font-bold text-slate-600">กดปุ่มเชื่อมต่อเพื่อเปิด Telegram อัตโนมัติ หรือกดปุ่ม <b>"ระบุ Chat ID เอง"</b><br/><span className="text-indigo-600 font-bold">เมื่อกดปุ่มแล้ว โปรดกดปุ่ม Start (เริ่ม) ในบอท Telegram ด้วยครับ</span></p>
-                                
-                                <button 
-                                    type="button"
-                                    onClick={handleRefreshTelegram}
-                                    disabled={isRefreshing}
-                                    className="mx-auto text-[10px] text-indigo-500 hover:text-indigo-700 font-bold flex items-center gap-1 border border-indigo-100 px-3 py-1 rounded-full bg-white/50"
-                                >
-                                    {isRefreshing ? <Loader size={10} className="animate-spin"/> : <Zap size={10}/>}
-                                    กดตรวจสอบสถานะหากท่านกด Start ใน Telegram แล้ว
-                                </button>
-                            </div>
-                        ) : null}
-
-                        {(currentUser.telegramChatId || showManualTelegramInput) && (
-                            <div className="space-y-1.5 relative z-10 bg-white p-3 rounded-xl border border-indigo-200 shadow-sm">
-                                <div className="flex justify-between items-center">
-                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                                        Telegram Chat ID (ตัวเลข)
-                                    </label>
-                                    <span className="text-[9px] text-indigo-600 font-bold">
-                                        {formData.telegramChatId ? 'พร้อมใช้งาน' : 'ยังไม่ระบุ'}
-                                    </span>
-                                </div>
-                                <div className="flex gap-2">
-                                    <input 
-                                        type="text"
-                                        placeholder="เช่น 123456789 หรือ -100123456789"
-                                        value={formData.telegramChatId || ''} 
-                                        onChange={e => setFormData({ ...formData, telegramChatId: e.target.value.trim() })}
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 focus:bg-white font-mono text-sm font-bold text-indigo-700 outline-none focus:border-indigo-500 transition-all shadow-inner"
-                                    />
-                                    {formData.telegramChatId && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setFormData({ ...formData, telegramChatId: '' })}
-                                            className="px-2.5 py-1 text-slate-400 hover:text-rose-500 border border-slate-200 rounded-lg text-xs"
-                                            title="ล้างค่า"
-                                        >
-                                            ✕
-                                        </button>
-                                    )}
-                                </div>
-                                <p className="text-[10px] text-slate-500 leading-relaxed">
-                                    💡 <b>วิธีดู Chat ID:</b> เปิด Telegram ค้นหาบอท <b>@userinfobot</b> แล้วกด Start นำเลข <code>Id</code> มาใส่ในช่องนี้ แล้วกด <b>"บันทึกข้อมูลส่วนตัว"</b> ด้านล่าง หรือส่งเลขบัตรประชาชน 13 หลักให้บอทของโรงเรียนเพื่อผูกอัตโนมัติ
+                        {/* PROMINENT @userinfobot CARD - FOOLPROOF & INSTANT */}
+                        <div className="relative z-10 bg-gradient-to-br from-indigo-50/90 via-white to-blue-50/90 border-2 border-indigo-200 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+                            <div>
+                                <h5 className="text-base sm:text-lg font-black text-indigo-950 flex items-center gap-2">
+                                    <Zap className="text-amber-500 fill-amber-500" size={20}/>
+                                    วิธีเชื่อมต่อและรับ Chat ID ที่ง่ายที่สุด (แนะนำ 100%)
+                                </h5>
+                                <p className="text-xs text-slate-600 mt-0.5">
+                                    ดูเลข ID ของตัวเองได้ทันทีใน 10 วินาที ผ่านบอทของ Telegram กลาง
                                 </p>
                             </div>
-                        )}
 
-                        {isConnectingTelegram && (
-                            <div className="relative z-10 p-3.5 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl text-xs text-indigo-950 flex flex-col gap-2.5 shadow-sm">
-                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                                    <div className="flex items-center gap-2.5">
-                                        <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm animate-spin">
-                                            <Loader size={16}/>
+                            {/* BIG PROMINENT @userinfobot BOX */}
+                            <div className="p-3.5 sm:p-4 bg-white rounded-xl border-2 border-indigo-300 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+                                <div 
+                                    onClick={handleCopyUserinfoBot}
+                                    className="cursor-pointer group flex items-center gap-3"
+                                    title="คลิกเพื่อคัดลอก @userinfobot"
+                                >
+                                    <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-transform">
+                                        <MessageSquare size={24}/>
+                                    </div>
+                                    <div>
+                                        <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                            ค้นหาบอทชื่อนี้ใน Telegram (กดเพื่อคัดลอก)
                                         </div>
-                                        <div>
-                                            <p className="font-bold text-sm text-indigo-900">กำลังรอตรวจจับการเชื่อมต่อจาก Telegram...</p>
-                                            <p className="text-[11px] text-indigo-700">
-                                                หากมีปุ่ม <b>Start</b> ให้กดปุ่ม Start ได้เลย หรือถ้าเคยเปิดแชทไว้แล้ว ให้ส่งเลข 13 หลักเข้าแชทบอท
-                                            </p>
+                                        <div className="text-2xl sm:text-3xl font-black text-indigo-900 font-mono tracking-wider group-hover:text-indigo-600 transition-colors">
+                                            @userinfobot
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                                </div>
+
+                                <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full sm:w-auto">
+                                    <button
+                                        type="button"
+                                        onClick={handleCopyUserinfoBot}
+                                        className="flex-1 sm:flex-none px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                                    >
+                                        {isCopiedUserinfoBot ? <Check size={16} className="text-emerald-300"/> : <Copy size={16}/>}
+                                        {isCopiedUserinfoBot ? 'คัดลอกแล้ว!' : 'คัดลอก @userinfobot'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleOpenUserinfoBot}
+                                        className="flex-1 sm:flex-none px-4 py-2.5 bg-white border-2 border-indigo-600 hover:bg-indigo-50 active:scale-95 text-indigo-700 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                                    >
+                                        <ExternalLink size={16}/>
+                                        เปิด Telegram ทันที
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* STEP-BY-STEP INSTRUCTIONS WITH LARGE READABLE TEXT */}
+                            <div className="bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-100 space-y-2">
+                                <div className="text-xs font-black text-indigo-950 uppercase tracking-wider">
+                                    📌 ขั้นตอนการขอรับ Chat ID (ทำเพียงครั้งเดียว):
+                                </div>
+                                <ol className="text-xs sm:text-sm text-slate-700 space-y-2 font-medium">
+                                    <li className="flex items-start gap-2">
+                                        <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-black flex items-center justify-center shrink-0 mt-0.5">1</span>
+                                        <span>กดปุ่ม <b>"คัดลอก @userinfobot"</b> หรือกด <b>"เปิด Telegram ทันที"</b> ด้านบน</span>
+                                    </li>
+                                    <li className="flex items-start gap-2">
+                                        <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-black flex items-center justify-center shrink-0 mt-0.5">2</span>
+                                        <span>ในแอป Telegram ให้กดปุ่ม <b>Start (เริ่ม)</b> บอทจะตอบกลับตัวเลข เช่น: <code className="bg-white px-1.5 py-0.5 rounded border border-indigo-200 text-indigo-700 font-bold font-mono">Id: 123456789</code></span>
+                                    </li>
+                                    <li className="flex items-start gap-2">
+                                        <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-black flex items-center justify-center shrink-0 mt-0.5">3</span>
+                                        <span>คัดลอกเฉพาะตัวเลข <b>Id</b> มาวางในช่องด้านล่างนี้ แล้วกดปุ่ม <b>"บันทึก Chat ID ทันที"</b></span>
+                                    </li>
+                                </ol>
+                            </div>
+
+                            {/* CHAT ID INPUT & INSTANT SAVE BUTTON */}
+                            <div className="bg-white p-3.5 sm:p-4 rounded-xl border-2 border-indigo-200 shadow-sm space-y-2">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
+                                    <label className="text-xs sm:text-sm font-black text-slate-700 flex items-center gap-1.5">
+                                        <span>Telegram Chat ID ของท่าน (ตัวเลข):</span>
+                                    </label>
+                                    <span className="text-xs font-bold">
+                                        {formData.telegramChatId ? (
+                                            <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                                🟢 บันทึกแล้ว: {formData.telegramChatId}
+                                            </span>
+                                        ) : (
+                                            <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                                ⚠️ ยังไม่ได้ระบุ Chat ID
+                                            </span>
+                                        )}
+                                    </span>
+                                </div>
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                    <div className="relative flex-1">
+                                        <input 
+                                            type="text"
+                                            placeholder="วางตัวเลข Chat ID ที่นี่ เช่น 123456789"
+                                            value={formData.telegramChatId || ''} 
+                                            onChange={e => setFormData({ ...formData, telegramChatId: e.target.value.trim() })}
+                                            className="w-full px-4 py-2.5 border-2 border-slate-200 focus:border-indigo-600 rounded-xl bg-slate-50 focus:bg-white font-mono text-base font-black text-indigo-900 outline-none transition-all shadow-inner"
+                                        />
+                                        {formData.telegramChatId && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setFormData({ ...formData, telegramChatId: '' })}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500 font-bold text-sm"
+                                                title="ล้างค่า"
+                                            >
+                                                ✕
+                                            </button>
+                                        )}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSaveTelegramChatId()}
+                                        disabled={isSavingTelegramId}
+                                        className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs uppercase transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 shrink-0"
+                                    >
+                                        {isSavingTelegramId ? <Loader className="animate-spin" size={16}/> : <Save size={16}/>}
+                                        บันทึก Chat ID ทันที
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* SECONDARY / BACKUP: SCHOOL BOT AUTOMATIC LINK */}
+                        <div className="relative z-10 pt-2 border-t border-indigo-100">
+                            <button
+                                type="button"
+                                onClick={() => setShowManualTelegramInput(!showManualTelegramInput)}
+                                className="text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center justify-between w-full p-2 hover:bg-indigo-50/50 rounded-lg transition-colors"
+                            >
+                                <span>⚙️ ตัวเลือกเพิ่มเติม: เชื่อมต่อผ่านบอทโรงเรียนอัตโนมัติ ({botUsername || 'บอทโรงเรียน'})</span>
+                                <span className="text-[11px] underline font-medium">{showManualTelegramInput ? 'ซ่อน' : 'แสดง'}</span>
+                            </button>
+
+                            {showManualTelegramInput && (
+                                <div className="mt-2 p-3 bg-white rounded-xl border border-indigo-200 space-y-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                        <button 
+                                            type="button" 
+                                            onClick={handleConnectTelegram}
+                                            disabled={isLoadingConfig || isConnectingTelegram}
+                                            className="sm:col-span-2 py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-all active:scale-95 flex items-center justify-center gap-2 text-xs"
+                                        >
+                                            {isLoadingConfig || isConnectingTelegram ? <Loader className="animate-spin" size={14}/> : <Zap size={14}/>} 
+                                            {isConnectingTelegram ? 'กำลังรอตรวจจับ...' : 'เชื่อมต่อผ่านบอทโรงเรียน (อัตโนมัติ)'}
+                                        </button>
                                         <button
                                             type="button"
                                             onClick={handleFindRecentTelegramId}
                                             disabled={isSearchingRecentTelegram}
-                                            className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-bold text-xs hover:bg-indigo-700 shadow-sm flex items-center gap-1 active:scale-95"
+                                            className="py-2.5 bg-white text-indigo-700 border border-indigo-300 rounded-xl font-bold text-xs hover:bg-indigo-50 transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
                                         >
-                                            {isSearchingRecentTelegram ? <Loader className="animate-spin" size={12}/> : <Search size={12}/>}
-                                            ตรวจหา ID ทันที
+                                            {isSearchingRecentTelegram ? <Loader className="animate-spin" size={14}/> : <Search size={14}/>}
+                                            ตรวจหา ID ล่าสุด
                                         </button>
                                     </div>
+                                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                                        💡 หากกด Start ในบอทโรงเรียนแล้ว หรือเคยส่งเลข <b>{currentUser.id}</b> ให้บอทโรงเรียนแล้ว สามารถกดปุ่ม "ตรวจหา ID ล่าสุด" เพื่อดึงข้อมูลได้เช่นกัน
+                                    </p>
                                 </div>
-                                <div className="pt-2 border-t border-indigo-100 flex flex-wrap items-center justify-between gap-2 text-[11px] bg-white/70 p-2 rounded-lg">
-                                    <span className="text-slate-600">
-                                        ⚠️ <b>กรณีไม่มีปุ่ม Start ให้กด:</b> ให้คัดลอกเลขบัตรประชาชนนี้ไปส่งให้บอทในแชท:
-                                    </span>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            navigator.clipboard.writeText(currentUser.id);
-                                            alert(`คัดลอกเลขประจำตัว: ${currentUser.id} เรียบร้อยแล้ว\nนำไปวางแล้วส่งให้บอทในแชท Telegram ได้เลยครับ!`);
-                                        }}
-                                        className="px-2.5 py-1 bg-indigo-100 text-indigo-800 font-mono font-bold rounded hover:bg-indigo-200 flex items-center gap-1 shrink-0"
-                                    >
-                                        📋 {currentUser.id} (กดคัดลอก)
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 relative z-10">
-                            <button 
-                                type="button" 
-                                onClick={handleConnectTelegram}
-                                disabled={isLoadingConfig || isConnectingTelegram}
-                                className="sm:col-span-2 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
-                            >
-                                {isLoadingConfig || isConnectingTelegram ? <Loader className="animate-spin" size={16}/> : <Zap size={16}/>} 
-                                {isConnectingTelegram ? 'กำลังรอตรวจจับการกด Start...' : (currentUser.telegramChatId ? 'เชื่อมต่อ Telegram อีกครั้ง' : 'เชื่อมต่อ Telegram ทันที (อัตโนมัติ)')}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleFindRecentTelegramId}
-                                disabled={isSearchingRecentTelegram}
-                                className="py-3 bg-white text-indigo-700 border-2 border-indigo-200 rounded-xl font-bold text-xs hover:bg-indigo-50 transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
-                                title="ค้นหาข้อความจาก Telegram ล่าสุดเพื่อดึง Chat ID"
-                            >
-                                {isSearchingRecentTelegram ? <Loader className="animate-spin" size={14}/> : <Search size={14}/>}
-                                ตรวจหา Chat ID ล่าสุด
-                            </button>
-                        </div>
-
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center text-[10px] text-indigo-700 font-medium px-1 gap-1">
-                            <span>💡 หากกด Start ในบอทแล้ว ID ยังไม่ขึ้น หรือส่งข้อความ <b>{currentUser.id}</b> เข้าบอทแล้ว ให้กด <b>"ตรวจหา Chat ID ล่าสุด"</b></span>
-                            <button
-                                type="button"
-                                onClick={() => setShowManualTelegramInput(!showManualTelegramInput)}
-                                className="underline hover:text-indigo-900 font-bold shrink-0"
-                            >
-                                {showManualTelegramInput ? 'ซ่อนช่องกรอกเอง' : 'ต้องการกรอก Chat ID เอง'}
-                            </button>
+                            )}
                         </div>
 
                         {!isLoadingConfig && !botUsername && (
