@@ -940,8 +940,8 @@ function setTelegramWebhook() {
 
     const downloadTemplate = () => {
         const templateData = [
-            { 'ชื่อ-นามสกุล': 'เด็กชายตัวอย่าง ดีมาก', 'ชั้น': 'ป.1/1' },
-            { 'ชื่อ-นามสกุล': 'เด็กหญิงใจดี เรียนเก่ง', 'ชั้น': 'ป.1/1' }
+            { 'เลขประจำตัวนักเรียน': '10001', 'เลขประจำตัวประชาชน': '1234567890123', 'ชื่อ-นามสกุล': 'เด็กชายตัวอย่าง ดีมาก', 'ชั้น': 'ป.1/1', 'เบอร์โทร': '0812345678' },
+            { 'เลขประจำตัวนักเรียน': '10002', 'เลขประจำตัวประชาชน': '1234567890124', 'ชื่อ-นามสกุล': 'เด็กหญิงใจดี เรียนเก่ง', 'ชั้น': 'ป.1/1', 'เบอร์โทร': '0898765432' }
         ];
         const ws = XLSX.utils.json_to_sheet(templateData);
         const wb = XLSX.utils.book_new();
@@ -1019,30 +1019,30 @@ function setTelegramWebhook() {
 
                 return {
                     school_id: currentSchool.id,
-                    student_id: studentId,
-                    national_id: nationalId,
-                    title: title,
-                    first_name: firstName,
-                    last_name: lastName,
-                    name: fullName,
-                    gender: gender,
-                    current_class: className,
+                    student_id: studentId ? String(studentId).trim() : null,
+                    national_id: nationalId ? String(nationalId).trim() : null,
+                    title: title || null,
+                    first_name: firstName || null,
+                    last_name: lastName || null,
+                    name: fullName ? String(fullName).trim() : '',
+                    gender: gender || null,
+                    current_class: className ? String(className).trim() : '',
                     academic_year: currentAcademicYear || (new Date().getFullYear() + 543).toString(),
                     is_active: true,
-                    birthday: row['วันเกิด'] || row.birthday,
+                    birthday: row['วันเกิด'] || row.birthday || null,
                     age: parseNum(row['อายุ'] || row.age),
                     weight: parseNum(row['น้ำหนัก'] || row.weight),
                     height: parseNum(row['ส่วนสูง'] || row.height),
-                    blood_type: row['หมู่เลือด'] || row.bloodType,
-                    religion: row['ศาสนา'] || row.religion,
-                    nationality: row['สัญชาติ'] || row.nationality,
-                    ethnicity: row['เชื้อชาติ'] || row.ethnicity,
-                    address: row['ที่อยู่'] || row.address,
-                    phone_number: row['เบอร์โทร'] || row['เบอร์โทรศัพท์'] || row.phoneNumber,
-                    father_name: row['ชื่อบิดา'] || row.fatherName,
-                    mother_name: row['ชื่อมารดา'] || row.motherName,
-                    guardian_name: row['ชื่อผู้ปกครอง'] || row.guardianName,
-                    medical_conditions: row['โรคประจำตัว'] || row['แพ้อาหาร'] || row.medicalConditions
+                    blood_type: row['หมู่เลือด'] || row.bloodType || null,
+                    religion: row['ศาสนา'] || row.religion || null,
+                    nationality: row['สัญชาติ'] || row.nationality || null,
+                    ethnicity: row['เชื้อชาติ'] || row.ethnicity || null,
+                    address: row['ที่อยู่'] || row.address || null,
+                    phone_number: row['เบอร์โทร'] || row['เบอร์โทรศัพท์'] || row.phoneNumber || null,
+                    father_name: row['ชื่อบิดา'] || row.fatherName || null,
+                    mother_name: row['ชื่อมารดา'] || row.motherName || null,
+                    guardian_name: row['ชื่อผู้ปกครอง'] || row.guardianName || null,
+                    medical_conditions: row['โรคประจำตัว'] || row['แพ้อาหาร'] || row.medicalConditions || null
                 };
             }).filter(s => s.name && s.current_class);
             
@@ -1065,16 +1065,49 @@ function setTelegramWebhook() {
         setImportTotal(importPreview.length);
         
         try {
+            // First, fetch existing students for this school to match existing records and avoid duplicate insertions
+            const { data: existingStudentsData } = await supabase
+                .from('students')
+                .select('id, student_id, national_id, name')
+                .eq('school_id', currentSchool.id);
+
+            const existingByStudentId = new Map<string, string>();
+            const existingByNationalId = new Map<string, string>();
+            const existingByName = new Map<string, string>();
+
+            if (existingStudentsData && Array.isArray(existingStudentsData)) {
+                existingStudentsData.forEach((s: any) => {
+                    if (s.student_id) existingByStudentId.set(String(s.student_id).trim(), s.id);
+                    if (s.national_id) existingByNationalId.set(String(s.national_id).trim(), s.id);
+                    if (s.name) existingByName.set(String(s.name).trim(), s.id);
+                });
+            }
+
+            // Map each row in importPreview to include existing 'id' if matched to ensure UPDATE rather than INSERT of duplicate row
+            const processedRows = importPreview.map(row => {
+                let existingId: string | undefined;
+
+                if (row.student_id && existingByStudentId.has(String(row.student_id).trim())) {
+                    existingId = existingByStudentId.get(String(row.student_id).trim());
+                } else if (row.national_id && existingByNationalId.has(String(row.national_id).trim())) {
+                    existingId = existingByNationalId.get(String(row.national_id).trim());
+                } else if (row.name && existingByName.has(String(row.name).trim())) {
+                    existingId = existingByName.get(String(row.name).trim());
+                }
+
+                return existingId ? { ...row, id: existingId } : { ...row };
+            });
+
             // Chunk the import to avoid payload size limits (e.g., Nginx 1MB limit)
             const chunkSize = 50;
             const chunks = [];
-            for (let i = 0; i < importPreview.length; i += chunkSize) {
-                chunks.push(importPreview.slice(i, i + chunkSize));
+            for (let i = 0; i < processedRows.length; i += chunkSize) {
+                chunks.push(processedRows.slice(i, i + chunkSize));
             }
 
             let successCount = 0;
             for (let i = 0; i < chunks.length; i++) {
-                const { error } = await supabase.from('students').insert(chunks[i]);
+                const { error } = await supabase.from('students').upsert(chunks[i], { onConflict: 'school_id,student_id' });
                 if (error) {
                     throw error;
                 }
@@ -1084,7 +1117,7 @@ function setTelegramWebhook() {
 
             fetchStudentData();
             setImportPreview(null);
-            alert(`นำเข้าข้อมูลสำเร็จ ${successCount} รายการ`);
+            alert(`นำเข้าข้อมูลสำเร็จ ${successCount} รายการ (อัปเดตข้อมูลเดิมและเพิ่มข้อมูลใหม่อัตโนมัติ ไม่ซ้ำซ้อน)`);
         } catch (err: any) {
             console.error('Import error:', err);
             alert('เกิดข้อผิดพลาดในการนำเข้า: ' + (err.message || err));
@@ -3967,6 +4000,7 @@ function setTelegramWebhook() {
                                 <thead className="sticky top-0 bg-slate-50 z-10">
                                     <tr>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">ลำดับ</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">รหัสนักเรียน</th>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">ชื่อ-นามสกุล</th>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">ชั้นเรียน</th>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">เบอร์โทร</th>
@@ -3976,6 +4010,7 @@ function setTelegramWebhook() {
                                     {importPreview.map((s, idx) => (
                                         <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                                             <td className="px-6 py-4 text-xs font-bold text-slate-400">{idx + 1}</td>
+                                            <td className="px-6 py-4 text-xs font-mono font-bold text-slate-600">{s.student_id || '-'}</td>
                                             <td className="px-6 py-4 text-sm font-bold text-slate-700">{s.name}</td>
                                             <td className="px-6 py-4">
                                                 <span className="px-2 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black border border-emerald-100">{s.current_class}</span>
