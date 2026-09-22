@@ -1777,7 +1777,8 @@ async function startServer() {
   });
 
   // --- LINE Webhook & 1-Click Auto Link Handler ---
-  app.all(['/api/line/webhook', '/api/line/webhook/:schoolId', '/api/line/webhook/:schoolId/*'], async (req, res) => {
+  // In Express 5 / path-to-regexp v6+, wildcards must be named (e.g. /:schoolId/.* or regular expressions)
+  app.all(['/api/line/webhook', '/api/line/webhook/:schoolId', '/api/line/webhook/:schoolId/*path'], async (req, res) => {
     // If health check / browser visit via GET
     if (req.method === 'GET') {
       return res.status(200).json({

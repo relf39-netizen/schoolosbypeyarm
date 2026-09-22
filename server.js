@@ -2139,7 +2139,7 @@ async function startServer() {
   });
 
   // --- LINE Webhook & 1-Click Auto Link Handler ---
-  app.all(['/api/line/webhook', '/api/line/webhook/:schoolId', '/api/line/webhook/:schoolId/{*all}'], async (req, res) => {
+  app.all(['/api/line/webhook', '/api/line/webhook/:schoolId', '/api/line/webhook/:schoolId/*path'], async (req, res) => {
     // If health check / browser visit via GET
     if (req.method === 'GET') {
       return res.status(200).json({
