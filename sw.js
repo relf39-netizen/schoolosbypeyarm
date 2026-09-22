@@ -9,11 +9,23 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Pass-through fetch handler (required by Chrome to enable PWA installability)
-  // Calls the network first to guarantee instant updates during development and production redeploys.
+  // Only handle http/https requests
+  if (!event.request.url.startsWith('http')) return;
+
+  // Let browser handle requests if network is down and nothing in cache
   event.respondWith(
-    fetch(event.request).catch(() => {
-      return caches.match(event.request);
-    })
+    fetch(event.request)
+      .catch(async () => {
+        const cachedResponse = await caches.match(event.request);
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+        // Return a fallback response instead of undefined to prevent 'Failed to convert value to Response'
+        return new Response('Network error or server unavailable', {
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: new Headers({ 'Content-Type': 'text/plain' })
+        });
+      })
   );
 });

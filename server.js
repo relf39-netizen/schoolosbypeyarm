@@ -3525,6 +3525,11 @@ async function startServer() {
     res.sendFile(path.join(process.cwd(), 'sw.js'));
   });
 
+  app.get('/favicon.ico', (req, res) => {
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.sendFile(path.join(process.cwd(), 'logo-192.jpg'));
+  });
+
   app.get('/logo-192.jpg', (req, res) => {
     res.setHeader('Content-Type', 'image/jpeg');
     res.sendFile(path.join(process.cwd(), 'logo-192.jpg'));

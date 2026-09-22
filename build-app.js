@@ -58,6 +58,19 @@ async function runBuild() {
       }
     })
     console.log('Build completed successfully!')
+    
+    // Copy public assets to dist directory
+    const fs = await import('fs');
+    const filesToCopy = ['sw.js', 'manifest.json', 'logo-192.jpg', 'logo-512.jpg', 'logo-192.png', 'logo-512.png'];
+    const distPath = path.resolve(__dirname, 'dist');
+    for (const f of filesToCopy) {
+      const src = path.resolve(__dirname, f);
+      const dest = path.resolve(distPath, f);
+      if (fs.existsSync(src)) {
+        fs.copyFileSync(src, dest);
+        console.log(`Copied ${f} to dist/`);
+      }
+    }
   } catch (error) {
     console.error('Build failed:', error)
     process.exit(1)
