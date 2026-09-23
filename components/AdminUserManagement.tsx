@@ -126,6 +126,16 @@ const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
     const [isDeletingBulk, setIsDeletingBulk] = useState(false);
 
+    // Duplicate Check State
+    const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+    const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false);
+    const [duplicateGroups, setDuplicateGroups] = useState<{
+        key: string;
+        matchType: 'รหัสนักเรียน' | 'เลขบัตรประชาชน' | 'ชื่อ-สกุล';
+        kept: Student;
+        duplicates: Student[];
+    }[]>([]);
+
     const sortThaiClasses = (items: any[]) => {
         return [...items].sort((a, b) => {
             const nameA = typeof a === 'string' ? a : (a.name || a.current_class || a.currentClass || '');
@@ -1190,6 +1200,138 @@ function setTelegramWebhook() {
         }
     };
 
+    // ตรวจสอบและค้นหาข้อมูลนักเรียนที่ซ้ำกัน
+    const handleCheckDuplicates = () => {
+        const studentList = students.filter(s => s.isActive);
+        const groups: {
+            key: string;
+            matchType: 'รหัสนักเรียน' | 'เลขบัตรประชาชน' | 'ชื่อ-สกุล';
+            kept: Student;
+            duplicates: Student[];
+        }[] = [];
+
+        const assignedIds = new Set<string>();
+
+        // 1. ตรวจสอบตามรหัสนักเรียน (student_id)
+        const byStudentId = new Map<string, Student[]>();
+        studentList.forEach(s => {
+            const sid = s.studentId ? String(s.studentId).trim() : '';
+            if (sid) {
+                if (!byStudentId.has(sid)) byStudentId.set(sid, []);
+                byStudentId.get(sid)!.push(s);
+            }
+        });
+
+        byStudentId.forEach((list, sid) => {
+            if (list.length > 1) {
+                // รายการแรกเก็บไว้ รายการที่เหลือถือเป็นข้อมูลซ้ำ
+                const kept = list[0];
+                const dups = list.slice(1);
+                list.forEach(item => assignedIds.add(item.id));
+                groups.push({
+                    key: sid,
+                    matchType: 'รหัสนักเรียน',
+                    kept,
+                    duplicates: dups
+                });
+            }
+        });
+
+        // 2. ตรวจสอบตามเลขประจำตัวประชาชน (national_id)
+        const byNationalId = new Map<string, Student[]>();
+        studentList.forEach(s => {
+            if (assignedIds.has(s.id)) return;
+            const nid = s.nationalId ? String(s.nationalId).trim() : '';
+            if (nid) {
+                if (!byNationalId.has(nid)) byNationalId.set(nid, []);
+                byNationalId.get(nid)!.push(s);
+            }
+        });
+
+        byNationalId.forEach((list, nid) => {
+            if (list.length > 1) {
+                const kept = list[0];
+                const dups = list.slice(1);
+                list.forEach(item => assignedIds.add(item.id));
+                groups.push({
+                    key: nid,
+                    matchType: 'เลขบัตรประชาชน',
+                    kept,
+                    duplicates: dups
+                });
+            }
+        });
+
+        // 3. ตรวจสอบตามชื่อ-นามสกุล และห้องเรียน
+        const byNameAndClass = new Map<string, Student[]>();
+        studentList.forEach(s => {
+            if (assignedIds.has(s.id)) return;
+            const cleanName = s.name ? s.name.replace(/\s+/g, ' ').trim() : '';
+            if (cleanName) {
+                const key = `${cleanName}_${s.currentClass || ''}`;
+                if (!byNameAndClass.has(key)) byNameAndClass.set(key, []);
+                byNameAndClass.get(key)!.push(s);
+            }
+        });
+
+        byNameAndClass.forEach((list, key) => {
+            if (list.length > 1) {
+                const kept = list[0];
+                const dups = list.slice(1);
+                list.forEach(item => assignedIds.add(item.id));
+                groups.push({
+                    key: list[0].name,
+                    matchType: 'ชื่อ-สกุล',
+                    kept,
+                    duplicates: dups
+                });
+            }
+        });
+
+        setDuplicateGroups(groups);
+        setIsDuplicateModalOpen(true);
+    };
+
+    // ล้างข้อมูลนักเรียนที่ซ้ำโดยอัตโนมัติ
+    const handleCleanDuplicates = async () => {
+        if (!supabase || duplicateGroups.length === 0) return;
+
+        const idsToDelete: string[] = [];
+        duplicateGroups.forEach(g => {
+            g.duplicates.forEach(d => idsToDelete.push(d.id));
+        });
+
+        if (idsToDelete.length === 0) {
+            alert('ไม่พบข้อมูลนักเรียนที่ซ้ำกัน');
+            return;
+        }
+
+        if (!confirm(`ยืนยันการล้างข้อมูลที่ซ้ำกันทั้งหมด ${idsToDelete.length} รายการ?\n(ระบบจะเก็บข้อมูลรายการหลัก 1 รายการ และลบเฉพาะข้อมูลที่ซ้ำออก)`)) {
+            return;
+        }
+
+        setIsCleaningDuplicates(true);
+        try {
+            // ลบทีละ Chunk เพื่อป้องกันปัญหา Payload เกินขนาด
+            const chunkSize = 50;
+            for (let i = 0; i < idsToDelete.length; i += chunkSize) {
+                const chunk = idsToDelete.slice(i, i + chunkSize);
+                const { error } = await supabase.from('students').delete().in('id', chunk);
+                if (error) throw error;
+            }
+
+            alert(`✅ ทำการล้างข้อมูลซ้ำเรียบร้อยแล้วทั้งหมด ${idsToDelete.length} รายการ!`);
+            setIsDuplicateModalOpen(false);
+            setDuplicateGroups([]);
+            fetchStudentData();
+        } catch (err: any) {
+            console.error('Error cleaning duplicates:', err);
+            alert('เกิดข้อผิดพลาดในการลบข้อมูลซ้ำ: ' + (err.message || err));
+        } finally {
+            setIsCleaningDuplicates(false);
+        }
+    };
+
     const filteredStudents = students.filter(s => 
         s.isActive &&
         (selectedClass === 'All' || s.currentClass === selectedClass) &&
@@ -2055,6 +2197,14 @@ function setTelegramWebhook() {
                                             >
                                                 <FileSpreadsheet size={18}/>
                                                 <span className="text-[10px] font-black uppercase hidden md:inline">นำเข้า Excel</span>
+                                            </button>
+                                            <button 
+                                                onClick={handleCheckDuplicates}
+                                                className="px-4 py-3 bg-amber-50 text-amber-700 rounded-xl hover:bg-amber-100 transition-all border border-amber-200 flex items-center gap-2" 
+                                                title="ตรวจสอบและล้างข้อมูลนักเรียนที่ซ้ำกัน"
+                                            >
+                                                <ShieldAlert size={18} className="text-amber-600"/>
+                                                <span className="text-[10px] font-black uppercase hidden md:inline">ตรวจข้อมูลซ้ำ</span>
                                             </button>
                                             <button onClick={() => setIsManageClassesOpen(true)} className="px-4 py-3 bg-slate-50 text-slate-500 rounded-xl hover:bg-slate-100 transition-all border border-slate-100 flex items-center gap-2" title="จัดการห้องเรียน">
                                                 <LayoutGrid size={18}/>
@@ -4037,6 +4187,149 @@ function setTelegramWebhook() {
                                 {isLoadingStudents ? <Loader className="animate-spin" size={24}/> : <CheckCircle2 size={24}/>}
                                 ยืนยันนำเข้า {importPreview.length} รายการ
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: ตรวจสอบและล้างข้อมูลนักเรียนที่ซ้ำกัน */}
+            {isDuplicateModalOpen && (
+                <div className="fixed inset-0 bg-slate-950/80 z-[80] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl p-8 max-h-[90vh] flex flex-col border border-slate-100">
+                        <div className="flex justify-between items-center pb-5 border-b border-slate-100">
+                            <div className="flex items-center gap-3">
+                                <div className="p-3 bg-amber-100 text-amber-600 rounded-2xl">
+                                    <ShieldAlert size={26}/>
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black text-slate-800">
+                                        ตรวจสอบและจัดการข้อมูลนักเรียนซ้ำ
+                                    </h3>
+                                    <p className="text-slate-400 text-xs font-bold mt-0.5">
+                                        {duplicateGroups.length > 0 ? (
+                                            <span className="text-amber-600 font-bold">
+                                                พบข้อมูลที่ซ้ำกัน {duplicateGroups.length} กลุ่ม (ข้อมูลส่วนเกินที่ซ้ำ {duplicateGroups.reduce((acc, g) => acc + g.duplicates.length, 0)} รายการ)
+                                            </span>
+                                        ) : (
+                                            <span className="text-emerald-600 font-bold">ยอดเยี่ยม! ไม่พบข้อมูลนักเรียนที่ซ้ำกันในระบบ</span>
+                                        )}
+                                    </p>
+                                </div>
+                            </div>
+                            <button 
+                                onClick={() => setIsDuplicateModalOpen(false)} 
+                                className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-all"
+                            >
+                                <X size={20}/>
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto py-4 space-y-4 custom-scrollbar">
+                            {duplicateGroups.length === 0 ? (
+                                <div className="py-16 text-center space-y-3">
+                                    <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                                        <CheckCircle2 size={36}/>
+                                    </div>
+                                    <h4 className="text-lg font-black text-slate-700">ฐานข้อมูลเรียบร้อยดี ไม่พบข้อมูลซ้ำ</h4>
+                                    <p className="text-sm text-slate-400 max-w-md mx-auto">
+                                        ระบบได้ตรวจสอบจากรหัสนักเรียน เลขประจำตัวประชาชน และชื่อ-สกุลแล้ว ไม่พบแถวข้อมูลที่ซ้ำซ้อนในโรงเรียนนี้
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-2xl flex items-start gap-3">
+                                        <Info size={18} className="text-amber-600 mt-0.5 shrink-0"/>
+                                        <div className="text-xs text-amber-900 leading-relaxed">
+                                            <p className="font-bold">เงื่อนไขการล้างข้อมูลซ้ำอัตโนมัติ:</p>
+                                            <p>ระบบจะ <span className="font-black text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">คงข้อมูลรายการแรกไว้ (แถวสีเขียว)</span> และจะ <span className="font-black text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded">ลบเฉพาะข้อมูลที่ซ้ำออก (แถวสีแดง)</span> เพื่อให้เหลือนักเรียนเพียง 1 ข้อมูลต่อคนโดยไม่สูญเสียข้อมูลหลัก</p>
+                                        </div>
+                                    </div>
+
+                                    {duplicateGroups.map((group, gIdx) => (
+                                        <div key={gIdx} className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                                            <div className="px-5 py-3 bg-slate-100/80 border-b border-slate-200 flex justify-between items-center text-xs">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-black text-slate-700">กลุ่มที่ {gIdx + 1}:</span>
+                                                    <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded font-bold text-[10px]">
+                                                        ซ้ำตาม{group.matchType}
+                                                    </span>
+                                                    <span className="font-bold text-slate-600">{group.key}</span>
+                                                </div>
+                                                <span className="text-[11px] font-bold text-rose-600">
+                                                    ซ้ำ {group.duplicates.length} รายการ
+                                                </span>
+                                            </div>
+                                            <div className="divide-y divide-slate-100">
+                                                {/* รายการที่เก็บไว้ */}
+                                                <div className="px-5 py-3.5 bg-emerald-50/40 flex items-center justify-between text-xs">
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="px-2 py-1 bg-emerald-600 text-white rounded-md text-[10px] font-black uppercase">
+                                                            ✓ เก็บไว้
+                                                        </span>
+                                                        <div>
+                                                            <p className="font-bold text-slate-800 text-sm">{group.kept.name}</p>
+                                                            <p className="text-[10px] text-slate-400 font-mono">
+                                                                ID: {group.kept.id} | ห้อง: {group.kept.currentClass || '-'} | รหัส: {group.kept.studentId || '-'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <span className="text-emerald-700 font-bold text-xs bg-emerald-100/60 px-2.5 py-1 rounded-lg">
+                                                        รายการหลัก
+                                                    </span>
+                                                </div>
+
+                                                {/* รายการที่จะถูกลบ */}
+                                                {group.duplicates.map((dup, dIdx) => (
+                                                    <div key={dIdx} className="px-5 py-3.5 bg-rose-50/30 flex items-center justify-between text-xs">
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="px-2 py-1 bg-rose-500 text-white rounded-md text-[10px] font-black uppercase">
+                                                                ✕ จะถูกลบ
+                                                            </span>
+                                                            <div>
+                                                                <p className="font-bold text-slate-700 text-sm line-through decoration-rose-400">{dup.name}</p>
+                                                                <p className="text-[10px] text-slate-400 font-mono">
+                                                                    ID: {dup.id} | ห้อง: {dup.currentClass || '-'} | รหัส: {dup.studentId || '-'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <span className="text-rose-600 font-bold text-xs bg-rose-100/60 px-2.5 py-1 rounded-lg">
+                                                            ข้อมูลซ้ำ
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="pt-4 border-t border-slate-100 flex gap-3">
+                            <button 
+                                onClick={() => setIsDuplicateModalOpen(false)} 
+                                className="flex-1 py-3.5 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs hover:bg-slate-200 transition-all uppercase"
+                            >
+                                ปิดหน้าต่าง
+                            </button>
+                            {duplicateGroups.length > 0 && (
+                                <button 
+                                    onClick={handleCleanDuplicates}
+                                    disabled={isCleaningDuplicates}
+                                    className="flex-[2] py-3.5 bg-rose-600 text-white rounded-2xl font-black text-sm shadow-xl hover:bg-rose-700 transition-all flex items-center justify-center gap-2 border-b-4 border-rose-900 active:scale-95 disabled:opacity-50"
+                                >
+                                    {isCleaningDuplicates ? (
+                                        <>
+                                            <Loader className="animate-spin" size={18}/>
+                                            กำลังล้างข้อมูลซ้ำ...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Trash2 size={18}/>
+                                            ลบข้อมูลซ้ำโดยอัตโนมัติ ({duplicateGroups.reduce((acc, g) => acc + g.duplicates.length, 0)} รายการ)
+                                        </>
+                                    )}
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
