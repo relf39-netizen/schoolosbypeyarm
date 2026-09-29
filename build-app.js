@@ -3,8 +3,6 @@ import { fileURLToPath } from 'url'
 
 // บังคับให้ Node.js, Vite, React และ esbuild รันในโหมด Production 100%
 process.env.NODE_ENV = 'production';
-process.env.GOMAXPROCS = '1';
-process.env.ESBUILD_WORKER_THREADS = '0';
 
 import { build } from 'vite'
 import react from '@vitejs/plugin-react'
