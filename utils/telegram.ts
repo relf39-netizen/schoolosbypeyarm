@@ -61,6 +61,50 @@ export const sendTelegramMessage = async (botToken: string, chatId: string, mess
 };
 
 /**
+ * Tests the Telegram Bot Token validity and returns bot info (via Telegram getMe API)
+ */
+export const testTelegramBotToken = async (botToken: string): Promise<{ success: boolean; message: string; botInfo?: any }> => {
+    if (!botToken || !botToken.trim()) {
+        return { success: false, message: "กรุณาระบุ Telegram Bot API Token ก่อนกดทดสอบ" };
+    }
+
+    const cleanToken = botToken.trim();
+    try {
+        const response = await fetch(`https://api.telegram.org/bot${cleanToken}/getMe`);
+        const data = await response.json();
+        if (data.ok && data.result) {
+            const b = data.result;
+            return {
+                success: true,
+                message: `เชื่อมต่อกับบอต Telegram สำเร็จแล้ว!\n\n🤖 ชื่อบอท: ${b.first_name || ''}\n👤 Username: @${b.username || ''}\n🆔 Bot ID: ${b.id}`,
+                botInfo: b
+            };
+        } else {
+            return {
+                success: false,
+                message: `เชื่อมต่อไม่สำเร็จ: ${data.description || 'Bot API Token ไม่ถูกต้อง'}`
+            };
+        }
+    } catch (error: any) {
+        // Fallback to server route if direct browser fetch is blocked by network policy
+        try {
+            const serverRes = await fetch(`/api/telegram/status?token=${encodeURIComponent(cleanToken)}`);
+            const serverData = await serverRes.json();
+            if (serverRes.ok && serverData.ok) {
+                return {
+                    success: true,
+                    message: `เชื่อมต่อกับบอต Telegram สำเร็จแล้ว! (@${serverData.username || ''})`
+                };
+            }
+        } catch (_) {}
+        return {
+            success: false,
+            message: `ไม่สามารถเชื่อมต่อกับ Telegram API ได้: ${error.message || 'โปรดตรวจสอบการเชื่อมต่ออินเทอร์เน็ต'}`
+        };
+    }
+};
+
+/**
  * Tests the Telegram connection by sending a test push message
  */
 export const testTelegramConnection = async (botToken: string, chatId: string): Promise<{ success: boolean; message: string }> => {

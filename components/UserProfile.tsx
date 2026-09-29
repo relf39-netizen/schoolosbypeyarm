@@ -22,21 +22,13 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
     const [showPassword, setShowPassword] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [botUsername, setBotUsername] = useState<string>('');
-    const [lineBotId, setLineBotId] = useState<string>('');
     const [isLoadingConfig, setIsLoadingConfig] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
-    const [isRefreshingLine, setIsRefreshingLine] = useState(false);
-    const [isSearchingRecentLine, setIsSearchingRecentLine] = useState(false);
     const [isSearchingRecentTelegram, setIsSearchingRecentTelegram] = useState(false);
     const [isConnectingTelegram, setIsConnectingTelegram] = useState(false);
-    const [isConnectingLine, setIsConnectingLine] = useState(false);
-    const [isCopiedLine, setIsCopiedLine] = useState(false);
-    const [showManualLineInput, setShowManualLineInput] = useState(false);
     const [showManualTelegramInput, setShowManualTelegramInput] = useState(false);
     const [isCopiedUserinfoBot, setIsCopiedUserinfoBot] = useState(false);
     const [isSavingTelegramId, setIsSavingTelegramId] = useState(false);
-    const [isSavingLineId, setIsSavingLineId] = useState(false);
-    const [isCopiedIdWord, setIsCopiedIdWord] = useState(false);
 
     // Sync formData when currentUser prop changes (e.g. from realtime update)
     useEffect(() => {
@@ -52,24 +44,19 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         }
     }, [currentUser]);
 
-    // Interval check for Telegram and LINE link
+    // Interval check for Telegram link
     useEffect(() => {
         let interval: any;
-        if ((!currentUser.telegramChatId && botUsername) || (!currentUser.lineUserId && lineBotId)) {
+        if (!currentUser.telegramChatId && botUsername) {
             interval = setInterval(async () => {
                 if (supabase) {
-                    const { data } = await supabase.from('profiles').select('telegram_chat_id, line_user_id').eq('id', currentUser.id).maybeSingle();
+                    const { data } = await supabase.from('profiles').select('telegram_chat_id').eq('id', currentUser.id).maybeSingle();
                     if (data) {
                         let shouldUpdate = false;
                         const updated = { ...currentUser };
                         if (data.telegram_chat_id && data.telegram_chat_id !== currentUser.telegramChatId) {
                             updated.telegramChatId = data.telegram_chat_id;
                             setFormData(prev => ({ ...prev, telegramChatId: data.telegram_chat_id }));
-                            shouldUpdate = true;
-                        }
-                        if (data.line_user_id && data.line_user_id !== currentUser.lineUserId) {
-                            updated.lineUserId = data.line_user_id;
-                            setFormData(prev => ({ ...prev, lineUserId: data.line_user_id }));
                             shouldUpdate = true;
                         }
                         if (shouldUpdate) {
@@ -82,7 +69,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         return () => {
             if (interval) clearInterval(interval);
         };
-    }, [currentUser.telegramChatId, currentUser.lineUserId, botUsername, lineBotId, currentUser.id]);
+    }, [currentUser.telegramChatId, botUsername, currentUser.id]);
 
     const handleRefreshTelegram = async () => {
         setIsRefreshing(true);
@@ -223,208 +210,18 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
         }
     };
 
-    const handleRefreshLine = async () => {
-        setIsRefreshingLine(true);
-        if (supabase) {
-            try {
-                const { data, error } = await supabase.from('profiles').select('line_user_id').eq('id', currentUser.id).maybeSingle();
-                if (error) throw error;
-                if (data) {
-                    onUpdateUser({ ...currentUser, lineUserId: data.line_user_id || '' });
-                    if (data.line_user_id) {
-                        alert("✅ ตรวจพบการเชื่อมต่อ LINE เรียบร้อยแล้วครับ!");
-                    } else {
-                        alert("ยังไม่พบการเชื่อมต่อ LINE กรุณากดปุ่ม 'กดเพื่อเชื่อมต่อ LINE ทันที' แล้วส่งข้อความใน LINE หรือใช้ปุ่ม 'ดึง LINE ID ล่าสุด' ครับ");
-                    }
-                }
-            } catch (err) {
-                console.error("Refresh line error:", err);
-                alert("ไม่สามารถตรวจสอบสถานะได้ในขณะนี้");
-            } finally {
-                setIsRefreshingLine(false);
-            }
-        } else {
-            setIsRefreshingLine(false);
-        }
-    };
-
-    const handleSaveLineUserId = async (idToSave?: string) => {
-        const val = (idToSave !== undefined ? idToSave : (formData.lineUserId || '')).trim();
-        setIsSavingLineId(true);
-        try {
-            if (supabase) {
-                const { error } = await supabase.from('profiles').update({
-                    line_user_id: val
-                }).eq('id', currentUser.id);
-                if (error) throw new Error(error.message);
-            }
-            // Notify backend API
-            fetch('/api/line/link-user', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ citizenId: currentUser.id, lineUserId: val })
-            }).catch(() => {});
-
-            const updated: Teacher = {
-                ...currentUser,
-                lineUserId: val
-            };
-            setFormData(prev => ({ ...prev, lineUserId: val }));
-            onUpdateUser(updated);
-            alert(val ? `✅ บันทึก LINE User ID: ${val} เรียบร้อยแล้วครับ!\n\nระบบจะส่งการแจ้งเตือนไปยัง LINE ของท่านทันที 🟢` : "ล้างข้อมูล LINE User ID เรียบร้อยแล้ว");
-        } catch (e: any) {
-            alert(`❌ บันทึกไม่สำเร็จ: ${e.message}`);
-        } finally {
-            setIsSavingLineId(false);
-        }
-    };
-
-    const handleCopyIdWord = () => {
-        navigator.clipboard.writeText('id').catch(() => {});
-        setIsCopiedIdWord(true);
-        setTimeout(() => setIsCopiedIdWord(false), 4000);
-    };
-
-    const handleFindRecentLineId = async () => {
-        setIsSearchingRecentLine(true);
-        try {
-            // 1. Check DB first (in case webhook or another process already updated it)
-            if (supabase) {
-                const { data } = await supabase.from('profiles').select('line_user_id').eq('id', currentUser.id).maybeSingle();
-                if (data && data.line_user_id) {
-                    setFormData(prev => ({ ...prev, lineUserId: data.line_user_id }));
-                    onUpdateUser({ ...currentUser, lineUserId: data.line_user_id });
-                    alert(`✅ ตรวจพบ LINE User ID ในฐานข้อมูลเรียบร้อยแล้ว!\n\nUser ID: ${data.line_user_id}`);
-                    return;
-                }
-            }
-
-            // 2. Safely check recent webhook events from backend
-            try {
-                const res = await fetch(`/api/line/recent-events?schoolId=${currentUser.schoolId || ''}`);
-                const contentType = res.headers.get('content-type') || '';
-                if (res.ok && contentType.includes('application/json')) {
-                    const events = await res.json();
-                    if (Array.isArray(events) && events.length > 0) {
-                        // Check if an event mentions user's 13-digit ID
-                        const match = events.find(e => e.text && e.text.includes(currentUser.id));
-                        if (match && match.lineUserId && match.lineUserId !== 'unknown') {
-                            await handleSaveLineUserId(match.lineUserId);
-                            return;
-                        }
-
-                        // Otherwise check latest event
-                        const latest = events[0];
-                        if (latest && latest.lineUserId && latest.lineUserId !== 'unknown') {
-                            const confirmUse = window.confirm(`พบข้อความล่าสุดจาก LINE:\n"${latest.text || latest.type}"\nรหัส LINE User ID: ${latest.lineUserId}\nเวลา: ${new Date(latest.timestamp).toLocaleTimeString('th-TH')}\n\nนี่คือบัญชี LINE ของท่านใช่หรือไม่?\n(กด ตกลง เพื่อบันทึกรหัสนี้เข้าระบบทันที)`);
-                            if (confirmUse) {
-                                await handleSaveLineUserId(latest.lineUserId);
-                                return;
-                            }
-                        }
-                    }
-                }
-            } catch (fetchErr) {
-                console.warn("LINE recent events fetch non-critical error:", fetchErr);
-            }
-
-            alert(`💡 วิธีรับ LINE User ID ของท่านที่ง่ายที่สุด:\n\n1. กดปุ่ม "เปิดแอป LINE" ด้านบน\n2. ส่งคำว่า "id" หรือพิมพ์ "#ผูกLINE ${currentUser.id}" เข้าไปในแชทบอท\n3. บอทจะตอบกลับรหัส U... ให้นำมาวางในช่อง "LINE User ID" แล้วกดปุ่ม "บันทึก LINE ID ทันที" ได้เลยครับ\n\n📌 หมายเหตุ: หากส่งข้อความแล้วบอทไม่ตอบ แสดงว่าแอดมินยังไม่ได้เปิดสวิตช์ "Use Webhook" ใน LINE Developers Console ครับ`);
-        } catch (e: any) {
-            console.error("Error finding recent LINE ID:", e);
-            alert("ไม่สามารถค้นหาข้อความได้ในขณะนี้: " + (e.message || ''));
-        } finally {
-            setIsSearchingRecentLine(false);
-        }
-    };
-
-    const handleConnectLine = () => {
-        const linkCommand = `#ผูกLINE ${currentUser.id}`;
-        navigator.clipboard.writeText(linkCommand).catch(() => {});
-        setIsCopiedLine(true);
-        setTimeout(() => setIsCopiedLine(false), 8000);
-
-        if (lineBotId) {
-            const cleanId = lineBotId.replace('@', '').trim();
-            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-            const lineUrl = `https://line.me/R/ti/p/@${cleanId}`;
-            
-            if (isMobile) {
-                window.location.href = lineUrl;
-            } else {
-                window.open(lineUrl, '_blank');
-            }
-        } else {
-            alert(`คัดลอกคำสั่ง: "${linkCommand}" เรียบร้อยแล้ว!\n\nกรุณาเปิด LINE Official Account ของโรงเรียน แล้วส่งข้อความนี้เพื่อเชื่อมต่อระบบครับ`);
-        }
-
-        // Start active detection polling for 60 seconds (every 2s) like Telegram
-        setIsConnectingLine(true);
-        let pollCount = 0;
-        const lineCheckInterval = setInterval(async () => {
-            pollCount++;
-            if (pollCount > 30) { // 30 * 2s = 60s
-                clearInterval(lineCheckInterval);
-                setIsConnectingLine(false);
-                return;
-            }
-
-            try {
-                // 1. Check profiles table in DB
-                if (supabase) {
-                    const { data } = await supabase.from('profiles').select('line_user_id').eq('id', currentUser.id).maybeSingle();
-                    if (data && data.line_user_id) {
-                        setFormData(prev => ({ ...prev, lineUserId: data.line_user_id }));
-                        onUpdateUser({ ...currentUser, lineUserId: data.line_user_id });
-                        clearInterval(lineCheckInterval);
-                        setIsConnectingLine(false);
-                        alert(`🎉 เชื่อมต่อ LINE สำเร็จเรียบร้อยแล้ว!\nLINE User ID: ${data.line_user_id}`);
-                        return;
-                    }
-                }
-
-                // 2. Check recent webhook events from server
-                const res = await fetch(`/api/line/recent-events?schoolId=${currentUser.schoolId || ''}`);
-                if (res.ok) {
-                    const events = await res.json();
-                    if (Array.isArray(events) && events.length > 0) {
-                        const match = events.find(e => 
-                            (e.text && e.text.includes(currentUser.id)) ||
-                            (e.linkedUserName && e.status === 'linked_successfully')
-                        );
-                        if (match && match.lineUserId && match.lineUserId !== 'unknown') {
-                            setFormData(prev => ({ ...prev, lineUserId: match.lineUserId }));
-                            onUpdateUser({ ...currentUser, lineUserId: match.lineUserId });
-                            fetch('/api/line/link-user', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ citizenId: currentUser.id, lineUserId: match.lineUserId })
-                            }).catch(() => {});
-                            clearInterval(lineCheckInterval);
-                            setIsConnectingLine(false);
-                            alert(`🎉 ตรวจพบข้อความและเชื่อมต่อ LINE สำเร็จเรียบร้อยแล้ว!\nLINE User ID: ${match.lineUserId}`);
-                            return;
-                        }
-                    }
-                }
-            } catch (err) {
-                // silent
-            }
-        }, 2000);
-    };
-
     useEffect(() => {
         const loadBotConfig = async () => {
             if (supabase) {
                 try {
                     const { data, error } = await supabase
                         .from('school_configs')
-                        .select('telegram_bot_username, line_bot_basic_id')
+                        .select('telegram_bot_username')
                         .eq('school_id', currentUser.schoolId)
                         .maybeSingle();
                     
                     if (data) {
                         if (data.telegram_bot_username) setBotUsername(data.telegram_bot_username);
-                        if (data.line_bot_basic_id) setLineBotId(data.line_bot_basic_id);
                     }
                 } catch (err) {
                     console.error("Error loading bot config:", err);
@@ -826,208 +623,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ currentUser, onUpdateUser }) 
                                 </div>
                             </div>
                         )}
-                    </div>
-
-                    {/* LINE Official Account Section */}
-                    <div className="md:col-span-2 bg-emerald-50/60 p-4 sm:p-5 rounded-2xl border border-emerald-200 space-y-4 relative overflow-hidden">
-                        <div className="flex justify-between items-start relative z-10">
-                            <div>
-                                <h4 className="font-bold text-emerald-950 flex items-center gap-2 mb-0.5 text-sm sm:text-base">
-                                    <MessageSquare size={18} className="text-emerald-600"/> ระบบแจ้งเตือน LINE Official Account
-                                </h4>
-                                <p className="text-xs text-emerald-700">รับการแจ้งเตือนหนังสือราชการและการลาส่วนบุคคลผ่าน LINE อัตโนมัติ</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                {currentUser.lineUserId ? (
-                                    <div className="bg-emerald-600 text-white px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-xs">
-                                        <CheckCircle size={12}/> เชื่อมต่อแล้ว
-                                    </div>
-                                ) : (
-                                    <div className="bg-slate-200 text-slate-600 px-2.5 py-1 rounded-full text-[10px] font-bold">ยังไม่ผูกบัญชี</div>
-                                )}
-                                <button 
-                                    type="button"
-                                    onClick={handleRefreshLine}
-                                    disabled={isRefreshingLine}
-                                    className="text-emerald-700 hover:text-emerald-900 flex items-center gap-1 text-[10px] font-bold bg-white px-2 py-1 rounded-lg border border-emerald-200 shadow-xs"
-                                >
-                                    <Zap size={11} className={isRefreshingLine ? 'animate-spin' : ''}/>
-                                    {isRefreshingLine ? 'กำลังตรวจ...' : 'รีเฟรช'}
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* PROMINENT & HARMONIZED LINE CONNECT CARD */}
-                        <div className="relative z-10 bg-gradient-to-br from-emerald-50/90 via-white to-teal-50/90 border border-emerald-200 rounded-xl p-3.5 sm:p-4 shadow-sm space-y-3">
-                            <div>
-                                <h5 className="text-sm sm:text-base font-bold text-emerald-950 flex items-center gap-1.5">
-                                    <Zap className="text-emerald-600 fill-emerald-600" size={16}/>
-                                    วิธีเชื่อมต่อและดึง LINE User ID (แนะนำ)
-                                </h5>
-                                <p className="text-xs text-slate-500 mt-0.5">
-                                    ส่งข้อความหรือคำสั่งไปยัง LINE บอทของโรงเรียนเพื่อรับรหัส <span className="font-mono font-bold text-emerald-700">U...</span> สำหรับเชื่อมต่อ
-                                </p>
-                            </div>
-
-                            {/* LINE ACTION BUTTONS BAR */}
-                            <div className="p-3 bg-white rounded-lg border border-emerald-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-2.5 text-center sm:text-left">
-                                <div className="flex items-center gap-2.5">
-                                    <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                                        <MessageSquare size={18}/>
-                                    </div>
-                                    <div>
-                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                            LINE บอทโรงเรียน
-                                        </div>
-                                        <div className="text-sm sm:text-base font-bold text-emerald-900 font-mono tracking-wide">
-                                            {lineBotId ? (lineBotId.startsWith('@') ? lineBotId : `@${lineBotId}`) : 'LINE Official Account'}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="flex flex-wrap sm:flex-nowrap gap-1.5 w-full sm:w-auto">
-                                    <button
-                                        type="button"
-                                        onClick={handleConnectLine}
-                                        disabled={isConnectingLine}
-                                        className="flex-1 sm:flex-none px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-xs"
-                                        title="เปิด LINE บอท และเริ่มตรวจจับบันทึก ID อัตโนมัติ"
-                                    >
-                                        {isConnectingLine ? <Loader className="animate-spin" size={13}/> : <Zap size={13}/>}
-                                        {isConnectingLine ? 'กำลังรอตรวจจับ LINE ID...' : 'เชื่อมต่อ LINE (เปิดแอปและผูกอัตโนมัติ)'}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleCopyIdWord}
-                                        className="px-2.5 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-50 active:scale-95 text-emerald-800 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1 shadow-xs"
-                                        title="คัดลอกคำว่า id เพื่อนำไปส่งในแชทบอท"
-                                    >
-                                        {isCopiedIdWord ? <Check size={13} className="text-emerald-600"/> : <Copy size={13}/>}
-                                        {isCopiedIdWord ? 'คัดลอกแล้ว' : 'คัดลอกคำว่า id'}
-                                    </button>
-                                    {lineBotId && (
-                                        <a
-                                            href={`https://line.me/R/ti/p/@${lineBotId.replace('@', '').trim()}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="px-3 py-1.5 bg-white border border-emerald-400 hover:bg-emerald-50 active:scale-95 text-emerald-700 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1 shadow-xs"
-                                        >
-                                            <ExternalLink size={13}/>
-                                            เปิด LINE
-                                        </a>
-                                    )}
-                                </div>
-                            </div>
-
-                            {isCopiedLine && (
-                                <div className="bg-emerald-100 text-emerald-900 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 border border-emerald-200">
-                                    <CheckCircle size={14} className="text-emerald-700 shrink-0"/>
-                                    <span>คัดลอกคำสั่ง <code className="bg-white/80 px-1 py-0.5 rounded font-mono">#ผูกLINE {currentUser.id}</code> เรียบร้อยแล้ว! โปรดวางและส่งในแชทบอท LINE ของโรงเรียน</span>
-                                </div>
-                            )}
-
-                            {/* STEP-BY-STEP INSTRUCTIONS */}
-                            <div className="bg-emerald-50/50 p-2.5 rounded-lg border border-emerald-100 space-y-1.5">
-                                <div className="text-[11px] font-bold text-emerald-950 uppercase tracking-wider">
-                                    📌 ขั้นตอนการเชื่อมต่อและดึง LINE ID อัตโนมัติ:
-                                </div>
-                                <ol className="text-xs text-slate-600 space-y-1 font-medium">
-                                    <li className="flex items-start gap-1.5">
-                                        <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
-                                        <span>กดปุ่ม <b>"เชื่อมต่อ LINE (เปิดแอปและผูกอัตโนมัติ)"</b> ระบบจะคัดลอกคำสั่งพร้อมเปิดหน้าแชทบอท LINE ทันที และเริ่มตรวจจับอัตโนมัติ</span>
-                                    </li>
-                                    <li className="flex items-start gap-1.5">
-                                        <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
-                                        <span>ในหน้าแชท LINE กด <b>"วาง" (Paste)</b> แล้วกดส่งข้อความ <code className="bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-emerald-800 font-bold font-mono">#ผูกLINE {currentUser.id}</code> (หรือส่งเลข 13 หลัก หรือพิมพ์คำว่า <code className="bg-white px-1 py-0.5 rounded border border-emerald-200 text-emerald-800 font-bold font-mono">id</code>)</span>
-                                    </li>
-                                    <li className="flex items-start gap-1.5">
-                                        <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
-                                        <span><b>เสร็จสิ้น!</b> เมื่อส่งแล้ว หน้าเว็บจะตรวจพบและบันทึก LINE User ID ลงฐานข้อมูลให้อัตโนมัติทันที โดยไม่ต้องคัดลอกรหัสกลับมาวางเอง</span>
-                                    </li>
-                                </ol>
-                            </div>
-
-                            {/* LINE USER ID INPUT & INSTANT ACTIONS */}
-                            <div className="bg-white p-3 rounded-lg border border-emerald-200 shadow-xs space-y-1.5">
-                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
-                                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                                        <span>LINE User ID ของท่าน (ขึ้นต้นด้วย U...):</span>
-                                    </label>
-                                    <span className="text-[11px] font-bold">
-                                        {formData.lineUserId ? (
-                                            <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                                🟢 บันทึกแล้ว: {formData.lineUserId}
-                                            </span>
-                                        ) : (
-                                            <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                                                ⚠️ ยังไม่ได้ระบุ LINE User ID
-                                            </span>
-                                        )}
-                                    </span>
-                                </div>
-                                <div className="flex flex-col sm:flex-row gap-2">
-                                    <div className="relative flex-1">
-                                        <input 
-                                            type="text"
-                                            placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (33 ตัวอักษร)"
-                                            value={formData.lineUserId || ''} 
-                                            onChange={e => setFormData({ ...formData, lineUserId: e.target.value.trim() })}
-                                            className="w-full px-3 py-1.5 border border-slate-200 focus:border-emerald-500 rounded-lg bg-slate-50 focus:bg-white font-mono text-sm font-bold text-emerald-800 outline-none transition-all"
-                                        />
-                                        {formData.lineUserId && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setFormData({ ...formData, lineUserId: '' })}
-                                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500 font-bold text-xs"
-                                                title="ล้างค่า"
-                                            >
-                                                ✕
-                                            </button>
-                                        )}
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleSaveLineUserId()}
-                                        disabled={isSavingLineId}
-                                        className="py-1.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs transition-all shadow-xs active:scale-95 flex items-center justify-center gap-1.5 shrink-0"
-                                    >
-                                        {isSavingLineId ? <Loader className="animate-spin" size={14}/> : <Save size={14}/>}
-                                        บันทึก LINE ID ทันที
-                                    </button>
-                                    <button 
-                                        type="button" 
-                                        onClick={handleFindRecentLineId}
-                                        disabled={isSearchingRecentLine}
-                                        className="py-1.5 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 rounded-lg font-bold text-xs transition-all active:scale-95 flex items-center justify-center gap-1 shrink-0"
-                                        title="หากส่งข้อความใน LINE แล้ว ให้กดปุ่มนี้เพื่อดึงรหัสมาใส่และบันทึกอัตโนมัติ"
-                                    >
-                                        {isSearchingRecentLine ? <Loader className="animate-spin" size={14}/> : <Search size={14}/>}
-                                        ตรวจหา LINE ID ล่าสุด
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* HELPFUL NOTE / TROUBLESHOOTING */}
-                            <div className="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-200/60 space-y-1">
-                                <div className="font-bold text-slate-700 flex items-center gap-1">
-                                    💡 ทำไม LINE User ID ถึงไม่ใช่ชื่อหรือเบอร์โทร?
-                                </div>
-                                <p>
-                                    ระบบแจ้งเตือนของ LINE Messaging API จะต้องใช้รหัสเทคนิคัล (ขึ้นต้นด้วยตัว <b>U</b> ตามด้วยตัวอักษรและตัวเลข 32 ตัว) ซึ่งไม่ใช่ชื่อไอดีที่ตั้งในโปรไฟล์ทั่วไป การส่งข้อความไปหาบอทของโรงเรียนคือวิธีที่สะดวกและถูกต้องที่สุดในการรับรหัสนี้ครับ
-                                </p>
-                                <div className="text-[10px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200 font-medium space-y-1">
-                                    <div className="font-bold text-amber-900 flex items-center gap-1">
-                                        ⚙️ กรณีส่งข้อความไปแล้วบอทไม่ตอบกลับ (ต้องตั้งค่าใน LINE 2 จุด):
-                                    </div>
-                                    <p>
-                                        <b>จุดที่ 1 (LINE Developers Console):</b> ตั้ง Webhook URL เป็น <code className="bg-white px-1 py-0.5 rounded font-mono text-emerald-800 font-bold">{typeof window !== 'undefined' ? `${window.location.origin}/api/line/webhook` : '/api/line/webhook'}</code> แล้วกด <b>Verify</b> และเปิดสวิตช์ <b>"Use Webhook"</b> ให้เป็นสีเขียว
-                                    </p>
-                                    <p>
-                                        <b>จุดที่ 2 (LINE Official Account Manager - manager.line.biz):</b> ไปที่ <i>ตั้งค่า</i> &gt; <i>การตั้งค่าตอบกลับ</i> &gt; ในส่วนการตั้งค่าโดยละเอียด ให้เปิด <b>"Webhook"</b> เป็น <b>"เปิด (ON)"</b> (หากปิดอยู่ LINE จะไม่ส่งข้อความเข้ามาที่บอท)
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
                     </div>
 
                     <div>
