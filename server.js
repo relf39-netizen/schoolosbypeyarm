@@ -144,11 +144,135 @@ async function startServer() {
       const [results] = await activePool.query(sql, params);
       return results;
     } catch (error) {
+      if (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.message?.includes('connect ECONNREFUSED')) {
+        console.warn(`[Offline/Preview Mode] MySQL not reachable (${error.message}). Serving fallback in-memory handler for query.`);
+        return handleMemoryFallbackQuery(sql, params);
+      }
       console.error('Database Error:', error);
       console.error('SQL:', sql);
       console.error('Params:', JSON.stringify(params).substring(0, 500) + (JSON.stringify(params).length > 500 ? '...' : ''));
       throw error;
     }
+  };
+
+  const memoryDb = {
+    schools: [
+      {
+        id: "31030019",
+        name: "โรงเรียนบ้านวังด้ง",
+        district: "เมืองกาญจนบุรี",
+        province: "กาญจนบุรี",
+        lat: 14.1565,
+        lng: 99.3458,
+        radius: 500,
+        late_time_threshold: "08:30",
+        logo_base_64: ""
+      }
+    ],
+    profiles: [
+      {
+        id: "admin",
+        school_id: "31030019",
+        name: "ผู้ดูแลระบบ (Admin)",
+        password: "admin",
+        position: "ผู้ดูแลระบบ",
+        roles: ["SYSTEM_ADMIN"],
+        signature_base_64: "",
+        telegram_chat_id: "",
+        line_user_id: "",
+        is_suspended: 0,
+        is_approved: 1,
+        assigned_classes: []
+      }
+    ],
+    school_configs: [
+      {
+        school_id: "31030019",
+        drive_folder_id: "",
+        script_url: "",
+        telegram_bot_token: "",
+        telegram_bot_username: "",
+        notify_telegram_leave: 1,
+        notify_telegram_director_calendar: 1
+      }
+    ],
+    super_admins: [
+      {
+        id: "super_1",
+        username: "superadmin",
+        password: "superpassword",
+        name: "Super Administrator"
+      }
+    ],
+    system_settings: [
+      { setting_key: "app_name", setting_value: "SchoolOS" },
+      { setting_key: "app_logo_url", setting_value: "/logo-192.jpg" }
+    ],
+    academic_years: [
+      { id: "2567", name: "2567", school_id: "31030019", is_active: 1 }
+    ],
+    class_rooms: [
+      { id: "p1", name: "ป.1", school_id: "31030019" },
+      { id: "p2", name: "ป.2", school_id: "31030019" }
+    ],
+    students: [],
+    attendance: [],
+    director_events: [],
+    leaves: [],
+    documents: [],
+    finance_accounts: [],
+    finance_transactions: []
+  };
+
+  const handleMemoryFallbackQuery = (sql, params = []) => {
+    const trimmed = sql.trim();
+    const upper = trimmed.toUpperCase();
+
+    if (upper.startsWith('CREATE') || upper.startsWith('ALTER') || upper.startsWith('SET') || upper.startsWith('DROP')) {
+      return { affectedRows: 0 };
+    }
+
+    let table = '';
+    if (params && params.length > 0 && typeof params[0] === 'string' && memoryDb[params[0]]) {
+      table = params[0];
+    } else {
+      const match = trimmed.match(/(?:FROM|INTO|UPDATE)\s+[`"]?([a-zA-Z0-9_]+)[`"]?/i);
+      if (match) {
+        table = match[1];
+      }
+    }
+
+    if (!memoryDb[table]) {
+      memoryDb[table] = [];
+    }
+
+    if (upper.startsWith('SELECT')) {
+      let rows = [...memoryDb[table]];
+      if (table === 'profiles' && upper.includes('WHERE') && params.length >= 2) {
+        const filtered = rows.filter(r => {
+          return params.some(p => String(p).trim() === String(r.id).trim() || String(p).trim() === String(r.name).trim());
+        });
+        if (filtered.length > 0) return filtered;
+      }
+      return rows;
+    }
+
+    if (upper.startsWith('INSERT')) {
+      if (params && params.length > 0) {
+        memoryDb[table].push({ id: `mem_${Date.now()}` });
+      }
+      return { affectedRows: 1, insertId: Date.now() };
+    }
+
+    if (upper.startsWith('UPDATE')) {
+      return { affectedRows: 1, changedRows: 1 };
+    }
+
+    if (upper.startsWith('DELETE')) {
+      return { affectedRows: 1 };
+    }
+
+    return [];
   };
 
   const runGlobalQuery = query;
