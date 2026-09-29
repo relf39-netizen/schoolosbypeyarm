@@ -36,7 +36,9 @@ async function runBuild() {
       build: {
         outDir: 'dist',
         emptyOutDir: true,
-        chunkSizeWarningLimit: 1500,
+        chunkSizeWarningLimit: 2000,
+        sourcemap: false,
+        reportCompressedSize: false,
         commonjsOptions: {
           transformMixedEsModules: true
         },
