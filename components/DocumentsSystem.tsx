@@ -99,6 +99,14 @@ const getPreviewUrl = (url: string) => {
               .replace(/dl=1/gi, 'dl=0');
 };
 
+/** สร้าง URL สำหรับดาวน์โหลดไฟล์ต้นฉบับจาก Google Drive */
+const getDownloadUrl = (url: string) => {
+    if (!url) return '';
+    const id = getGoogleDriveId(url);
+    if (id) return `https://drive.google.com/uc?export=download&id=${id}`;
+    return url.replace(/export=view/gi, 'export=download').replace(/dl=0/gi, 'dl=1');
+};
+
 /**
  * DocumentsSystem: A comprehensive school document management system.
  * Handles incoming documents, hierarchical commands, and national/school orders.
@@ -476,22 +484,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
 
             let fileData = `data:${result.mimeType};base64,${result.fileData}`;
 
-            if (result.mimeType === 'application/pdf' && docCategory === 'INCOMING' && !isEditMode) {
-                updateTask(taskId, { message: 'กำลังประทับตราเลขรับอัตโนมัติ...' });
-                try {
-                    fileData = await stampReceiveNumber({
-                        fileBase64: fileData,
-                        bookNumber: newDoc.bookNumber || "XXX/XXXX",
-                        date: new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' }),
-                        time: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.',
-                        schoolName: currentSchool.name,
-                        schoolLogoBase64: sysConfig.officialGarudaBase64,
-                        proxyUrl: sysConfig.scriptUrl 
-                    });
-                } catch (e) {
-                    console.warn("Stamping link file failed", e);
-                }
-            }
+            // ไฟล์จากลิงก์ถือเป็นเอกสารประกอบ: เก็บต้นฉบับ ไม่ประทับตรา/ไม่แปลงไฟล์
 
             updateTask(taskId, { message: 'กำลังบันทึกเข้า Google Drive โรงเรียน...' });
             const safeBookNumber = (newDoc.bookNumber || 'unknown').replace(/[\\\/ :*?"<>|]/g, '-');
@@ -501,7 +494,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                 folderId: sysConfig.driveFolderId.trim(),
                 fileName: uploadName,
                 mimeType: result.mimeType,
-                fileData: result.mimeType === 'application/pdf' && docCategory === 'INCOMING' ? getCleanBase64(fileData) : result.fileData
+                fileData: result.fileData
             };
 
             const uploadResp = await fetch(sysConfig.scriptUrl.trim(), {
@@ -527,7 +520,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                 throw new Error("เซิร์ฟเวอร์ตอบกลับด้วยรูปแบบที่ไม่ถูกต้องระหว่างอัปโหลด: " + uploadResponseText.substring(0, 100));
             }
             if (upResult.status === 'success') {
-                setTempAttachments(prev => [...prev, { id: `att_${Date.now()}`, name: uploadName, type: 'LINK', url: upResult.viewUrl || upResult.url, fileType: result.mimeType }]);
+                setTempAttachments(prev => [...prev, { id: `att_${Date.now()}`, name: uploadName, originalName: finalName, type: 'LINK', url: upResult.viewUrl || upResult.url, fileType: result.mimeType, isPrimary: false, order: prev.length + 1 }]);
                 updateTask(taskId, { status: 'done', message: 'ดึงไฟล์+จัดเก็บ สำเร็จ' });
             } else throw new Error(upResult.message || "Failed to save to Drive");
 
@@ -536,7 +529,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
         }
     };
 
-    const handleFileUploadInBackground = async (file: File) => {
+    const handleFileUploadInBackground = async (file: File, isPrimary = false) => {
         const client = supabase;
         if (!sysConfig?.scriptUrl?.trim() || !sysConfig?.driveFolderId?.trim() || !client) {
             alert("ไม่พบการตั้งค่า Google Drive! กรุณาตรวจสอบการตั้งค่าในเมนูตั้งค่าระบบ");
@@ -560,7 +553,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
             const base64DataPromise = new Promise<string>((resolve) => {
                 reader.onload = async () => {
                     let data = reader.result as string;
-                    if (file.type === 'application/pdf' && docCategory === 'INCOMING' && !isEditMode) {
+                    if (isPrimary && file.type === 'application/pdf' && docCategory === 'INCOMING' && !isEditMode) {
                         updateTask(taskId, { message: 'กำลังประทับตราเลขรับ...' });
                         try {
                             data = await stampReceiveNumber({
@@ -616,11 +609,32 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                 throw new Error("เซิร์ฟเวอร์ตอบกลับด้วยรูปแบบที่ไม่ถูกต้อง: " + responseText.substring(0, 100));
             }
             if (result.status === 'success') { 
-                setTempAttachments(prev => [...prev, { id: `att_${Date.now()}`, name: finalFileName, type: 'LINK', url: result.viewUrl || result.url, fileType: file.type }]); 
+                setTempAttachments(prev => [...prev, { id: `att_${Date.now()}`, name: finalFileName, originalName: file.name, type: 'LINK', url: result.viewUrl || result.url, fileType: file.type, isPrimary, order: prev.length + 1 }]); 
                 updateTask(taskId, { status: 'done', message: 'อัปโหลดสำเร็จ' });
             } else throw new Error(result.message); 
         } catch (err: any) {
             updateTask(taskId, { status: 'error', message: `อัปโหลดล้มเหลว: ${err.message}` });
+        }
+    };
+
+    const handlePrimaryPdfSelected = async (file?: File) => {
+        if (!file) return;
+        if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+            alert('หนังสือต้นเรื่องต้องเป็นไฟล์ PDF เท่านั้น');
+            return;
+        }
+        // เอกสารใหม่อนุญาต Primary เพียงไฟล์เดียว ป้องกันการปั๊มเลขซ้ำหลายไฟล์
+        if (tempAttachments.some(a => a.isPrimary)) {
+            alert('มีหนังสือต้นเรื่องแล้ว กรุณาลบไฟล์เดิมก่อนเลือกไฟล์ใหม่');
+            return;
+        }
+        await handleFileUploadInBackground(file, true);
+    };
+
+    const handleSupportingFilesSelected = async (files: File[]) => {
+        // ทำทีละไฟล์เพื่อรักษาลำดับ และไฟล์ประกอบจะไม่ผ่าน PDF stamper
+        for (const file of files) {
+            await handleFileUploadInBackground(file, false);
         }
     };
 
@@ -1529,11 +1543,17 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                             </div>
                             <div className="space-y-6 md:space-y-8">
                                 <div className="p-4 md:p-8 bg-slate-50 rounded-2xl md:rounded-3xl border-2 border-slate-200 border-dashed relative">
-                                    <h4 className="text-xs md:text-sm font-bold text-slate-700 mb-4 md:mb-6 flex items-center gap-3"><UploadCloud size={18} className="text-blue-600"/> จัดการไฟล์แนบ (PDF)</h4>
+                                    <h4 className="text-xs md:text-sm font-bold text-slate-700 mb-4 md:mb-6 flex items-center gap-3"><UploadCloud size={18} className="text-blue-600"/> จัดการหนังสือต้นเรื่องและไฟล์แนบ</h4>
                                     <div className="flex flex-col gap-4">
-                                        <label className="block w-full text-center py-4 md:py-6 bg-white border-2 border-blue-200 rounded-xl md:rounded-2xl border-dashed cursor-pointer hover:bg-blue-50 transition-all font-black text-blue-700 text-[10px] md:text-xs shadow-sm">
-                                            <input type="file" multiple className="hidden" onChange={(e) => { if (e.target.files) Array.from(e.target.files).forEach(f => handleFileUploadInBackground(f)); e.target.value = ''; }} />
-                                            <Plus size={14} className="inline mr-2"/> เลือกไฟล์ PDF จากเครื่อง
+                                        {docCategory === 'INCOMING' && !isEditMode && (
+                                            <label className="block w-full text-center py-4 md:py-6 bg-white border-2 border-blue-400 rounded-xl md:rounded-2xl border-dashed cursor-pointer hover:bg-blue-50 transition-all font-black text-blue-700 text-[10px] md:text-xs shadow-sm">
+                                                <input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePrimaryPdfSelected(f); e.target.value = ''; }} />
+                                                <FileCheck size={14} className="inline mr-2"/> หนังสือต้นเรื่อง (PDF) — ปั๊มเลขรับเฉพาะหน้าแรก
+                                            </label>
+                                        )}
+                                        <label className="block w-full text-center py-4 md:py-6 bg-white border-2 border-slate-300 rounded-xl md:rounded-2xl border-dashed cursor-pointer hover:bg-slate-50 transition-all font-black text-slate-700 text-[10px] md:text-xs shadow-sm">
+                                            <input type="file" multiple className="hidden" onChange={(e) => { if (e.target.files) handleSupportingFilesSelected(Array.from(e.target.files)); e.target.value = ''; }} />
+                                            <Plus size={14} className="inline mr-2"/> เอกสารประกอบ (PDF / Word / Excel / ZIP / ไฟล์อื่น) — เก็บไฟล์ต้นฉบับ
                                         </label>
                                         <div className="flex items-center gap-3 bg-white p-2 rounded-xl border shadow-inner">
                                             <input type="text" placeholder="ระบุลิงก์คลาวด์..." value={linkInput} onChange={e => setLinkInput(e.target.value)} className="flex-1 px-3 py-1 text-[10px] md:text-xs font-mono border-none outline-none"/><button type="button" onClick={() => { if (linkInput) { handleFetchAndUploadFromUrl(linkInput); setLinkInput(''); } }} className="bg-orange-600 text-white p-2 rounded-lg hover:bg-orange-700 shadow active:scale-95 transition-all"><DownloadCloud size={16} /></button>
@@ -1543,7 +1563,7 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                                         {tempAttachments.map(att => (
                                             <div key={att.id} className="flex justify-between items-center p-2 md:p-3 bg-white border rounded-lg md:rounded-xl shadow-sm">
                                                 <div className="flex items-center gap-2 truncate text-[10px] md:text-xs font-bold text-slate-600">
-                                                    <FileCheck size={12} className="text-green-500"/><span className="truncate max-w-[150px] md:max-w-[200px]">{att.name}</span>
+                                                    <FileCheck size={12} className={att.isPrimary ? "text-blue-600" : "text-green-500"}/><span className="truncate max-w-[150px] md:max-w-[200px]">{att.originalName || att.name}</span>{att.isPrimary && <span className="text-[8px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">ต้นเรื่อง</span>}
                                                 </div>
                                                 <button type="button" onClick={() => setTempAttachments(prev => prev.filter(a => a.id !== att.id))} className="text-red-400 hover:text-red-600 transition-colors"><Trash2 size={14}/></button>
                                             </div>
@@ -1652,10 +1672,13 @@ const DocumentsSystem: React.FC<DocumentsSystemProps> = ({
                                         </button>
                                     )}
                                     {selectedDoc.attachments.map((att, idx) => (
-                                        <button key={idx} onClick={() => handleOpenAndAck(selectedDoc, att.url)} className="p-3 md:p-4 bg-blue-600 text-white rounded-xl shadow-md flex items-center justify-between hover:bg-blue-700 transition-all border-2 border-blue-400 text-left">
-                                            <div className="flex items-center gap-3 md:gap-4"><FileIcon size={20}/><div><p className="font-black text-xs md:text-base truncate max-w-[200px] md:max-w-[400px]">{att.name}</p><p className="text-[8px] md:text-[10px] font-bold opacity-80 uppercase tracking-widest">เปิดอ่านไฟล์เอกสารต้นฉบับ</p></div></div>
-                                            <ExternalLink size={16}/>
-                                        </button>
+                                        <div key={att.id || idx} className="p-3 md:p-4 bg-blue-600 text-white rounded-xl shadow-md flex items-center justify-between gap-3 border-2 border-blue-400">
+                                            <button onClick={() => handleOpenAndAck(selectedDoc, att.url)} className="flex-1 flex items-center justify-between text-left min-w-0">
+                                                <div className="flex items-center gap-3 md:gap-4 min-w-0"><FileIcon size={20}/><div className="min-w-0"><p className="font-black text-xs md:text-base truncate max-w-[200px] md:max-w-[400px]">{att.originalName || att.name}</p><p className="text-[8px] md:text-[10px] font-bold opacity-80 uppercase tracking-widest">{att.isPrimary || (!selectedDoc.attachments.some(a => a.isPrimary) && idx === 0 && att.fileType === 'application/pdf') ? 'หนังสือต้นเรื่อง' : 'เอกสารประกอบต้นฉบับ'}</p></div></div>
+                                                <ExternalLink size={16} className="shrink-0"/>
+                                            </button>
+                                            <a href={getDownloadUrl(att.url)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="shrink-0 p-2.5 bg-white/15 hover:bg-white/25 rounded-lg" title="ดาวน์โหลดไฟล์ต้นฉบับ"><DownloadCloud size={17}/></a>
+                                        </div>
                                     ))}
                                 </div>
                             </div>

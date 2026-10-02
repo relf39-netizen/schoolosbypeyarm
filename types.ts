@@ -64,6 +64,9 @@ export interface Attachment {
   type: 'FILE' | 'LINK'; // FILE = Base64/Storage, LINK = External URL
   url: string; // This holds Base64 for FILE or URL for LINK
   fileType?: string; // MIME type e.g. 'image/png', 'application/pdf'
+  isPrimary?: boolean; // true = หนังสือต้นเรื่อง PDF ไฟล์แรก
+  order?: number; // ลำดับไฟล์แนบ (รองรับข้อมูลเก่าที่ไม่มี field นี้)
+  originalName?: string; // ชื่อไฟล์ต้นฉบับก่อนเติมเลขหนังสือ
 }
 
 export interface DocumentItem {

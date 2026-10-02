@@ -1,46 +1,63 @@
-
 import { initializeApp, getApps, getApp } from 'firebase/app';
-// Consolidated all Firestore named exports into a single import statement.
-// This resolves "no exported member" errors that can occur in certain TypeScript/Vite configurations 
-// when splitting value and type imports from the same Firebase module.
-import { 
-  getFirestore, 
-  collection, 
-  onSnapshot, 
-  query, 
-  orderBy, 
-  updateDoc, 
-  where, 
-  doc, 
-  getDoc, 
-  addDoc, 
-  deleteDoc, 
-  getDocs, 
+
+import {
+  getFirestore,
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  updateDoc,
+  where,
+  doc,
+  getDoc,
+  addDoc,
+  deleteDoc,
+  getDocs,
   setDoc,
   Timestamp,
   QuerySnapshot,
   DocumentData
 } from 'firebase/firestore';
+
 import { getAuth } from 'firebase/auth';
 
+/**
+ * Firebase Configuration
+ *
+ * หมายเหตุ:
+ * ระบบปัจจุบันไม่ได้ใช้งาน Firebase แล้ว
+ * แต่ยังคงไฟล์และ exports เดิมไว้ เพื่อไม่ให้กระทบ
+ * Component เก่าที่อาจยัง import จากไฟล์นี้
+ *
+ * จึงปิดการ initialize Firebase ไว้โดยตั้งค่าเป็นค่าว่าง
+ */
+
 const firebaseConfig = {
-    apiKey: process.env.FIREBASE_API_KEY || "วาง API Key ของคุณที่นี่",
-    authDomain: process.env.FIREBASE_AUTH_DOMAIN || "วาง Auth Domain ของคุณที่นี่",
-    projectId: process.env.FIREBASE_PROJECT_ID || "วาง Project ID ของคุณที่นี่",
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "วาง Storage Bucket ของคุณที่นี่",
-    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "วาง Messaging Sender ID ของคุณที่นี่",
-    appId: process.env.FIREBASE_APP_ID || "วาง App ID ของคุณที่นี่"
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
 };
 
-export const isConfigured = !!firebaseConfig.apiKey && 
-                            firebaseConfig.apiKey.length > 10 && 
-                            !firebaseConfig.apiKey.includes("วาง API Key") && 
-                            firebaseConfig.apiKey.startsWith("AIza");
+/**
+ * ปิดการใช้งาน Firebase
+ * ระบบปัจจุบันใช้ Server/API และ MySQL
+ */
+export const isConfigured = false;
 
 let app: any = null;
 let db: any = null;
 let auth: any = null;
 
+/**
+ * เก็บโครงสร้าง initialization เดิมไว้
+ * เผื่อจำเป็นต้องเปิด Firebase ในอนาคต
+ *
+ * ขณะนี้ isConfigured = false
+ * ดังนั้นส่วนนี้จะไม่ทำงาน
+ */
 if (isConfigured) {
   try {
     app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -51,25 +68,31 @@ if (isConfigured) {
   }
 }
 
-// Export modular functions and properties for use across components
-export { 
-  db, 
-  auth, 
-  collection, 
-  onSnapshot, 
-  query, 
-  orderBy, 
-  updateDoc, 
-  where, 
-  doc, 
-  getDoc, 
-  addDoc, 
-  deleteDoc, 
-  getDocs, 
+/**
+ * คง exports เดิมทั้งหมดไว้
+ * เพื่อไม่ให้ Component อื่นที่ยัง import ฟังก์ชันเหล่านี้เสียหาย
+ */
+export {
+  db,
+  auth,
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  updateDoc,
+  where,
+  doc,
+  getDoc,
+  addDoc,
+  deleteDoc,
+  getDocs,
   setDoc,
   Timestamp
 };
 
-export type { QuerySnapshot, DocumentData };
+export type {
+  QuerySnapshot,
+  DocumentData
+};
 
 export default app;
